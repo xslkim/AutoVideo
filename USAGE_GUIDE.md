@@ -1,20 +1,18 @@
 # video-agent 使用指南
 
-> 全自动将口播稿 + 素材描述 + 代码仓库 → 成品视频（MP4）
+> 全自动将口播稿 + 代码仓库 → 成品视频（MP4）
 
 ---
 
 ## 快速开始
 
 ```bash
-# 1. 准备两个输入文件（格式见 INPUT_SPEC.md）
-#    - 口播稿：script.md
-#    - 素材指南：visual-guide.md
+# 1. 准备输入文件（格式见 INPUT_SPEC.md）
+#    口播稿中内嵌素材描述，一个文件搞定
 
 # 2. 一行命令，全自动出片
 ~/video-agent/run.sh \
   --script ./script.md \
-  --visual ./visual-guide.md \
   --repo /path/to/my-project
 
 # 3. 输出
@@ -72,8 +70,7 @@ claude
 
 | 参数 | 说明 |
 |------|------|
-| `--script FILE` | 口播稿 Markdown 文件 |
-| `--visual FILE` | 视觉素材指南 Markdown 文件 |
+| `--script FILE` | 口播稿 Markdown 文件（含内嵌素材描述，格式见 INPUT_SPEC.md） |
 | `--repo DIR` | 项目 Git 仓库路径 |
 
 ### 可选参数
@@ -124,7 +121,7 @@ run.sh
   ├── 4. 启动 Claude Agent
   │       │
   │       ├── Stage 0: 环境检测（跳过已安装的）
-  │       ├── Stage 1: 解析口播稿 → segments.json
+  │       ├── Stage 1: 解析口播稿 → blocks.json
   │       ├── Stage 2: TTS 语音合成（并行）  ─┐
   │       ├── Stage 3: 生成 React 组件（并行）─┤
   │       ├── Stage 4: Remotion 工程编排       ←┘
@@ -135,7 +132,7 @@ run.sh
         output/final_normalized.mp4
 ```
 
-**典型耗时**（8 段落、17 个素材、4 核 CPU）：
+**典型耗时**（17 个素材块、4 核 CPU）：
 
 | 阶段 | 耗时 | 说明 |
 |------|------|------|
@@ -154,53 +151,44 @@ run.sh
 
 **详细格式规范见 `INPUT_SPEC.md`，这里给出快速检查要点。**
 
-### 口播稿检查要点
-
 ```markdown
 # 标题必须在第一行        ← ✓ 有标题
 
----
+开场旁白（可选）           ← ✓ 第一个 >>> 前的文字，标题卡画面
 
-每行字幕不超过 20 个字。   ← ✓ 16:9 不超过 20 字
-九比十六不超过 14 个字。   ← ✓ 9:16 不超过 14 字
-
->>> 素材切换标记            ← ✓ 可选，控制何时切换画面
-
-这里是下一个素材的口播文字。
-
----                        ← ✓ 段落之间用 --- 分隔
-```
-
-### 素材指南检查要点
-
-```markdown
----
-
-## 第一段：段落标题        ← ✓ 与口播稿段落对应
-
-**[截图]** 素材标题         ← ✓ 类型标记 + 标题
+>>> 素材标题               ← ✓ 每个素材用 >>> 开头
+**[截图]**                 ← ✓ 紧跟类型标记
 具体描述画面内容...        ← ✓ 描述越具体越好
 要显示的数据/文案...       ← ✓ 写明具体数字和文字
 
-**[文字卡]** 金句
+每行字幕不超过 20 个字。   ← ✓ 16:9 不超过 20 字
+
+>>> 金句
+**[文字卡]**
 > 「精确文案用引号标出」    ← ✓ 文字卡必须标明精确文案
 
----
+旁白文字...
+
+（长停顿）                  ← ✓ 主题切换处加停顿
+
+>>> 下一个素材
+**[动画]**
+...
 ```
 
 ### 常见问题
 
-**Q: 不写 `>>>` 标记会怎样？**
-A: 段落内的素材按描述长度成比例分配时间。大多数情况够用。
-
-**Q: 每段口播文字应该多长？**
-A: 中文约 200 字/分钟。一段建议 100-400 字（30秒-2分钟）。
+**Q: 每块旁白文字应该多长？**
+A: 中文约 200 字/分钟。一块建议 50-200 字（15秒-1分钟）。
 
 **Q: 可以只有文字卡没有动画吗？**
 A: 可以。全部用文字卡是最简单的方案，但视觉效果一般。
 
 **Q: 代码展示必须来自 repo 吗？**
-A: 不必。素材指南里可以直接写代码块，Agent 会用那段代码。
+A: 不必。素材描述里可以直接写代码块，Agent 会用那段代码。
+
+**Q: 怎么做主题切换/场景过渡？**
+A: 在两个素材之间用 `（长停顿）` 标记，会插入 2 秒黑屏过渡。
 
 ---
 
@@ -247,7 +235,6 @@ bash ~/teaching-video-*/scripts/next-tasks.sh ~/teaching-video-*/pipeline-state.
   --resume \
   --out-dir ~/teaching-video-20260407-143000 \
   --script ./script.md \
-  --visual ./visual-guide.md \
   --repo /path/to/repo
 ```
 
@@ -267,7 +254,7 @@ cd ~/teaching-video-20260407-143000
 bash scripts/update-task.sh pipeline-state.json T31_TokenBucket completed "手动修复"
 
 # 然后续跑
-~/video-agent/run.sh --resume --out-dir . ...
+~/video-agent/run.sh --resume --out-dir . --script ./script.md --repo /path/to/repo
 ```
 
 ---
@@ -284,7 +271,7 @@ bash scripts/update-task.sh pipeline-state.json T31_TokenBucket completed "手�
   │   └── pipeline-report.txt     # 完成报告
   ├── pipeline-state.json         # 任务状态（可用于断点续跑）
   ├── logs/agent.log              # Agent 执行日志
-  ├── public/audio/S*.mp3         # 各段语音（可单独使用）
+  ├── public/audio/B*.mp3         # 各块语音（可单独使用）
   └── src/components/*.tsx        # 生成的 React 组件（可手动调整后重新渲染）
 ```
 
@@ -351,7 +338,6 @@ ffmpeg -i output/final.mp4 -af loudnorm=I=-16:TP=-1.5:LRA=11 -c:v copy output/fi
 ```bash
 ~/video-agent/run.sh \
   --script ./short-script.md \
-  --visual ./short-visual.md \
   --repo /path/to/repo \
   --aspect 9:16 \
   --voice zh-CN-XiaoyiNeural
@@ -363,31 +349,31 @@ ffmpeg -i output/final.mp4 -af loudnorm=I=-16:TP=-1.5:LRA=11 -c:v copy output/fi
 
 ```bash
 # 1. 先 dry-run 初始化
-~/video-agent/run.sh --dry-run --out-dir ~/my-video ...
+~/video-agent/run.sh --dry-run --out-dir ~/my-video --script ./script.md --repo /path/to/repo
 
 # 2. 手动标记不需要的阶段为 skipped
 cd ~/my-video
 bash scripts/update-task.sh pipeline-state.json T30_theme skipped "手动跳过"
 
 # 3. 然后 resume 跑剩余部分
-~/video-agent/run.sh --resume --out-dir ~/my-video ...
+~/video-agent/run.sh --resume --out-dir ~/my-video --script ./script.md --repo /path/to/repo
 ```
 
 ### 更换模型省钱
 
 ```bash
 # 第一遍用 sonnet 跑通流程，确认结构正确
-~/video-agent/run.sh --model sonnet --out-dir ~/my-video ...
+~/video-agent/run.sh --model sonnet --out-dir ~/my-video --script ./script.md --repo /path/to/repo
 
 # 如果某些组件质量不够，删除那个组件文件，用 opus 重新生成
 rm ~/my-video/src/components/Asset_7.tsx
 bash ~/my-video/scripts/update-task.sh ~/my-video/pipeline-state.json T31_Asset_7 pending "用opus重新生成"
-~/video-agent/run.sh --resume --model opus --out-dir ~/my-video ...
+~/video-agent/run.sh --resume --model opus --out-dir ~/my-video --script ./script.md --repo /path/to/repo
 ```
 
 ### 自定义 Claude CLI 路径
 
 ```bash
 export CLAUDE_BIN=/path/to/my/claude
-~/video-agent/run.sh ...
+~/video-agent/run.sh --script ./script.md --repo /path/to/repo
 ```
