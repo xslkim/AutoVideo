@@ -22,7 +22,6 @@ AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── 默认值 ──
 SCRIPT_FILE=""
-VISUAL_FILE=""
 REPO_DIR=""
 OUT_DIR=""
 MODEL="opus"
@@ -37,7 +36,7 @@ MAX_TURNS=200
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --script)       SCRIPT_FILE="$(realpath "$2")"; shift 2 ;;
-    --visual)       VISUAL_FILE="$(realpath "$2")"; shift 2 ;;
+    --visual)       echo "WARN: --visual 已废弃，素材描述现在内嵌在口播稿中（见 INPUT_SPEC.md）"; shift 2 ;;
     --repo)         REPO_DIR="$(realpath "$2")"; shift 2 ;;
     --out-dir)      OUT_DIR="$2"; shift 2 ;;
     --model)        MODEL="$2"; shift 2 ;;
@@ -52,8 +51,7 @@ while [[ $# -gt 0 ]]; do
 全自动视频制作工具
 
 必选参数:
-  --script FILE       口播稿 Markdown 文件（用 --- 分隔段落）
-  --visual FILE       视觉素材指南 Markdown 文件
+  --script FILE       口播稿 Markdown 文件（含内嵌素材描述，格式见 INPUT_SPEC.md）
   --repo   DIR        项目 Git 仓库路径（用于代码展示素材）
 
 可选参数:
@@ -76,10 +74,8 @@ done
 err() { echo "ERROR: $1" >&2; exit 1; }
 
 [[ -n "$SCRIPT_FILE" ]] || err "缺少 --script 参数"
-[[ -n "$VISUAL_FILE" ]] || err "缺少 --visual 参数"
 [[ -n "$REPO_DIR" ]]    || err "缺少 --repo 参数"
 [[ -f "$SCRIPT_FILE" ]] || err "口播稿文件不存在: $SCRIPT_FILE"
-[[ -f "$VISUAL_FILE" ]] || err "素材指南文件不存在: $VISUAL_FILE"
 [[ -d "$REPO_DIR" ]]    || err "仓库目录不存在: $REPO_DIR"
 
 # ── 查找 claude CLI（延迟到实际需要时才报错） ──
@@ -127,7 +123,6 @@ mkdir -p "$OUT_DIR"/{src/data/source-samples,public/audio,output,logs,scripts}
 
 # ── 复制输入文件 ──
 cp "$SCRIPT_FILE" "$OUT_DIR/src/data/script.md"
-cp "$VISUAL_FILE" "$OUT_DIR/src/data/visual-guide.md"
 
 # ── 自动检测或复制源码文件 ──
 if [[ -n "$SOURCE_FILES" ]]; then
@@ -183,7 +178,6 @@ jq -n \
   --arg projectDir "$OUT_DIR" \
   --arg agentDir "$AGENT_DIR" \
   --arg scriptFile "src/data/script.md" \
-  --arg visualGuideFile "src/data/visual-guide.md" \
   --arg sourceCodeSamples "src/data/source-samples/" \
   --arg sourceFileList "$SOURCE_SAMPLE_LIST" \
   --arg voice "$VOICE" \
@@ -193,7 +187,7 @@ jq -n \
   --argjson fps 30 \
   --arg aspect "$ASPECT" \
   '{title: $title, repoDir: $repoDir, projectDir: $projectDir, agentDir: $agentDir,
-    scriptFile: $scriptFile, visualGuideFile: $visualGuideFile,
+    scriptFile: $scriptFile,
     sourceCodeSamples: $sourceCodeSamples, sourceFileList: $sourceFileList,
     voice: $voice, model: $model, width: $width, height: $height, fps: $fps, aspect: $aspect}' \
   > "$OUT_DIR/video-agent-config.json"
@@ -231,7 +225,6 @@ cat << SUMMARY
   标题:     $VIDEO_TITLE
   项目目录: $OUT_DIR
   口播稿:   $SCRIPT_FILE
-  素材指南: $VISUAL_FILE
   源码仓库: $REPO_DIR
   代码样本: ${SOURCE_SAMPLE_LIST:-（无）}
   TTS 声音: $VOICE
@@ -249,7 +242,7 @@ if [[ "$DRY_RUN" == true ]]; then
   echo "    cd $OUT_DIR && claude -p --model $MODEL --dangerously-skip-permissions --max-turns $MAX_TURNS \"读取 CLAUDE.md 和 video-agent-config.json，执行全流程\""
   echo ""
   echo "  断点续跑:"
-  echo "    $0 --resume --out-dir $OUT_DIR --script $SCRIPT_FILE --visual $VISUAL_FILE --repo $REPO_DIR"
+  echo "    $0 --resume --out-dir $OUT_DIR --script $SCRIPT_FILE --repo $REPO_DIR"
   exit 0
 fi
 
@@ -305,7 +298,7 @@ if [[ $EXIT_CODE -eq 0 ]]; then
 else
   echo "Agent 异常退出 (code=$EXIT_CODE)。"
   echo "检查日志: $OUT_DIR/logs/agent.log"
-  echo "断点续跑: $0 --resume --out-dir $OUT_DIR --script $SCRIPT_FILE --visual $VISUAL_FILE --repo $REPO_DIR"
+  echo "断点续跑: $0 --resume --out-dir $OUT_DIR --script $SCRIPT_FILE --repo $REPO_DIR"
 fi
 
 # 打印进度

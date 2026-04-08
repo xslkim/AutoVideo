@@ -1,3 +1,92 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Repository Overview
+
+This is the **AutoVideo** base framework — a shell + Node.js + Remotion system that uses Claude as an AI agent to transform a narration script and a visual guide into a finished MP4 video via a 6-stage pipeline.
+
+## Running the System
+
+```bash
+bash run.sh \
+  --script   ./narration.md \       # required: narration script (Markdown, --- separated segments)
+  --visual   ./visual-guide.md \    # required: visual asset descriptions
+  --repo     /path/to/source-repo \ # required: codebase to draw code samples from
+  [--out-dir ~/my-video]            # default: ~/teaching-video-YYYYMMDD-HHMMSS
+  [--model   opus|sonnet]           # default: opus
+  [--voice   zh-CN-YunxiNeural]     # edge-tts voice
+  [--aspect  16:9|9:16|1:1]         # resolution: 1920×1080 / 1080×1920 / 1080×1080
+  [--source-files "src/foo.cpp,..."] # comma-separated repo-relative paths; auto-detected if omitted
+  [--max-turns 200]
+  [--resume]                        # continue from existing pipeline-state.json
+  [--dry-run]                       # initialize project dir without launching Claude
+```
+
+`run.sh` creates the project directory, writes `video-agent-config.json`, copies inputs, and launches `claude -p --dangerously-skip-permissions`.
+
+To resume a failed run:
+```bash
+bash run.sh --resume --out-dir ~/my-video --script ./narration.md --visual ./visual-guide.md --repo /path/to/repo
+```
+
+## Architecture: Base Repo vs. Project Directory
+
+The base repo contains only the **framework**. Each invocation of `run.sh` creates a new self-contained project directory:
+
+```
+AutoVideo/                    ← this repo (framework only)
+├── run.sh                    ← entry point
+├── CLAUDE.md                 ← this file; ALSO a template copied into project dirs
+│                               (run.sh fills {{PLACEHOLDER}} vars with sed)
+├── VIDEO_WORKFLOW.md         ← full 6-stage implementation spec (copied to project)
+├── INPUT_SPEC.md             ← input format rules for script.md / visual-guide.md
+├── USAGE_GUIDE.md            ← user-facing guide
+└── scripts/                  ← state management scripts (copied to project)
+    ├── update-task.sh        ← thread-safe task status update (uses flock)
+    ├── next-tasks.sh         ← dependency-aware task scheduler
+    └── progress.sh           ← renders █░ progress bar from pipeline-state.json
+
+~/teaching-video-*/           ← generated project dir (one per run)
+├── video-agent-config.json   ← title, voice, resolution, paths, model
+├── pipeline-state.json       ← task graph with statuses for resume support
+├── CLAUDE.md                 ← filled-in copy of this template
+├── VIDEO_WORKFLOW.md         ← copy of workflow spec
+├── scripts/                  ← copies of state management scripts
+├── src/data/
+│   ├── script.md             ← narration input
+│   ├── visual-guide.md       ← visual input
+│   └── source-samples/       ← code files copied from --repo
+├── public/audio/             ← TTS output: S{xx}.mp3 + S{xx}.vtt
+├── output/                   ← final_normalized.mp4
+└── logs/agent.log            ← Claude agent execution log
+```
+
+The Remotion TypeScript project (`src/`, `package.json`, `remotion.config.ts`) is created dynamically during Stage 0 of the pipeline inside the project directory.
+
+## State Management Scripts
+
+All three scripts operate on `pipeline-state.json`:
+
+```bash
+bash scripts/update-task.sh  <state-file> <task-id> <status> [note]
+# statuses: pending | running | completed | error | skipped
+
+bash scripts/next-tasks.sh   <state-file>
+# returns: READY:t1,t2 | WAITING | BLOCKED:reason | ALL_DONE
+
+bash scripts/progress.sh     <state-file>
+# prints visual progress bar
+```
+
+Task IDs follow `T{stage}{seq}_{name}` (e.g. `T20_tts_S01` = Stage 2, TTS for segment 1).
+
+---
+
+> Below this line is the **project-specific agent template**. `run.sh` copies this file into each generated project directory and replaces the `{{PLACEHOLDER}}` variables. When working in the base repo, the sections above are the relevant guidance.
+
+---
+
 # 全自动视频制作 Agent 指令
 
 > 本文件由 run.sh 自动生成，包含项目专属配置。通用工作流详见 VIDEO_WORKFLOW.md。
