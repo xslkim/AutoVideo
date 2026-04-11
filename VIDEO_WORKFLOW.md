@@ -1,8 +1,8 @@
-# 通用视频制作 Agent 工作流
+# AutoVideo v2 工作流参考
 
-> **本文档是 Agent 的执行参考。配合项目目录下的 `CLAUDE.md` 和 `video-agent-config.json` 使用。**
->
-> **所有路径均相对于项目目录（`video-agent-config.json` 中的 `projectDir`）。**
+> **本文档是 Agent 的执行手册。配合项目目录下的 `CLAUDE.md` 和 `video-agent-config.json` 使用。**
+> **所有路径相对于项目目录（`projectDir`）。**
+> **版本：2.0（Block-based pipeline）**
 
 ---
 
@@ -10,758 +10,749 @@
 
 ```
 输入：
-  ├── src/data/script.md           （口播稿，含内嵌素材描述）
-  └── src/data/source-samples/     （代码样本文件，用于代码展示）
+  ├── src/data/script.md           （v2 格式口播稿，详见 INPUT_SPEC.md）
+  └── src/data/source-samples/     （代码样本）
+
+中间产物（关键）：
+  └── blocks.json                  （Stage 1 产出，所有后续 Stage 的唯一数据源）
 
 输出：
   └── output/final_normalized.mp4  （最终视频）
 
-运行环境：Ubuntu（需预装依赖或配置免密 sudo）
-视频框架：Remotion (React + TypeScript)
+渲染框架：Remotion (React + TypeScript)
 ```
 
-### 阶段依赖关系
+### Stage 依赖
 
 ```
-STAGE 0: 环境搭建
+Stage 0: 环境搭建
     │
-STAGE 1: 脚本解析 ──→ blocks.json + 动态任务清单
+Stage 1: 脚本编译 (script.md → blocks.json)
     │
-    ├──→ STAGE 2: 语音合成（可并行）──→ audio/*.mp3 + audio-manifest.json
+    ├──→ Stage 2: 音频合成 (TTS + VTT + 字幕切段)  ← 按 Block 并行
+    ├──→ Stage 3: 视觉资产 (组件生成 / 代码读取)    ← 按 Block 并行，与 Stage 2 同时
     │
-    ├──→ STAGE 3: 素材生成（可并行）──→ React 组件
+Stage 4: 时序装配 (计算帧/主音轨/Video.tsx)
     │
-    ▼
-STAGE 4: Remotion 工程编排
+Stage 5: Remotion 渲染 (→ MP4)
     │
-STAGE 5: 渲染输出
-    │
-STAGE 6: 后处理 + 校验
+Stage 6: 后处理 (音频标准化 + 质量校验)
 ```
 
 ---
 
 ## STAGE 0：环境搭建
 
-### 0.1 免密 sudo 检测
+### 0.1 系统依赖检测
 
 ```bash
-if ! sudo -n true 2>/dev/null; then
-  echo "WARN: 免密 sudo 不可用，跳过系统包安装（假设已预装）"
-  # 不阻塞，继续检测各工具是否可用
-fi
-```
-
-### 0.2 系统依赖检测与安装
-
-逐项检测，只安装缺失的：
-
-```bash
-MISSING_PKGS=()
-for cmd_pkg in "curl:curl" "git:git" "jq:jq" "ffmpeg:ffmpeg" "python3:python3" "pip3:python3-pip"; do
+for cmd_pkg in "curl:curl" "jq:jq" "ffmpeg:ffmpeg" "python3:python3" "pip3:python3-pip"; do
   CMD="${cmd_pkg%%:*}"; PKG="${cmd_pkg##*:}"
-  command -v "$CMD" &>/dev/null || MISSING_PKGS+=("$PKG")
+  command -v "$CMD" &>/dev/null || { sudo apt update && sudo apt install -y "$PKG"; }
 done
 
-# Chromium
-command -v chromium-browser &>/dev/null || command -v chromium &>/dev/null || command -v google-chrome &>/dev/null || MISSING_PKGS+=("chromium-browser")
+# Chromium（Remotion 渲染需要）
+command -v chromium-browser &>/dev/null || \
+  command -v chromium &>/dev/null || \
+  sudo apt install -y chromium-browser
 
 # 中文字体
-fc-list :lang=zh 2>/dev/null | grep -qi "noto\|wqy" || MISSING_PKGS+=("fonts-noto-cjk" "fonts-noto-cjk-extra")
-
-# python3-venv
-dpkg -s python3-venv &>/dev/null 2>&1 || MISSING_PKGS+=("python3-venv")
-
-if [ ${#MISSING_PKGS[@]} -gt 0 ] && sudo -n true 2>/dev/null; then
-  sudo apt update && sudo apt install -y "${MISSING_PKGS[@]}"
-  fc-cache -fv
-elif [ ${#MISSING_PKGS[@]} -gt 0 ]; then
-  echo "ERROR: 缺少系统包: ${MISSING_PKGS[*]}，但无 sudo 权限"
-  echo "请手动安装后重试"
-fi
+fc-list :lang=zh 2>/dev/null | grep -qi "noto\|wqy" || \
+  sudo apt install -y fonts-noto-cjk fonts-noto-cjk-extra && fc-cache -fv
 ```
 
-### 0.3 Node.js
+### 0.2 Node.js（v20+）
 
 ```bash
-if ! node -v 2>/dev/null | grep -q '^v2[0-9]\.'; then
+if ! node -v 2>/dev/null | grep -qE '^v(20|2[2-9]|[3-9][0-9])\.'; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
   sudo apt install -y nodejs
 fi
 ```
 
-### 0.4 Python + edge-tts
+### 0.3 Python + edge-tts（TTS 基础依赖）
 
 ```bash
 VENV_DIR=~/video-agent-venv
-if [ ! -f "$VENV_DIR/bin/activate" ]; then
-  python3 -m venv "$VENV_DIR"
-fi
+[ -f "$VENV_DIR/bin/activate" ] || python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
-command -v edge-tts &>/dev/null || pip install edge-tts
+pip install -q edge-tts
+
+# 可选：Azure TTS（如有 AZURE_SPEECH_KEY）
+[ -n "$AZURE_SPEECH_KEY" ] && pip install -q azure-cognitiveservices-speech
 ```
 
-### 0.5 初始化 Remotion 项目
+### 0.4 初始化 Remotion 项目
 
-**重要**：先读取 `video-agent-config.json` 获取 `projectDir`。Remotion 项目就在 projectDir 根目录。
+**先读取 `video-agent-config.json` 获取 `projectDir`。**
 
 ```bash
 cd "$PROJECT_DIR"
-
-if [ ! -f package.json ] || ! npx remotion --version &>/dev/null 2>&1; then
-  npx create-video@latest . --template blank-ts --no-git
+if [ ! -f package.json ]; then
+  npx create-video@latest . --template blank-ts --no-git 2>&1
 fi
 
-npm install shiki gray-matter 2>/dev/null || npm install gray-matter
-npm install -D @types/node ts-node typescript
+# 安装必要 npm 包
+npm install --save \
+  remotion @remotion/bundler @remotion/renderer \
+  lucide-react \
+  shiki
+
+npm install --save-dev \
+  @types/node typescript ts-node
 ```
 
-### 0.6 环境验证检查清单
+### 0.5 复制 Remotion 模板文件
 
-| 检查项 | 命令 | 预期 |
-|--------|------|------|
-| Node.js | `node -v` | v20.x+ |
-| ffmpeg | `ffmpeg -version` | 有输出 |
-| Chromium | `which chromium-browser \|\| which chromium \|\| which google-chrome` | 路径存在 |
-| 中文字体 | `fc-list :lang=zh \| head -3` | 至少一行 |
-| edge-tts | `source ~/video-agent-venv/bin/activate && edge-tts --version` | 有输出 |
-| Remotion | `npx remotion --version` | 有输出 |
+从 `agentDir/templates/` 复制引擎核心文件：
 
-全部通过后才进入 Stage 1。
+```bash
+AGENT_DIR=$(jq -r .agentDir video-agent-config.json)
 
----
+# 创建目录
+mkdir -p src/engine src/components/contents src/components/backgrounds
+mkdir -p types blocks public/audio output assets/images assets/lottie
 
-## STAGE 1：脚本解析
-
-> **输入格式详见 `INPUT_SPEC.md`。** 本节描述 Agent 的解析逻辑。
-
-### 1.1 目标
-
-将 `src/data/script.md` 解析为结构化 JSON，作为后续所有阶段的数据源。
-
-### 1.2 解析步骤
-
-创建 `src/parse-script.ts`（或直接用 Node.js 脚本），执行以下步骤：
-
-```
-1. 读取 script.md
-2. 提取标题：第一行 # 开头的文字
-3. 以 >>> 标记分割文件为块：
-   a. 第一个 >>> 之前的文字 → 开场块（asset = null，使用标题卡画面）
-   b. 每个 >>> 标记开始一个新块
-4. 对每个 >>> 块：
-   a. 提取素材标题（>>> 后的文字）
-   b. 提取素材类型（**[类型]** 行）
-   c. 提取素材描述（类型行之后到第一个空行之间的非空行）
-   d. 提取旁白文字（空行之后到下一个 >>> 或文件结束）
-5. 对每个块的旁白文字，解析以下标记：
-   a. （停顿）/（pause）→ 额外 1 秒静音标记
-   b. （长停顿）→ 额外 2 秒静音标记
-   c. **加粗** → 字幕高亮词
-   d. 空行 → 字幕块分割点
-   e. 其余行 → 口播纯文本（去 markdown 格式标记）
-6. 生成字幕块列表（subtitle blocks）：
-   - 每个空行分隔一个字幕块
-   - 块内硬换行保留为字幕内行分割
-   - 每行长度校验（从 config 的 aspect 读取上限）
-   - 每块最多 2 行，超过的自动拆分
-7. 跳过开场块中无旁白文字的情况（纯标题视频）
+# 复制模板（如果目标不存在才复制）
+cp -n "$AGENT_DIR/templates/src/engine/theme.ts"       src/engine/
+cp -n "$AGENT_DIR/templates/src/engine/rect.ts"        src/engine/
+cp -n "$AGENT_DIR/templates/src/engine/animations.ts"  src/engine/
+cp -n "$AGENT_DIR/templates/src/engine/block-frame.tsx" src/engine/
+cp -n "$AGENT_DIR/templates/src/components/SubtitleOverlay.tsx" src/components/
+cp -n "$AGENT_DIR/templates/src/components/ContentRouter.tsx"   src/components/
+cp -n "$AGENT_DIR/templates/src/components/contents/"*.tsx      src/components/contents/
+cp -n "$AGENT_DIR/templates/src/Video.tsx"             src/
+cp -n "$AGENT_DIR/templates/src/Root.tsx"              src/
+cp -n "$AGENT_DIR/templates/types/block.ts"            types/
 ```
 
-### 1.3 输出
-
-`src/data/blocks.json`：
+更新 `remotion.config.ts`：
 
 ```typescript
-interface SubtitleBlock {
-  text: string;         // 显示文字
-  lines: string[];      // 行分割后的数组
-  highlights: string[]; // 高亮词列表
-}
-
-interface AssetSpec {
-  id: number;          // 从 1 开始全局编号
-  type: 'screenshot' | 'animation' | 'recording' | 'textcard' | 'code';
-  title: string;       // 素材标题
-  description: string; // 素材描述（纯文本摘要）
-  rawMarkdown: string; // 原始 markdown（供组件生成参考）
-  codeFile?: string;   // 如有指定的代码文件名
-}
-
-interface Block {
-  id: string;                // "B00"（开场块）, "B01", "B02", ...
-  asset: AssetSpec | null;   // null 表示开场块，使用标题卡
-  narrationText: string;     // 完整口播纯文本（供 TTS）
-  charCount: number;         // 中文字符数
-  subtitleBlocks: SubtitleBlock[];
-  pauses: { afterBlock: number; durationSec: number }[]; // 停顿标记位置
-}
-
-interface ParsedScript {
-  title: string;
-  blocks: Block[];
-  totalChars: number;
-  totalAssets: number;
-  subtitleMaxCharsPerLine: number; // 从 config.aspect 派生
-}
+import { Config } from "@remotion/cli/config";
+Config.setEntryPoint("./src/Root.tsx");
+Config.setBrowserExecutable(
+  process.env.BROWSER_PATH ??
+  ("/usr/bin/chromium-browser" /* or chromium/google-chrome */)
+);
+Config.setConcurrency(2);
 ```
 
-额外输出：
-- `src/data/narration_B00.txt` ~ `src/data/narration_BNN.txt`（每块纯文本，供 TTS 读取。包含停顿标记处的额外空行让 TTS 自然停顿，但不包含 `>>>` 标记行和素材描述）
+### 0.6 初始化 pipeline-state.json
 
-### 1.4 字幕长度校验
+**在读取 script.md 之前，必须先创建 pipeline-state.json 的骨架，后续 Stage 1 会在解析完 blocks 后补全任务列表。**
 
-解析时自动校验每行字幕长度：
-
-```typescript
-const MAX_CHARS: Record<string, number> = {
-  '16:9': 20,
-  '9:16': 14,
-  '1:1': 16,
-};
-
-// 计算一行的等效中文字符数
-function countChars(line: string): number {
-  let count = 0;
-  for (const ch of line) {
-    // CJK 字符、全角标点算 1；ASCII 字母/数字算 0.5；其他算 1
-    if (/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch)) count += 1;
-    else if (/[a-zA-Z0-9 ]/.test(ch)) count += 0.5;
-    else count += 1;
+```bash
+cat > pipeline-state.json << 'EOF'
+{
+  "version": "2.0",
+  "blocks": {},
+  "global": {
+    "T00_sudo_check":   { "status": "completed" },
+    "T01_apt_install":  { "status": "completed" },
+    "T02_nodejs":       { "status": "completed" },
+    "T03_python":       { "status": "completed" },
+    "T04_remotion":     { "status": "completed" },
+    "T05_copy_sources": { "status": "completed" },
+    "T06_env_verify":   { "status": "pending" },
+    "T10_compile_script": { "status": "pending" },
+    "T40_timing":       { "status": "pending" },
+    "T41_compose_root": { "status": "pending" },
+    "T42_compile_check":{ "status": "pending" },
+    "T50_preview_frames":{ "status": "pending" },
+    "T51_full_render":  { "status": "pending" },
+    "T60_normalize":    { "status": "pending" },
+    "T61_quality_check":{ "status": "pending" }
   }
-  return Math.ceil(count);
 }
-
-// 超长行处理：在最近的标点处断行
-function wrapLine(line: string, maxChars: number): string[] { ... }
+EOF
 ```
 
-超长行：
-1. 先尝试在标点（，、。！？；：）处断行
-2. 标点处断不了则在 maxChars 位置强制断行
-3. 输出 WARNING 提示用户优化文案
-
-### 1.5 动态生成任务清单
-
-**关键步骤**：解析完成后，根据实际的块数和素材数，动态生成 `pipeline-state.json`。
-
-任务模板（N = 块数，M = 素材数）：
-
-```
-STAGE 0: T00_sudo_check, T01_apt_install, T02_nodejs, T03_python, T04_remotion, T05_copy_sources, T06_env_verify
-STAGE 1: T10_parse_script, T11_parse_verify
-STAGE 2: T20_tts_B00..B{NN}（每块一个）, T21_silence, T22_audio_manifest, T23_vtt_to_json
-STAGE 3: T30_theme, T30_code_highlight, T31_Asset_{1..M}（每个素材一个）, T31_SubtitleOverlay
-STAGE 4: T40_timing, T41_video_root, T42_compile_check
-STAGE 5: T50_preview_frames, T51_full_render
-STAGE 6: T60_normalize, T61_quality_check, T62_summary
-```
-
-使用 `scripts/update-task.sh` 写入状态。
-
-### 1.6 验证
-
-- blocks.json 中的块数 ≥ 2
-- 每个块的 narrationText 非空（开场块可以为空）
-- 每个非开场块都有 asset（type + description 非空）
-- 字幕超长行数量输出为 WARNING（不阻塞）
-- 总字符数 > 500
+更新方式仍然是 `bash scripts/update-task.sh pipeline-state.json <task-id> <status> [note]`。
 
 ---
 
-## STAGE 2：语音合成（TTS）
+## STAGE 1：脚本编译（script.md → blocks.json）
 
-### 2.1 工具
+**这是 v2 最重要的 Stage。** `blocks.json` 是后续一切的数据源。
 
-**主选：edge-tts**（免费，质量高）
-
-读取 `video-agent-config.json` 中的 `voice` 字段选择声音。
-
-### 2.2 执行
+### 1.1 运行编译器
 
 ```bash
 source ~/video-agent-venv/bin/activate
-mkdir -p public/audio
+ASPECT=$(jq -r .aspect video-agent-config.json)
 
-# 对每个块并行执行
-for block in $(jq -r '.blocks[].id' src/data/blocks.json); do
-  NARRATION="src/data/narration_${block}.txt"
-  # 跳过无旁白的块
-  [ -s "$NARRATION" ] || continue
-  edge-tts \
-    --voice "$VOICE" \
-    --rate "+0%" \
-    --text "$(cat "$NARRATION")" \
-    --write-media "public/audio/${block}.mp3" \
-    --write-subtitles "public/audio/${block}.vtt" &
-done
-wait
+node "$AGENT_DIR/scripts/compile-script.mjs" \
+  src/data/script.md \
+  blocks.json \
+  "$ASPECT"
 ```
 
-### 2.3 生成静音文件
+编译器输出示例：
+```
+[compile-script] OK: 13 blocks → blocks.json
+  Title: 200 行纯 Python 手撕 GPT
+  Blocks:
+    B00  🎙  [textcard]   标题卡
+    B01  🎙  [animation]  文件结构鸟瞰
+    B02  🎙  [code]       Value 类字段
+    ...
+    B12  🔇  [textcard]   片尾
+```
+
+🔇 表示无口播（`status.tts = 'skipped'`），该块需要 `@duration` 指定时长。
+
+### 1.2 校验 blocks.json
 
 ```bash
-# 用于（长停顿）标记处的 2 秒黑屏过渡
-ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 2.0 -q:a 9 -acodec libmp3lame public/audio/silence_long.mp3
-ffmpeg -f lavfi -i anullsrc=r=44100:cl=mono -t 1.0 -q:a 9 -acodec libmp3lame public/audio/silence_short.mp3
-```
-
-### 2.4 生成音频清单
-
-用 ffprobe 获取每块时长，写入 `src/data/audio-manifest.json`：
-
-```json
-{
-  "voice": "zh-CN-YunxiNeural",
-  "blocks": [
-    {"id": "B00", "audioFile": "audio/B00.mp3", "subtitleFile": "audio/B00.vtt", "durationSeconds": 5.2},
-    {"id": "B01", "audioFile": "audio/B01.mp3", "subtitleFile": "audio/B01.vtt", "durationSeconds": 28.5}
-  ],
-  "totalDurationSeconds": 620.0
-}
-```
-
-### 2.5 VTT → JSON 预解析
-
-Remotion 组件无法直接读取 VTT 文件，需预解析为 JSON：
-
-```javascript
-// 将每个 B{xx}.vtt 解析为 src/data/subtitles_B{xx}.json
-// 格式: [{start: 秒数, end: 秒数, text: "..."}]
-```
-
-### 2.6 错误处理
-
-| 错误 | 恢复策略 |
-|------|----------|
-| edge-tts 超时 | 重试 3 次，间隔 5 秒 |
-| 输出空文件 | 去掉特殊字符后重试 |
-| 单块 >90 秒 | 在句号处切分，分别生成后 ffmpeg 拼接 |
-| edge-tts 不可用 | 降级到 pyttsx3 |
-
----
-
-## STAGE 3：视觉素材生成
-
-### 3.0 核心原则
-
-**所有素材均为 Remotion React 组件，用代码绘制，不依赖外部图片。**
-
-Agent 根据 `blocks.json` 中每个 block 的 `asset.description` 和 `asset.rawMarkdown` 动态生成组件。
-
-### 3.1 目录结构
-
-```
-src/
-  ├── styles/theme.ts        # 全局视觉规范
-  └── components/
-      ├── TextCard.tsx        # 通用文字卡（可复用于多个素材）
-      ├── TitleCard.tsx       # 标题卡（开场块使用）
-      ├── SubtitleOverlay.tsx # 字幕覆盖层
-      └── Asset_{N}.tsx       # 每个素材一个组件（N = 素材编号）
-```
-
-### 3.2 全局视觉规范
-
-```typescript
-// src/styles/theme.ts
-// 读取 video-agent-config.json 中的 width/height/fps
-
-export const THEME = {
-  // 颜色
-  bgDark: '#0a0a0f',
-  bgCard: '#1a1a2e',
-  textPrimary: '#e0e0e0',
-  textAccent: '#4fc3f7',
-  textQuote: '#ffd54f',
-  success: '#66bb6a',
-  error: '#ef5350',
-  codeGreen: '#a5d6a7',
-  codeRed: '#ef9a9a',
-
-  // 字体
-  fontChinese: "'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif",
-  fontCode: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-
-  // 尺寸（从 config 读取）
-  width: 1920,   // 替换为实际值
-  height: 1080,  // 替换为实际值
-  fps: 30,
-};
-```
-
-### 3.3 组件生成策略
-
-根据素材 `type` 选择实现模式：
-
-#### textcard（文字卡）
-
-```tsx
-// 通用 TextCard 组件
-interface TextCardProps {
-  durationInFrames: number;
-  lines: string[];
-  variant: 'quote' | 'closing' | 'credits';
-}
-// 深色背景 + 居中文字 + 淡入淡出
-// 从 asset.description 中提取引号内的文字作为 lines
-```
-
-#### screenshot（截图模拟）
-
-```tsx
-// 用 React/CSS 模拟截图画面
-// 通常是：深色面板 + 表格/数据 + 高亮标注
-// 可选 Ken Burns 缓慢放大效果
-const scale = interpolate(frame, [0, durationInFrames], [1, 1.05], {extrapolateRight: 'clamp'});
-```
-
-#### animation（动画）
-
-```tsx
-// 最灵活的类型，根据描述实现
-// 常见模式：
-//   - 逐层/逐项出现（用 Sequence 或 interpolate 控制时序）
-//   - 数值变化动画（用 interpolate 或 spring）
-//   - 分屏对比（左右两列）
-//   - 时间线/进度条
-//   - 流程图/架构图
-// 全部用 CSS/SVG 绘制，不需要外部图片
-```
-
-#### recording（录屏模拟）
-
-```tsx
-// 用 React 组件模拟界面操作
-// 类似 animation，但模仿特定软件的 UI 风格
-// 如：终端、代码编辑器、对话界面、应用程序窗口
-```
-
-### 3.4 代码展示素材
-
-如果素材描述涉及代码展示，使用 `src/data/source-samples/` 中的代码文件：
-
-```bash
-# 预生成代码高亮（shiki 是异步的，不能在 Remotion 组件里直接用）
-npx ts-node -e "
-import { getHighlighter } from 'shiki';
-import * as fs from 'fs';
-(async () => {
-  const highlighter = await getHighlighter({ themes: ['dark-plus'], langs: ['cpp','python','typescript','javascript','go','rust','java'] });
-  const files = fs.readdirSync('src/data/source-samples/');
-  const result: Record<string, {html: string, lines: string[]}> = {};
-  for (const file of files) {
-    const code = fs.readFileSync('src/data/source-samples/' + file, 'utf-8');
-    const lang = file.split('.').pop() || 'text';
-    const langMap: Record<string,string> = {h:'cpp', hpp:'cpp', c:'cpp', py:'python', ts:'typescript', js:'javascript'};
-    const html = highlighter.codeToHtml(code, { lang: langMap[lang] || lang, theme: 'dark-plus' });
-    result[file] = { html, lines: code.split('\\n') };
+# 快速校验：每个 block 都有 id、title、visual.content.type
+node -e "
+  const b = JSON.parse(require('fs').readFileSync('blocks.json','utf-8'));
+  const errors = [];
+  for (const blk of b.blocks) {
+    if (!blk.id) errors.push('Missing id');
+    if (!blk.visual?.content?.type) errors.push(blk.id + ': Missing content type');
   }
-  fs.writeFileSync('src/data/highlighted-code.json', JSON.stringify(result, null, 2));
-  console.log('Highlighted', Object.keys(result).length, 'files');
-})();
+  if (errors.length) { console.error(errors); process.exit(1); }
+  console.log('blocks.json OK:', b.blocks.length, 'blocks');
 "
 ```
 
-**降级方案**：shiki 失败时，用正则手工着色（关键词蓝色、字符串橙色、注释灰色）。
+### 1.3 在 pipeline-state.json 中为每个 block 添加任务
 
-### 3.5 字幕覆盖层
-
-```tsx
-// src/components/SubtitleOverlay.tsx
-// 接收 cues: {start, end, text}[] + 当前帧
-// 根据时间显示对应字幕
-// 样式：底部居中，白色文字，黑色阴影
-```
-
-### 3.6 标题卡
-
-```tsx
-// src/components/TitleCard.tsx
-// 用于开场块（第一个 >>> 之前的旁白）
-// 显示视频标题，深色背景，居中，淡入效果
-// 从 blocks.json 的 title 字段读取
-```
-
-### 3.7 降级策略
-
-如果某个素材组件实在难以生成，**用 TextCard 替代**：
-
-```tsx
-// 降级：显示素材的文字描述
-<TextCard
-  durationInFrames={frames}
-  lines={[asset.description.slice(0, 80)]}
-  variant="quote"
-/>
-```
-
-**视频必须能完整渲染，降级优于崩溃。**
-
-### 3.8 错误处理
-
-| 错误 | 恢复策略 |
-|------|----------|
-| 组件渲染报错 | `npx remotion still` 逐个测试，定位出错组件 |
-| 中文显示方框 | 检查字体安装 + CSS `fontFamily` |
-| shiki 不工作 | 降级为手工正则着色 |
-| 组件太复杂 | 简化设计或用 TextCard 降级 |
-
----
-
-## STAGE 4：Remotion 工程编排
-
-### 4.1 文件结构
-
-```
-src/
-  ├── index.ts       # registerRoot
-  ├── Root.tsx        # Composition 定义（总时长计算）
-  ├── Video.tsx       # 主视频合成（Sequence 编排）
-  └── timing.ts       # 块→帧 时序计算
-```
-
-### 4.2 总时长计算
-
-```
-总时长 = 音频总时长 + 停顿总时长 + 开头淡入(2s) + 结尾淡出(2s)
-```
-
-其中停顿总时长 = 所有 `（停顿）` 的 1s + 所有 `（长停顿）` 的 2s。
-
-### 4.3 主视频合成逻辑
-
-```tsx
-// Video.tsx 核心结构
-// 每个 block 对应一个 Sequence，顺序排列
-<AbsoluteFill style={{ backgroundColor: THEME.bgDark, opacity }}>
-  {audioManifest.blocks.map((audioBlock, index) => (
-    <Fragment key={audioBlock.id}>
-      {/* 块内容：素材 + 音频 + 字幕 */}
-      <Sequence from={frameOffset} durationInFrames={blockFrames}>
-        <Audio src={staticFile(audioBlock.audioFile)} />
-        {block.asset
-          ? <DynamicAsset assetId={block.asset.id} durationInFrames={blockFrames} />
-          : <TitleCard durationInFrames={blockFrames} />
-        }
-        <SubtitleOverlay cues={subtitleCues} />
-      </Sequence>
-
-      {/* 如有（长停顿）：2s 黑屏过渡 */}
-      {hasLongPauseAfter(block) && (
-        <Sequence from={frameOffset + blockFrames} durationInFrames={longPauseFrames}>
-          <Audio src={staticFile('audio/silence_long.mp3')} />
-        </Sequence>
-      )}
-    </Fragment>
-  ))}
-</AbsoluteFill>
-```
-
-### 4.4 时序计算
-
-```typescript
-// timing.ts
-// 每个 block 的帧数 = 该块 TTS 音频时长（从 audio-manifest.json 读取）× fps
-// 停顿帧数额外计入
-// 块间转场：0.5s 交叉淡入淡出（15 帧重叠）
-
-function calculateBlockFrames(blocks: Block[], manifest: AudioManifest, fps: number) {
-  return blocks.map(block => {
-    const audioEntry = manifest.blocks.find(a => a.id === block.id);
-    const audioDuration = audioEntry?.durationSeconds ?? 0;
-    const pauseDuration = block.pauses.reduce((sum, p) => sum + p.durationSec, 0);
-    return Math.ceil((audioDuration + pauseDuration) * fps);
-  });
-}
-```
-
-### 4.5 字幕数据加载
-
-Remotion 组件运行在 headless Chromium 中，无法读文件系统。字幕必须从预解析 JSON import：
-
-```tsx
-// 动态 import 方式：根据块数量生成 import 语句
-import subtitles_B00 from './data/subtitles_B00.json';
-import subtitles_B01 from './data/subtitles_B01.json';
-// ... 根据实际块数量
-```
-
-### 4.6 字幕渲染逻辑
-
-SubtitleOverlay 组件需要同时使用两个数据源：
-
-1. **VTT 预解析 JSON**（来自 Stage 2.5）：提供精确的字级时间戳
-2. **blocks.json 的 subtitleBlocks**（来自 Stage 1）：提供行分割和高亮词信息
-
-合并策略：
-- 以 VTT 时间戳驱动字幕切换时机
-- 以 subtitleBlocks 的 `lines` 控制换行显示
-- 以 subtitleBlocks 的 `highlights` 标记高亮词
-
-```tsx
-// SubtitleOverlay 渲染伪代码
-const activeCue = findActiveCue(currentTime, vttCues);
-if (!activeCue) return null;
-
-const block = findMatchingBlock(activeCue.text, subtitleBlocks);
-return (
-  <div style={subtitleContainer}>
-    {block.lines.map(line => (
-      <div key={line}>
-        {renderWithHighlights(line, block.highlights)}
-      </div>
-    ))}
-  </div>
-);
-
-function renderWithHighlights(text: string, highlights: string[]) {
-  // 将 highlights 中的词用 <span style={{color: THEME.textAccent}}> 包裹
-}
-```
-
-### 4.7 停顿处理
-
-`block.pauses` 中的停顿标记转换为 Remotion 时间轴上的额外帧：
-
-```typescript
-// （停顿）：1s 静音，当前素材继续显示最后一帧画面，字幕隐藏
-// （长停顿）：2s 黑屏 + 静音，用于主题切换（替代原来的段落间隔）
-```
-
-### 4.8 转场效果
-
-- 块间默认：0.5s 交叉淡入淡出（15 帧重叠）
-- `（长停顿）`处：2s 黑屏过渡（前一块淡出 → 黑屏 → 后一块淡入）
-- 开头：2s 黑屏淡入
-- 结尾：2s 淡出黑屏
-
----
-
-## STAGE 5：渲染输出
-
-### 5.1 预览验证
+读取 blocks.json 的 block 列表，动态写入 per-block 状态：
 
 ```bash
-# 渲染 3 个关键帧验证
-npx remotion still MainVideo --frame=75 --output=output/test_2.5s.png
-npx remotion still MainVideo --frame=900 --output=output/test_30s.png
-npx remotion still MainVideo --frame=5400 --output=output/test_3min.png
+node -e "
+  const fs = require('fs');
+  const blocks = JSON.parse(fs.readFileSync('blocks.json','utf-8')).blocks;
+  const state = JSON.parse(fs.readFileSync('pipeline-state.json','utf-8'));
+  for (const b of blocks) {
+    const skipTts = b.status.tts === 'skipped';
+    state.blocks[b.id] = {
+      tts:      skipTts ? 'skipped' : 'pending',
+      vttAlign: skipTts ? 'skipped' : 'pending',
+      subtitle: 'pending',
+      component: b.visual.content.type === 'animation' ? 'pending' : 'auto',
+    };
+  }
+  fs.writeFileSync('pipeline-state.json', JSON.stringify(state, null, 2));
+  console.log('pipeline-state.json updated with', blocks.length, 'blocks');
+"
+bash scripts/update-task.sh pipeline-state.json T10_compile_script completed \
+  "$(jq '.blocks | length' blocks.json) blocks"
 ```
 
-验证：非全黑、中文正确、布局正常。
+---
+
+## STAGE 2：音频合成（并行）
+
+**Stage 2 和 Stage 3 必须并行。** 每个 block 的三个子任务顺序依赖：
+`T20_tts_B{xx}` → `T21_vtt_B{xx}` → `T22_sub_B{xx}`
+
+### 2.1 TTS 合成（每块独立）
+
+```bash
+source ~/video-agent-venv/bin/activate
+AGENT_DIR=$(jq -r .agentDir video-agent-config.json)
+VOICE=$(jq -r .voice video-agent-config.json)
+
+synth_block() {
+  local ID="$1"
+  bash scripts/update-task.sh pipeline-state.json "T20_tts_${ID}" running
+
+  python3 "$AGENT_DIR/scripts/tts/router.py" \
+    blocks.json "$ID" public/audio \
+    --config video-agent-config.json
+
+  if [ $? -eq 0 ]; then
+    DUR=$(jq -r ".duration_s" "public/audio/${ID}.meta.json" 2>/dev/null || echo "?")
+    bash scripts/update-task.sh pipeline-state.json "T20_tts_${ID}" completed "${DUR}s"
+  else
+    bash scripts/update-task.sh pipeline-state.json "T20_tts_${ID}" error "router.py failed"
+  fi
+}
+export -f synth_block
+
+# 并行跑所有需要 TTS 的 block
+jq -r '.blocks[] | select(.status.tts != "skipped") | .id' blocks.json | \
+  xargs -P 4 -I{} bash -c 'synth_block "$@"' _ {}
+
+wait
+```
+
+### 2.2 字幕切段（每块独立，依赖 T20）
+
+```bash
+split_subtitle() {
+  local ID="$1"
+  bash scripts/update-task.sh pipeline-state.json "T22_sub_${ID}" running
+
+  node "$AGENT_DIR/scripts/measure-subtitle.mjs" \
+    blocks.json "$ID" \
+    "public/audio/${ID}.vtt" \
+    "public/audio/${ID}.subtitles.json"
+
+  if [ $? -eq 0 ]; then
+    COUNT=$(jq 'length' "public/audio/${ID}.subtitles.json" 2>/dev/null || echo "0")
+    bash scripts/update-task.sh pipeline-state.json "T22_sub_${ID}" completed "${COUNT} lines"
+  else
+    bash scripts/update-task.sh pipeline-state.json "T22_sub_${ID}" error
+  fi
+}
+
+# 等 TTS 全部完成后串行跑（或可并行）
+jq -r '.blocks[].id' blocks.json | while read ID; do
+  TTS_STATUS=$(jq -r ".blocks[\"$ID\"].tts" pipeline-state.json)
+  [ "$TTS_STATUS" = "completed" ] || [ "$TTS_STATUS" = "skipped" ] && split_subtitle "$ID"
+done
+```
+
+### 2.3 把字幕写回 blocks.json
+
+```bash
+node -e "
+  const fs = require('fs');
+  const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
+
+  for (const b of blocks.blocks) {
+    const subPath = 'public/audio/' + b.id + '.subtitles.json';
+    if (fs.existsSync(subPath)) {
+      b.subtitles = JSON.parse(fs.readFileSync(subPath, 'utf-8'));
+    }
+
+    const metaPath = 'public/audio/' + b.id + '.meta.json';
+    if (fs.existsSync(metaPath)) {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      b.timing.ttsDuration = meta.duration_s;
+      b.timing.audioPath   = 'public/audio/' + b.id + '.wav';
+      b.timing.vttPath     = 'public/audio/' + b.id + '.vtt';
+      b.timing.provider    = meta.provider_used;
+    }
+  }
+
+  fs.writeFileSync('blocks.json', JSON.stringify(blocks, null, 2));
+  console.log('blocks.json updated with timing + subtitles');
+"
+```
+
+---
+
+## STAGE 3：视觉资产（并行，与 Stage 2 同时）
+
+**Stage 3 只处理 `animation` 类型的 block。** 其他类型（image/code/icon/textcard）由框架的静态组件渲染，无需 AI 生成代码。
+
+### 3.1 读取全局主题（一次性）
+
+主题来自 `src/engine/theme.ts`，无需修改。
+
+### 3.2 为 animation 类型生成 React 组件
+
+对每个 `visual.content.type === 'animation'` 的 block，生成 `src/blocks/{id}/Component.tsx`：
+
+```bash
+bash scripts/update-task.sh pipeline-state.json "T31_component_${ID}" running
+
+# 创建目录
+mkdir -p "src/blocks/${ID}"
+```
+
+**组件生成 Prompt（内嵌在 Agent 执行流程里）：**
+
+```
+基于以下信息，生成一个 Remotion React 动画组件：
+
+Block ID: {id}
+Block Title: {title}
+Description:
+{spec.description}
+
+Timeline hints:
+{spec.timeline as JSON}
+
+必须满足的接口：
+interface AnimationProps {
+  frame: number;               // 当前块内帧（0 起）
+  durationInFrames: number;    // 本块总帧数
+  rect: { x: number; y: number; w: number; h: number };  // 归一化，只作参考，组件本身用 width/height:100%
+  theme: Theme;                // 从 import { getTheme } from '../../engine/theme'
+  fps: number;
+}
+
+要求：
+1. 默认导出：export default function Component(props: AnimationProps): JSX.Element
+2. 组件根元素：<div style={{ width:'100%', height:'100%', ... }}>
+3. 使用 Remotion 的 useCurrentFrame()、interpolate()、spring() 做动画
+4. 从 theme 取颜色（theme.accent、theme.bg 等）
+5. 优先 CSS/SVG，不依赖外部图片
+6. 文字用 theme.fonts.body 或 theme.fonts.mono
+7. 如无法实现，降级为 TextCardContent 显示 description 文字
+
+保存到：src/blocks/{id}/Component.tsx
+```
+
+### 3.3 为 code 类型预处理源码
+
+```bash
+preprocess_code() {
+  local ID="$1"
+  local SPEC=$(jq -r ".blocks[] | select(.id == \"$ID\") | .visual.content.spec" blocks.json)
+  local SOURCE=$(echo "$SPEC" | jq -r '.source // empty')
+  local RANGE_START=$(echo "$SPEC" | jq -r '.range[0] // 1')
+  local RANGE_END=$(echo "$SPEC" | jq -r '.range[1] // 9999')
+
+  SRC_FILE="src/data/source-samples/$SOURCE"
+  if [ -z "$SOURCE" ] || [ ! -f "$SRC_FILE" ]; then return; fi
+
+  # Extract lines and embed into blocks.json as __lines
+  node -e "
+    const fs = require('fs');
+    const lines = fs.readFileSync('$SRC_FILE', 'utf-8').split('\n');
+    const start = $RANGE_START - 1;
+    const end   = Math.min($RANGE_END, lines.length);
+    const sliced = lines.slice(start, end);
+
+    const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
+    const blk = blocks.blocks.find(b => b.id === '$ID');
+    if (blk && blk.visual.content.type === 'code') {
+      blk.visual.content.spec.__lines = sliced;
+      blk.artifacts.assetFiles = ['$SRC_FILE'];
+    }
+    fs.writeFileSync('blocks.json', JSON.stringify(blocks, null, 2));
+    console.log('Code preprocessed for $ID:', sliced.length, 'lines');
+  "
+}
+export -f preprocess_code
+
+jq -r '.blocks[] | select(.visual.content.type == "code") | .id' blocks.json | \
+  xargs -I{} bash -c 'preprocess_code "$@"' _ {}
+```
+
+---
+
+## STAGE 4：时序装配
+
+**等待 Stage 2（TTS）和 Stage 3（组件生成）都完成后执行。**
+
+### 4.1 计算每个 block 的 startFrame 和 frames
+
+```javascript
+// 在 Node.js 中执行
+const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
+const { fps } = blocks.meta;
+
+const ENTER_DEF = 0.5;  // default enter duration seconds
+const EXIT_DEF  = 0.3;  // default exit duration seconds
+const MIN_HOLD  = 1.5;  // minimum hold for any block
+
+let cursor = 0;  // current frame
+
+for (const b of blocks.blocks) {
+  const enterDur  = b.visual.enter.duration ?? ENTER_DEF;
+  const exitDur   = b.visual.exit.duration  ?? EXIT_DEF;
+  const ttsDur    = b.timing.ttsDuration ?? 0;
+  const pauseAfter = b.narration.hints?.pauseAfter ?? 0;
+  const explicitHold = b.timing.holdDuration; // set if @duration was specified
+
+  const holdDur = explicitHold ?? Math.max(ttsDur + pauseAfter, MIN_HOLD);
+  const totalDur = enterDur + holdDur + exitDur;
+
+  b.timing.enterDuration  = enterDur;
+  b.timing.holdDuration   = holdDur;
+  b.timing.exitDuration   = exitDur;
+  b.timing.totalDuration  = totalDur;
+  b.timing.startFrame     = cursor;
+  b.timing.frames         = Math.round(totalDur * fps);
+
+  cursor += b.timing.frames;
+}
+
+fs.writeFileSync('blocks.json', JSON.stringify(blocks, null, 2));
+console.log('Total duration:', (cursor / fps).toFixed(1), 's');
+```
+
+### 4.2 拼接主音轨
+
+```bash
+# 生成 FFmpeg concat 列表
+node -e "
+  const fs = require('fs');
+  const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
+  const lines = ['ffconcat version 1.0'];
+
+  for (const b of blocks.blocks) {
+    if (b.timing.audioPath && fs.existsSync(b.timing.audioPath)) {
+      const hold = b.timing.holdDuration ?? 3;
+      // If audio is shorter than hold, pad with silence
+      const dur  = b.timing.ttsDuration ?? 0;
+      lines.push('file ' + b.timing.audioPath);
+      if (hold - dur > 0.1) {
+        // We'll handle padding with ffmpeg filter
+      }
+    } else {
+      // No audio: generate silence
+      const dur = b.timing.holdDuration ?? 3;
+      const silFile = 'public/audio/' + b.id + '_silence.wav';
+      lines.push('file ' + silFile);
+    }
+  }
+
+  // Simpler approach: use sox or ffmpeg concat with durations
+  fs.writeFileSync('public/audio/concat.txt', lines.join('\n'));
+"
+
+# Better: build master track with proper timing using ffmpeg
+node -e "
+  const fs = require('fs');
+  const { execSync } = require('child_process');
+  const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
+  const { fps } = blocks.meta;
+
+  // Build a silent base track of total duration
+  const totalFrames = Math.max(...blocks.blocks.map(b => (b.timing.startFrame ?? 0) + (b.timing.frames ?? 0)));
+  const totalSecs   = totalFrames / fps;
+
+  // Create silence base
+  execSync(\`ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t \${totalSecs} -acodec pcm_s16le public/audio/master_silence.wav\`);
+
+  // Build amix/adelay filter chain
+  const filterParts = ['[0:a]'];
+  const inputs = ['-i public/audio/master_silence.wav'];
+  const delays = [];
+
+  let audioIdx = 1;
+  for (const b of blocks.blocks) {
+    const wavPath = b.timing.audioPath;
+    if (!wavPath || !fs.existsSync(wavPath)) continue;
+    const delayMs = Math.round(((b.timing.startFrame ?? 0) + (b.timing.enterDuration ?? 0) * fps) / fps * 1000);
+    inputs.push('-i ' + wavPath);
+    delays.push(\`[1:a]adelay=\${delayMs}|0[a\${audioIdx}]\`);
+    filterParts.push(\`[a\${audioIdx}]\`);
+    audioIdx++;
+  }
+
+  if (audioIdx === 1) {
+    // No audio files at all
+    fs.copyFileSync('public/audio/master_silence.wav', 'public/audio/master.wav');
+  } else {
+    const filterStr = delays.join(';') + ';' + filterParts.join('') + 'amix=inputs=' + audioIdx + ':normalize=0[out]';
+    const cmd = 'ffmpeg -y ' + inputs.join(' ') + ' -filter_complex \"' + filterStr + '\" -map [out] -acodec pcm_s16le public/audio/master.wav';
+    execSync(cmd);
+  }
+  console.log('master.wav created:', totalSecs.toFixed(1) + 's');
+" 2>&1
+
+bash scripts/update-task.sh pipeline-state.json T40_timing completed
+```
+
+### 4.3 编译检查
+
+```bash
+npx tsc --noEmit 2>&1 | head -50
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+  echo "TypeScript compile error — fix before rendering"
+  bash scripts/update-task.sh pipeline-state.json T42_compile_check error "TypeScript error"
+  exit 1
+fi
+
+TOTAL_FRAMES=$(jq '[.blocks[] | (.timing.startFrame // 0) + (.timing.frames // 0)] | max' blocks.json)
+TOTAL_SECS=$(node -e "console.log(($TOTAL_FRAMES/$(jq .meta.fps blocks.json)).toFixed(1))")
+bash scripts/update-task.sh pipeline-state.json T42_compile_check completed "${TOTAL_FRAMES} frames ${TOTAL_SECS}s"
+```
+
+---
+
+## STAGE 5：渲染
+
+### 5.1 预览帧验证（快速）
+
+```bash
+bash scripts/update-task.sh pipeline-state.json T50_preview_frames running
+
+W=$(jq -r .meta.resolution.w blocks.json)
+H=$(jq -r .meta.resolution.h blocks.json)
+TOTAL=$(jq '[.blocks[] | (.timing.startFrame // 0) + (.timing.frames // 0)] | max' blocks.json)
+
+# 渲染 5 个抽样帧
+for FRAC in 0.1 0.3 0.5 0.7 0.9; do
+  FRAME=$(node -e "console.log(Math.floor($TOTAL * $FRAC))")
+  npx remotion still \
+    --config remotion.config.ts \
+    --frame "$FRAME" \
+    --output "output/preview_${FRAME}.png" \
+    src/Root.tsx Video \
+    2>&1 || true
+done
+
+bash scripts/update-task.sh pipeline-state.json T50_preview_frames completed
+```
 
 ### 5.2 完整渲染
 
 ```bash
-mkdir -p output
+bash scripts/update-task.sh pipeline-state.json T51_full_render running
 
-npx remotion render MainVideo \
-  --output output/final.mp4 \
+W=$(jq -r .meta.resolution.w blocks.json)
+H=$(jq -r .meta.resolution.h blocks.json)
+
+npx remotion render \
+  --config remotion.config.ts \
   --codec h264 \
-  --audio-codec aac \
-  --concurrency 50% \
-  --timeout 120000 \
-  --log verbose \
-  2>&1 | tee logs/render.log
+  --output output/final.mp4 \
+  --log error \
+  src/Root.tsx Video \
+  2>&1 | tail -20
+
+if [ -f output/final.mp4 ]; then
+  SIZE=$(du -sh output/final.mp4 | cut -f1)
+  bash scripts/update-task.sh pipeline-state.json T51_full_render completed "$SIZE"
+else
+  bash scripts/update-task.sh pipeline-state.json T51_full_render error "MP4 not created"
+  exit 1
+fi
 ```
-
-### 5.3 分段渲染备选
-
-OOM 或超时时改用分段渲染：
-
-```bash
-CHUNK=3000  # 每段约100秒
-for ((i=0; i<TOTAL; i+=CHUNK)); do
-  END=$((i + CHUNK - 1))
-  [ $END -ge $TOTAL ] && END=$((TOTAL - 1))
-  npx remotion render MainVideo \
-    --output "output/chunk_${i}.mp4" \
-    --frames="${i}-${END}" \
-    --codec h264 --audio-codec aac --concurrency 1
-done
-
-# 拼接
-ls output/chunk_*.mp4 | sort -V | sed 's/^/file /' > output/chunks.txt
-ffmpeg -f concat -safe 0 -i output/chunks.txt -c copy output/final.mp4
-```
-
-### 5.4 错误处理
-
-| 错误 | 恢复策略 |
-|------|----------|
-| Chromium 启动失败 | 设置 `PUPPETEER_EXECUTABLE_PATH`，添加 `--no-sandbox` |
-| OOM | 降低 concurrency 到 25% 或 1 |
-| 单帧超时 | 检查组件是否有无限循环，增加 timeout |
-| 编译错误 | 查看 render.log 定位 TS/React 报错 |
-| `JavaScript heap out of memory` | `export NODE_OPTIONS="--max-old-space-size=8192"` |
 
 ---
 
-## STAGE 6：后处理与校验
+## STAGE 6：后处理 + 校验
 
-### 6.1 音频标准化
+### 6.1 音频标准化（响度平衡）
 
 ```bash
-ffmpeg -i output/final.mp4 \
-  -af loudnorm=I=-16:TP=-1.5:LRA=11 \
+bash scripts/update-task.sh pipeline-state.json T60_normalize running
+
+ffmpeg -y -i output/final.mp4 \
+  -af "loudnorm=I=-16:TP=-1.5:LRA=11" \
   -c:v copy \
-  output/final_normalized.mp4
+  output/final_normalized.mp4 \
+  2>&1 | tail -5
+
+bash scripts/update-task.sh pipeline-state.json T60_normalize completed
 ```
 
 ### 6.2 质量校验
 
 ```bash
-# 1. 文件大小 >10MB
-test $(stat -c%s output/final_normalized.mp4) -gt 10000000
+bash scripts/update-task.sh pipeline-state.json T61_quality_check running
 
-# 2. 视频信息
-ffprobe -v quiet -print_format json -show_format -show_streams output/final_normalized.mp4
-# 验证: h264, 正确分辨率, fps≈30, 音频 aac
+W=$(jq -r .meta.resolution.w blocks.json)
+H=$(jq -r .meta.resolution.h blocks.json)
 
-# 3. 五点抽帧
-DURATION=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 output/final_normalized.mp4)
-for i in 1 2 3 4 5; do
-  TS=$(echo "$DURATION $i" | awk '{printf "%.0f", $1 * $2 / 6}')
-  ffmpeg -ss $TS -i output/final_normalized.mp4 -frames:v 1 -q:v 2 "output/check_${i}.jpg" -y
+ERRORS=0
+
+# 1. 文件存在且大于 100KB
+SIZE_BYTES=$(stat -c%s output/final_normalized.mp4 2>/dev/null || echo 0)
+[ "$SIZE_BYTES" -gt 102400 ] || { echo "ERROR: output too small"; ERRORS=$((ERRORS+1)); }
+
+# 2. 分辨率正确
+RES=$(ffprobe -v quiet -select_streams v:0 \
+  -show_entries stream=width,height -of csv=p=0 output/final_normalized.mp4)
+echo "$RES" | grep -q "^${W},${H}$" || { echo "ERROR: resolution mismatch: $RES"; ERRORS=$((ERRORS+1)); }
+
+# 3. 时长与预期接近（±20%）
+EXPECTED_SECS=$(jq '([.blocks[] | (.timing.startFrame // 0) + (.timing.frames // 0)] | max) / .meta.fps' blocks.json)
+ACTUAL_SECS=$(ffprobe -v quiet -show_entries format=duration \
+  -of default=noprint_wrappers=1:nokey=1 output/final_normalized.mp4)
+node -e "
+  const expected = $EXPECTED_SECS;
+  const actual   = $ACTUAL_SECS;
+  const ratio    = actual / expected;
+  if (ratio < 0.8 || ratio > 1.2) {
+    console.error('ERROR: duration mismatch: expected', expected.toFixed(1), 's, got', actual.toFixed(1), 's');
+    process.exit(1);
+  }
+  console.log('Duration OK:', actual.toFixed(1) + 's');
+" || ERRORS=$((ERRORS+1))
+
+# 4. 抽查 5 帧，确认非纯黑
+TOTAL=$(jq '[.blocks[] | (.timing.startFrame // 0) + (.timing.frames // 0)] | max' blocks.json)
+FPS=$(jq -r .meta.fps blocks.json)
+for FRAC in 0.1 0.3 0.5 0.7 0.9; do
+  T=$(node -e "console.log(($TOTAL * $FRAC / $FPS).toFixed(2))")
+  ffmpeg -y -ss "$T" -i output/final_normalized.mp4 -frames:v 1 /tmp/check_frame.png 2>/dev/null
+  BRIGHT=$(ffprobe -f lavfi -i "movie=/tmp/check_frame.png,signalstats" \
+    -show_entries frame_tags=lavfi.signalstats.YAVG -of default=noprint_wrappers=1:nokey=1 2>/dev/null || echo 5)
+  node -e "if ($BRIGHT < 2) { console.error('ERROR: black frame at t=$T'); process.exit(1); }" || \
+    ERRORS=$((ERRORS+1))
 done
 
-# 4. 检查截图非纯黑（>5KB）
-for f in output/check_*.jpg; do
-  SIZE=$(stat -c%s "$f")
-  [ $SIZE -lt 5000 ] && echo "WARNING: $f 可能是纯黑帧 (${SIZE} bytes)"
-done
+if [ "$ERRORS" -eq 0 ]; then
+  bash scripts/update-task.sh pipeline-state.json T61_quality_check completed "all checks passed"
+  echo "✅ 视频生成完成: output/final_normalized.mp4"
+  ls -lh output/final_normalized.mp4
+else
+  bash scripts/update-task.sh pipeline-state.json T61_quality_check error "$ERRORS check(s) failed"
+fi
 ```
 
-### 6.3 生成完成报告
+---
+
+## 状态管理速查
 
 ```bash
-cat > output/pipeline-report.txt << EOF
-视频制作完成报告
-================
-标题: $(jq -r .title video-agent-config.json)
-时间: $(date)
-输出: output/final_normalized.mp4
-大小: $(ls -lh output/final_normalized.mp4 | awk '{print $5}')
-时长: $(ffprobe -v quiet -show_entries format=duration -of csv=p=0 output/final_normalized.mp4) 秒
-分辨率: $(jq -r '"\(.width)x\(.height)"' video-agent-config.json)
-EOF
+# 更新单个 task 状态
+bash scripts/update-task.sh pipeline-state.json <task-id> <status> [note]
+# status: pending | running | completed | error | skipped
+
+# 查看所有非 pending 任务
+jq '.global | to_entries | map(select(.value.status != "pending")) | from_entries' pipeline-state.json
+
+# 查看 block 状态摘要
+jq '.blocks | to_entries | map({id:.key, tts:.value.tts, component:.value.component})' pipeline-state.json
+
+# 进度条
+bash scripts/progress.sh pipeline-state.json
 ```
 
+## Task ID 命名规范
+
+```
+T{stage}{seq}_{kind}[_{BlockId}]
+
+全局任务（无 BlockId）:
+  T00_sudo_check, T01_apt_install, T02_nodejs, T03_python,
+  T04_remotion, T05_copy_sources, T06_env_verify
+  T10_compile_script
+  T30_theme, T30_code_highlight
+  T40_timing, T41_compose_root, T42_compile_check
+  T50_preview_frames, T51_full_render
+  T60_normalize, T61_quality_check
+
+Per-block 任务（BlockId = B00 ... B99）:
+  T20_tts_B03        Stage 2 TTS 合成
+  T21_vtt_B03        Stage 2 VTT 对齐（当 TTS 无词级时间戳时）
+  T22_sub_B03        Stage 2 字幕切段
+  T31_component_B03  Stage 3 animation 组件生成
+```
+
+## 错误处理原则
+
+| 场景 | 处理 |
+|------|------|
+| TTS 失败（单块） | 最多重试 3 次，间隔 5s；失败后降级到 edge-tts |
+| 组件生成失败 | 最多重试 2 次；失败后降级到 TextCardContent |
+| Stage 0 环境不可用 | **停止整个流水线** |
+| TypeScript 编译失败 | **停止整个流水线，必须修复** |
+| 非致命错误 | 标记 error，继续其他 block |
+
 ---
 
-## 附录 A：常见环境问题速查
+## 常见调试命令
 
-| 症状 | 原因 | 解决 |
-|------|------|------|
-| `libnss3.so` 缺失 | Chromium 缺库 | `sudo apt install -y libnss3 libatk-bridge2.0-0 libdrm2 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2` |
-| `FATAL:zygote_host_impl_linux.cc` | Chromium 沙箱 | `remotion.config.ts` 中设置 `Config.setChromiumOpenGlRenderer("swangle")` |
-| 无声音 | MP3 路径错误 | `staticFile()` 路径相对于 `public/` |
-| 中文乱码 | VTT 编码 | 确保 UTF-8 |
-| `JavaScript heap out of memory` | Node 内存不足 | `export NODE_OPTIONS="--max-old-space-size=8192"` |
-| Remotion 版本冲突 | 依赖不一致 | `npx remotion upgrade` |
-| npm 超时 | 网络问题 | `npm config set registry https://registry.npmmirror.com` |
+```bash
+# 检查某个 block 的字幕
+jq '.blocks[] | select(.id == "B03") | .subtitles' blocks.json
 
----
+# 检查某个 block 的时序
+jq '.blocks[] | select(.id == "B03") | .timing' blocks.json
 
-*本文档版本: v3.0-unified | 适用于 Ubuntu 22.04+ / Remotion 4.x / edge-tts*
+# 手动运行单块 TTS
+source ~/video-agent-venv/bin/activate
+python3 "$AGENT_DIR/scripts/tts/router.py" blocks.json B03 public/audio
+
+# 手动运行字幕切段
+node "$AGENT_DIR/scripts/measure-subtitle.mjs" blocks.json B03 public/audio/B03.vtt /tmp/B03_subs.json
+
+# 编译检查（不渲染）
+npx tsc --noEmit 2>&1 | head -50
+```

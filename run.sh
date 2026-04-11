@@ -119,7 +119,7 @@ if [[ "$RESUME" == true ]]; then
   fi
 fi
 
-mkdir -p "$OUT_DIR"/{src/data/source-samples,public/audio,output,logs,scripts}
+mkdir -p "$OUT_DIR"/{src/data/source-samples,public/audio,output,logs,scripts,assets/{images,lottie,clips,voice-prompts}}
 
 # ── 复制输入文件 ──
 cp "$SCRIPT_FILE" "$OUT_DIR/src/data/script.md"
@@ -165,8 +165,11 @@ fi
 
 SOURCE_SAMPLE_LIST=$(ls "$OUT_DIR/src/data/source-samples/" 2>/dev/null | tr '\n' ',' | sed 's/,$//' | tr -d '\n')
 
-# ── 提取视频标题 ──
-VIDEO_TITLE=$(head -5 "$SCRIPT_FILE" | grep '^# ' | head -1 | sed 's/^# //' | tr -d '\n')
+# ── 提取视频标题（v2: frontmatter title 优先，v1: # 标题回退）──
+VIDEO_TITLE=$(awk '/^---/{fm=1;next} fm && /^title:/{sub(/^title:\s*/,"",$0);print;exit} fm && /^---/{exit}' "$SCRIPT_FILE" | tr -d '\n')
+if [[ -z "$VIDEO_TITLE" ]]; then
+  VIDEO_TITLE=$(head -10 "$SCRIPT_FILE" | grep '^# ' | head -1 | sed 's/^# //' | tr -d '\n')
+fi
 if [[ -z "$VIDEO_TITLE" ]]; then
   VIDEO_TITLE="教学视频"
 fi
@@ -189,13 +192,32 @@ jq -n \
   '{title: $title, repoDir: $repoDir, projectDir: $projectDir, agentDir: $agentDir,
     scriptFile: $scriptFile,
     sourceCodeSamples: $sourceCodeSamples, sourceFileList: $sourceFileList,
-    voice: $voice, model: $model, width: $width, height: $height, fps: $fps, aspect: $aspect}' \
+    voice: $voice, model: $model, width: $width, height: $height, fps: $fps, aspect: $aspect,
+    tts: {
+      strategy: "auto",
+      edge:       { voice: $voice },
+      azure:      { voice: "zh-CN-YunyiMultilingualNeural", region: "eastasia" },
+      cosyvoice:  { endpoint: "http://127.0.0.1:50000", voice: "中文男" },
+      routing: {
+        mixedLangThreshold: 0.15,
+        minLengthForUpgrade: 30,
+        upgradeOnEmphasis: true,
+        fallbackChain: ["cosyvoice","azure","edge"]
+      }
+    }}' \
   > "$OUT_DIR/video-agent-config.json"
 
 # ── 复制工作流文档和脚本 ──
 cp "$AGENT_DIR/VIDEO_WORKFLOW.md" "$OUT_DIR/VIDEO_WORKFLOW.md"
-cp "$AGENT_DIR/scripts/"*.sh "$OUT_DIR/scripts/"
+cp "$AGENT_DIR/INPUT_SPEC.md"    "$OUT_DIR/INPUT_SPEC.md"
+cp "$AGENT_DIR/scripts/"*.sh     "$OUT_DIR/scripts/"
+cp "$AGENT_DIR/scripts/"*.mjs    "$OUT_DIR/scripts/" 2>/dev/null || true
 chmod +x "$OUT_DIR/scripts/"*.sh
+
+# 复制 TTS provider 脚本
+mkdir -p "$OUT_DIR/scripts/tts/providers"
+cp "$AGENT_DIR/scripts/tts/"*.py           "$OUT_DIR/scripts/tts/"         2>/dev/null || true
+cp "$AGENT_DIR/scripts/tts/providers/"*.py "$OUT_DIR/scripts/tts/providers/" 2>/dev/null || true
 
 # ── 生成项目 CLAUDE.md ──
 sed \
