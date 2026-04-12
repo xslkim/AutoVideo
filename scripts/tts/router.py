@@ -29,11 +29,11 @@ from typing import Optional
 # ─── Routing config defaults ──────────────────────────────────────────────────
 
 DEFAULT_ROUTING = {
-    "strategy": "auto",           # auto | edge | cosyvoice | azure
+    "strategy": "auto",           # auto | edge | cosyvoice
     "mixedLangThreshold": 0.15,   # EN chars ratio > threshold → upgrade
     "minLengthForUpgrade": 30,    # text length > this → upgrade
     "upgradeOnEmphasis": True,    # has **bold** → upgrade
-    "fallbackChain": ["cosyvoice", "azure", "edge"],
+    "fallbackChain": ["cosyvoice", "edge"],
 }
 
 # ─── Result dataclass ─────────────────────────────────────────────────────────
@@ -98,20 +98,24 @@ def select_provider(narration: dict, routing: dict) -> str:
 
 # ─── Load providers ───────────────────────────────────────────────────────────
 
-def get_provider(name: str):
+def get_provider(name: str, tts_config: dict = None, project_dir: Path = None):
     """Lazy-import provider by name."""
     providers_dir = Path(__file__).parent / "providers"
     sys.path.insert(0, str(providers_dir.parent))
+    tts_config = tts_config or {}
 
     if name == "edge":
         from providers.edge import EdgeTTSProvider
         return EdgeTTSProvider()
-    elif name == "azure":
-        from providers.azure import AzureTTSProvider
-        return AzureTTSProvider()
     elif name == "cosyvoice":
         from providers.cosyvoice import CosyVoiceProvider
-        return CosyVoiceProvider()
+        cv_cfg = tts_config.get("cosyvoice", {})
+        prompt_wav  = cv_cfg.get("promptWav")
+        prompt_text = cv_cfg.get("promptText")
+        # Resolve relative path against project dir
+        if prompt_wav and project_dir and not Path(prompt_wav).is_absolute():
+            prompt_wav = str(project_dir / prompt_wav)
+        return CosyVoiceProvider(prompt_wav=prompt_wav, prompt_text=prompt_text)
     else:
         raise ValueError(f"Unknown TTS provider: {name}")
 
@@ -146,7 +150,7 @@ def synth_block(block: dict, config: dict, out_dir: Path, voice: str) -> TTSResu
         routing["strategy"] = strategy_override
 
     initial_provider = select_provider(narration, routing)
-    fallback_chain = routing.get("fallbackChain", ["cosyvoice", "azure", "edge"])
+    fallback_chain = routing.get("fallbackChain", ["cosyvoice", "edge"])
 
     # Build ordered list of providers to try
     providers_to_try = [initial_provider]
@@ -161,11 +165,14 @@ def synth_block(block: dict, config: dict, out_dir: Path, voice: str) -> TTSResu
     wav_path = out_dir / f"{block_id}.wav"
     vtt_path = out_dir / f"{block_id}.vtt"
 
+    # Resolve project dir for relative asset paths
+    project_dir = Path(config.get("projectDir", "."))
+
     last_error = None
     for provider_name in providers_to_try:
         print(f"[TTS] {block_id}: trying {provider_name}...", flush=True)
         try:
-            provider = get_provider(provider_name)
+            provider = get_provider(provider_name, tts_config=tts_config, project_dir=project_dir)
             if not provider.is_available():
                 print(f"[TTS] {block_id}: {provider_name} not available, skipping")
                 continue
@@ -180,8 +187,13 @@ def synth_block(block: dict, config: dict, out_dir: Path, voice: str) -> TTSResu
                 hints=narration.get("hints", {}),
             )
             result.provider_used = provider_name
-            print(f"[TTS] {block_id}: {provider_name} OK ({result.duration_s:.1f}s)")
-            return result
+            if result.success:
+                print(f"[TTS] {block_id}: {provider_name} OK ({result.duration_s:.1f}s)")
+                return result
+            else:
+                last_error = result.error or "unknown error"
+                print(f"[TTS] {block_id}: {provider_name} returned failure: {last_error}", file=sys.stderr)
+                time.sleep(1)
 
         except Exception as e:
             last_error = str(e)
@@ -200,10 +212,9 @@ def synth_block(block: dict, config: dict, out_dir: Path, voice: str) -> TTSResu
 def _resolve_voice(provider_name: str, default_voice: str, tts_config: dict) -> str:
     if provider_name == "edge":
         return tts_config.get("edge", {}).get("voice", default_voice)
-    elif provider_name == "azure":
-        return tts_config.get("azure", {}).get("voice", "zh-CN-YunyiMultilingualNeural")
     elif provider_name == "cosyvoice":
-        return tts_config.get("cosyvoice", {}).get("voice", "default_male")
+        # CosyVoice uses zero-shot cloning; voice param is ignored (controlled by promptWav)
+        return "zero_shot"
     return default_voice
 
 def _create_silence(path: Path, duration_s: float):
@@ -224,7 +235,7 @@ def main():
     parser.add_argument("block_id",     help="Block ID to synthesize (e.g. B03)")
     parser.add_argument("out_dir",      help="Output directory for wav/vtt files")
     parser.add_argument("--config",     help="Path to video-agent-config.json", default="video-agent-config.json")
-    parser.add_argument("--provider",   help="Force provider: auto|edge|cosyvoice|azure", default="auto")
+    parser.add_argument("--provider",   help="Force provider: auto|edge|cosyvoice", default="auto")
     args = parser.parse_args()
 
     # Load blocks.json

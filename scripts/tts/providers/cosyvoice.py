@@ -1,10 +1,11 @@
 """
 CosyVoice 2 TTS provider — local GPU, best Chinese-English mixed reading.
 
-Expects a running CosyVoice FastAPI service at COSYVOICE_ENDPOINT
-(default: http://127.0.0.1:50000).
+Uses inference_zero_shot (voice cloning) since CosyVoice2-0.5B has no built-in
+SFT speakers. Requires a short reference WAV (~3-10s) configured in
+video-agent-config.json as tts.cosyvoice.promptWav and tts.cosyvoice.promptText.
 
-Service startup:
+Service startup (done in Stage 0):
   cd /home/ubuntu/tools/CosyVoice
   source .venv/bin/activate
   python runtime/python/fastapi/server.py \
@@ -12,14 +13,14 @@ Service startup:
     --model_dir pretrained_models/CosyVoice2-0.5B
 
 API contract (matches CosyVoice runtime/python/fastapi/server.py):
-  POST /inference_sft
-  Form data: tts_text=<str>, spk_id=<str>
+  POST /inference_zero_shot
+  Form data: tts_text=<str>, prompt_text=<str>, prompt_wav=<file>
   Returns: raw PCM int16 bytes @ 22050 Hz (streaming)
 """
 import os
+import re
 import struct
 import subprocess
-import tempfile
 import time
 import urllib.request
 import urllib.parse
@@ -29,9 +30,11 @@ from dataclasses import dataclass
 from typing import Optional
 
 
-COSYVOICE_ENDPOINT = os.environ.get("COSYVOICE_ENDPOINT", "http://127.0.0.1:50000")
-COSYVOICE_SPEAKER  = os.environ.get("COSYVOICE_SPEAKER", "中文男")
-COSYVOICE_SAMPLE_RATE = 22050   # server always returns 22050 Hz
+COSYVOICE_ENDPOINT   = os.environ.get("COSYVOICE_ENDPOINT", "http://127.0.0.1:50000")
+# Default reference audio bundled with CosyVoice
+DEFAULT_PROMPT_WAV   = "/home/ubuntu/tools/CosyVoice/asset/zero_shot_prompt.wav"
+DEFAULT_PROMPT_TEXT  = "希望你以后能够做的比我还好呦。"
+COSYVOICE_SAMPLE_RATE = 22050   # server always returns 22050 Hz PCM
 
 
 @dataclass
@@ -52,7 +55,6 @@ def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int, out_path: Path) -> None:
     block_align = num_channels * bits_per_sample // 8
     data_size = len(pcm_bytes)
     chunk_size = 36 + data_size
-
     header = struct.pack(
         '<4sI4s4sIHHIIHH4sI',
         b'RIFF', chunk_size, b'WAVE',
@@ -71,19 +73,23 @@ def _pcm_to_wav(pcm_bytes: bytes, sample_rate: int, out_path: Path) -> None:
 class CosyVoiceProvider:
     name = "cosyvoice"
 
+    def __init__(self, prompt_wav: Optional[str] = None, prompt_text: Optional[str] = None):
+        self._prompt_wav  = prompt_wav  or DEFAULT_PROMPT_WAV
+        self._prompt_text = prompt_text or DEFAULT_PROMPT_TEXT
+
     def is_available(self) -> bool:
         """Check if the CosyVoice FastAPI service is reachable."""
+        if not Path(self._prompt_wav).exists():
+            return False
         try:
-            # Try the inference_sft endpoint with a lightweight GET (no body needed)
             req = urllib.request.Request(
-                f"{COSYVOICE_ENDPOINT}/inference_sft",
+                f"{COSYVOICE_ENDPOINT}/inference_zero_shot",
                 method="GET",
             )
             with urllib.request.urlopen(req, timeout=3) as resp:
-                # 422 Unprocessable Entity means server is up but needs form data
                 return resp.status in (200, 422)
         except urllib.error.HTTPError as e:
-            return e.code == 422   # server is running, just rejected empty request
+            return e.code == 422
         except Exception:
             return False
 
@@ -91,25 +97,32 @@ class CosyVoiceProvider:
               emphases=None, hints=None) -> TTSResult:
         emphases = emphases or []
 
-        # Pick speaker: use voice param if it looks like a CosyVoice speaker name,
-        # otherwise fall back to env/default
-        cosyvoice_voices = {"中文男", "中文女", "英文男", "英文女", "粤语女", "粤语男",
-                            "日语男", "韩语女"}
-        if voice and voice in cosyvoice_voices:
-            speaker = voice
-        else:
-            speaker = COSYVOICE_SPEAKER
+        prompt_wav_path = Path(self._prompt_wav)
+        if not prompt_wav_path.exists():
+            return TTSResult(
+                wav_path=str(out_wav), vtt_path=str(out_vtt),
+                provider_used="cosyvoice", duration_s=0.0, success=False,
+                error=f"Prompt WAV not found: {self._prompt_wav}",
+            )
 
-        # Build multipart/form-data body manually (avoid external deps)
-        form_data = urllib.parse.urlencode({
-            "tts_text": text,
-            "spk_id": speaker,
-        }).encode("utf-8")
+        # Build multipart/form-data with file upload
+        boundary = "----AutoVideoBoundary"
+        prompt_wav_bytes = prompt_wav_path.read_bytes()
+        body = self._build_multipart(
+            boundary=boundary,
+            fields={
+                "tts_text":    text,
+                "prompt_text": self._prompt_text,
+            },
+            files={
+                "prompt_wav": ("prompt.wav", prompt_wav_bytes, "audio/wav"),
+            },
+        )
 
         req = urllib.request.Request(
-            f"{COSYVOICE_ENDPOINT}/inference_sft",
-            data=form_data,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            f"{COSYVOICE_ENDPOINT}/inference_zero_shot",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
             method="POST",
         )
 
@@ -119,45 +132,53 @@ class CosyVoiceProvider:
                 pcm_bytes = resp.read()
         except Exception as e:
             return TTSResult(
-                wav_path=str(out_wav),
-                vtt_path=str(out_vtt),
-                provider_used="cosyvoice",
-                duration_s=0.0,
-                success=False,
+                wav_path=str(out_wav), vtt_path=str(out_vtt),
+                provider_used="cosyvoice", duration_s=0.0, success=False,
                 error=str(e),
             )
 
         if not pcm_bytes:
             return TTSResult(
-                wav_path=str(out_wav),
-                vtt_path=str(out_vtt),
-                provider_used="cosyvoice",
-                duration_s=0.0,
-                success=False,
+                wav_path=str(out_wav), vtt_path=str(out_vtt),
+                provider_used="cosyvoice", duration_s=0.0, success=False,
                 error="CosyVoice returned empty audio",
             )
 
-        # Wrap PCM → WAV
         _pcm_to_wav(pcm_bytes, COSYVOICE_SAMPLE_RATE, out_wav)
+        duration = len(pcm_bytes) / 2 / COSYVOICE_SAMPLE_RATE
 
-        duration = len(pcm_bytes) / 2 / COSYVOICE_SAMPLE_RATE   # int16 = 2 bytes/sample
-        elapsed = time.time() - t0
-
-        # Generate approximate VTT using character-proportional timing
         vtt_content = self._generate_approx_vtt(text, duration)
         out_vtt.write_text(vtt_content, encoding="utf-8")
 
         return TTSResult(
-            wav_path=str(out_wav),
-            vtt_path=str(out_vtt),
-            provider_used="cosyvoice",
-            duration_s=duration,
-            success=True,
+            wav_path=str(out_wav), vtt_path=str(out_vtt),
+            provider_used="cosyvoice", duration_s=duration, success=True,
         )
 
+    # ── multipart builder (no external deps) ─────────────────────────────────
+
+    def _build_multipart(self, boundary: str, fields: dict, files: dict) -> bytes:
+        parts = []
+        sep = f"--{boundary}\r\n".encode()
+        for name, value in fields.items():
+            parts.append(sep)
+            parts.append(f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode())
+            parts.append(value.encode("utf-8"))
+            parts.append(b"\r\n")
+        for name, (filename, data, ctype) in files.items():
+            parts.append(sep)
+            parts.append(
+                f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+                f'Content-Type: {ctype}\r\n\r\n'.encode()
+            )
+            parts.append(data)
+            parts.append(b"\r\n")
+        parts.append(f"--{boundary}--\r\n".encode())
+        return b"".join(parts)
+
+    # ── approximate VTT from punctuation splits ───────────────────────────────
+
     def _generate_approx_vtt(self, text: str, duration_s: float) -> str:
-        """Generate approximate VTT by splitting text at punctuation boundaries."""
-        import re
         segments = re.split(r'([，。！？、；,.!?;])', text)
         chunks = []
         current = ""
@@ -175,7 +196,6 @@ class CosyVoiceProvider:
         total_chars = sum(len(c) for c in chunks) or 1
         lines = ["WEBVTT", ""]
         current_ms = 0
-
         for chunk in chunks:
             char_ratio = len(chunk) / total_chars
             end_ms = current_ms + int(char_ratio * duration_s * 1000)
@@ -183,7 +203,6 @@ class CosyVoiceProvider:
             lines.append(chunk)
             lines.append("")
             current_ms = end_ms
-
         return "\n".join(lines)
 
     def _ms_to_vtt(self, ms: int) -> str:

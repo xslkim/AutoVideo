@@ -11,10 +11,10 @@ This is the **AutoVideo** base framework — a shell + Node.js + Remotion system
 ```bash
 bash run.sh \
   --script   ./script.md \           # required: narration + inline asset descriptions (see INPUT_SPEC.md)
-  --repo     /path/to/source-repo \  # required: codebase to draw code samples from
+  [--repo    /path/to/source-repo]   # optional: codebase to draw code samples from
   [--out-dir ~/my-video]             # default: ~/teaching-video-YYYYMMDD-HHMMSS
   [--model   opus|sonnet]            # default: opus
-  [--voice   zh-CN-YunxiNeural]      # edge-tts voice
+  [--voice   zh-CN-YunxiNeural]      # edge-tts fallback voice
   [--aspect  16:9|9:16|1:1]          # resolution: 1920×1080 / 1080×1920 / 1080×1080
   [--source-files "src/foo.cpp,..."]  # comma-separated repo-relative paths; auto-detected if omitted
   [--max-turns 200]
@@ -26,7 +26,7 @@ bash run.sh \
 
 To resume a failed run:
 ```bash
-bash run.sh --resume --out-dir ~/my-video --script ./script.md --repo /path/to/repo
+bash run.sh --resume --out-dir ~/my-video --script ./script.md
 ```
 
 ## Architecture: Base Repo vs. Project Directory
@@ -109,142 +109,132 @@ Task IDs follow `T{stage}{seq}_{name}` (e.g. `T20_tts_B01` = Stage 2, TTS for bl
 
 ---
 
-# 全自动视频制作 Agent 指令
+# 全自动视频制作 Agent 指令（v2）
 
-> 本文件由 run.sh 自动生成，包含项目专属配置。通用工作流详见 VIDEO_WORKFLOW.md。
+> 本文件由 run.sh 自动生成，包含项目专属配置。完整工作流详见 VIDEO_WORKFLOW.md。
 
 ## 你的角色
 
-你是一个全自动视频制作 Agent。你的任务是将口播稿（含内嵌素材描述）转化为一个完整的视频文件（MP4）。
+你是全自动视频制作 Agent（v2）。将 v2 格式口播稿编译为 `blocks.json`，经过 TTS、组件生成、时序装配，最终输出 MP4。
 
 ## 项目配置
 
-- 配置文件: `video-agent-config.json`（启动时第一时间读取）
+- 配置文件: `video-agent-config.json`（**启动后第一时间读取**）
 - 视频标题: {{VIDEO_TITLE}}
-- 源码仓库: {{REPO_DIR}}
-- TTS 声音: {{VOICE}}
+- TTS 声音（edge 兜底）: {{VOICE}}
 - 分辨率: {{WIDTH}}x{{HEIGHT}}
 
 ## 关键文件
 
 | 文件 | 用途 |
 |------|------|
-| `video-agent-config.json` | 项目配置（路径、声音、尺寸等） |
-| `VIDEO_WORKFLOW.md` | 完整工作流参考（6 个 Stage 的实现细节） |
-| `src/data/script.md` | 口播稿 + 内嵌素材描述（唯一输入文件） |
-| `src/data/source-samples/` | 代码样本文件（用于代码展示素材） |
-| `pipeline-state.json` | 流水线状态追踪（断点续跑） |
-| `scripts/*.sh` | 状态管理脚本 |
+| `video-agent-config.json` | 项目配置（路径、TTS、尺寸等） |
+| `VIDEO_WORKFLOW.md` | **完整执行手册**（Stage 0–6 每步命令） |
+| `src/data/script.md` | v2 格式口播稿（唯一输入） |
+| `src/data/source-samples/` | 代码样本文件 |
+| `blocks.json` | Stage 1 编译产物，后续所有 Stage 的数据源 |
+| `pipeline-state.json` | 任务状态图（断点续跑） |
+| `scripts/` | 状态管理脚本 + TTS router |
 
-## 执行规则
-
-### 1. 启动
+## 启动流程
 
 ```
 1. 读取 video-agent-config.json
-2. 读取 VIDEO_WORKFLOW.md 了解每个 Stage 的实现细节
-3. 检查 pipeline-state.json 是否存在：
-   - 存在 → 断点续跑，跳过已完成任务
-   - 不存在 → 从头开始
+2. 读取 VIDEO_WORKFLOW.md（全文）
+3. 检查 pipeline-state.json：
+   存在 → 断点续跑，跳过 completed/skipped 任务
+   不存在 → 从头执行 Stage 0 → Stage 6
 ```
 
-### 2. 阶段概览
+## Stage 概览
 
 ```
-Stage 0: 环境检测（系统依赖、Node.js、edge-tts、Remotion）
-Stage 1: 脚本解析（口播稿 → blocks.json）
-Stage 2: 语音合成（edge-tts → MP3 + VTT → JSON）    ← 与 Stage 3 并行
-Stage 3: 视觉素材（React 组件生成）                   ← 与 Stage 2 并行
-Stage 4: Remotion 工程编排（组装所有组件 + 音频）
-Stage 5: 渲染输出（Remotion render → MP4）
-Stage 6: 后处理 + 校验（音频标准化 + 质量检查）
+Stage 0: 环境搭建（apt、Node、Python venv、Remotion init、启动 CosyVoice 服务）
+Stage 1: 脚本编译（compile-script.mjs: script.md → blocks.json）
+Stage 2: 音频合成（TTS router → WAV + VTT + 字幕切段）  ← 与 Stage 3 并行
+Stage 3: 视觉资产（代码预处理 + animation 组件生成）      ← 与 Stage 2 并行
+Stage 4: 时序装配（帧计算 + 主音轨拼接 + Video.tsx）
+Stage 5: Remotion 渲染（→ MP4）
+Stage 6: 后处理（音频标准化 + 质量校验）
 ```
 
-### 3. 状态管理
+## Task ID 规范
 
-每个任务执行前后必须更新状态：
+```
+T00_sudo_check          T01_apt_install         T02_nodejs
+T03_python              T04_cosyvoice_server     T05_remotion_init
+T06_copy_templates      T07_env_verify
+T10_compile_script
+T20_tts_B{nn}           T21_vtt_align_B{nn}     T22_subtitle_B{nn}
+T31_component_B{nn}
+T40_timing              T41_master_audio        T42_compose_video
+T43_compile_check
+T50_preview_frames      T51_full_render
+T60_normalize           T61_quality_check
+```
+
+## 状态管理
 
 ```bash
-# 开始任务
 bash scripts/update-task.sh pipeline-state.json T20_tts_B01 running
-
-# 完成任务
-bash scripts/update-task.sh pipeline-state.json T20_tts_B01 completed "28.5s"
-
-# 任务失败
-bash scripts/update-task.sh pipeline-state.json T20_tts_B01 error "edge-tts timeout"
+bash scripts/update-task.sh pipeline-state.json T20_tts_B01 completed "11.2s"
+bash scripts/update-task.sh pipeline-state.json T20_tts_B01 error "timeout"
 ```
 
-### 4. 并行执行
+## TTS 路由规则
 
-- Stage 2（所有 TTS 块）和 Stage 3（所有组件）**必须并行**
-- 同一 Stage 内的独立任务尽量并行
-- 使用 shell 后台任务 `&` + `wait` 实现 TTS 并行
+TTS 通过 `scripts/tts/router.py` 调用，**自动选择**最佳 provider：
+- 纯中文短句 → edge-tts（兜底，无需服务）
+- 中英混读 / 有代码术语 / 有强调词 → **CosyVoice**（本地 GPU）
+- CosyVoice 不可用 → edge-tts 兜底
 
-### 5. 错误处理
+```bash
+# 合成单个 block
+source ~/video-agent-venv/bin/activate
+python3 scripts/tts/router.py blocks.json B03 public/audio/ \
+  --config video-agent-config.json
+# 输出: public/audio/B03.wav + B03.vtt + B03.meta.json
+```
 
-- 每个任务最多重试 3 次
-- 重试间隔：TTS 5秒，apt/npm 10秒
-- 超过重试次数 → 标记为终态错误，继续其他不依赖此任务的分支
-- 致命错误（Stage 0 环境不可用、Stage 4 编译失败）→ 停止整个流水线
+**并行执行 TTS**（Stage 2 必须这样做）：
 
-### 6. 口播稿解析关键规则（Stage 1）
+```bash
+for BLOCK_ID in $(jq -r '.blocks[].id' blocks.json); do
+  (
+    source ~/video-agent-venv/bin/activate
+    python3 scripts/tts/router.py blocks.json "$BLOCK_ID" public/audio/ \
+      --config video-agent-config.json \
+      && bash scripts/update-task.sh pipeline-state.json "T20_tts_${BLOCK_ID}" completed \
+      || bash scripts/update-task.sh pipeline-state.json "T20_tts_${BLOCK_ID}" error
+  ) &
+done
+wait
+```
 
-口播稿采用统一格式：旁白文字和素材描述写在同一个文件中，以 `>>>` 标记分割。
+## 组件生成原则（Stage 3）
 
-**`>>>` 块解析：**
+对 `type: animation` 的 block，在 `src/blocks/{id}/Component.tsx` 生成 React 组件：
 
-| 部分 | 识别方式 | 处理 |
-|------|---------|------|
-| `>>>` 行 | `>>>` 开头 | 提取素材标题，不纳入 TTS |
-| `**[类型]**` 行 | 紧跟 `>>>` 行之后 | 提取素材类型 |
-| 素材描述 | 类型行之后到第一个空行 | 供 Stage 3 组件生成 |
-| 旁白文字 | 空行之后到下一个 `>>>` | 纳入 TTS + 字幕 |
-| 开场块 | 第一个 `>>>` 之前的文字 | 使用标题卡画面 |
+```typescript
+// 必须满足此签名
+interface AnimationProps {
+  frame: number;
+  durationInFrames: number;
+  rect: { x: number; y: number; w: number; h: number };
+  theme: Theme;
+  fps: number;
+}
+```
 
-**旁白文字中的特殊标记：**
+- 使用 Remotion `useCurrentFrame()`、`interpolate()`、`spring()`
+- 优先 CSS/SVG，不依赖外部图片
+- 实在难以实现 → 将 block 的 `visual.content.type` 改为 `textcard` 降级
+- `type: code` 的 block 需在此阶段用 shiki 预处理代码，写入 `spec.__lines`（见 VIDEO_WORKFLOW.md §3.2）
 
-| 标记 | 含义 | 处理 |
-|------|------|------|
-| 空行 | 字幕块分隔 | TTS 短暂停顿 ~0.3s，字幕切换到下一块 |
-| `（停顿）` | 额外静音 1s | 插入静音，不显示字幕 |
-| `（长停顿）` | 额外静音 2s + 黑屏过渡 | 用于主题切换 |
-| `**加粗**` | 字幕高亮词 | 字幕中用强调色显示 |
-| 块内硬换行 | 字幕行分割 | 保留为字幕内的行分割（TTS 连读） |
+## 完成标准
 
-**字幕行长度上限**（从 `config.aspect` 派生）：
-- 16:9 → 每行 ≤ 20 个中文字符
-- 9:16 → 每行 ≤ 14 个中文字符
-- 1:1 → 每行 ≤ 16 个中文字符
-
-超长行自动在标点处断行，并输出 WARNING。
-
-### 7. 组件生成原则（Stage 3）
-
-你需要根据 `blocks.json` 中每个 block 的 `asset.description` 和 `asset.rawMarkdown` **动态生成** React 组件：
-- 不要硬编码内容，根据描述创建匹配的视觉效果
-- 所有组件使用统一 THEME（见 VIDEO_WORKFLOW.md §3.2）
-- 每个组件接收 `durationInFrames: number` 作为 prop
-- 使用 Remotion 的 `useCurrentFrame()`、`interpolate()`、`spring()` 做动画
-- 优先用 CSS/SVG 绘制，不依赖外部图片
-- 开场块（无 asset）使用 TitleCard 组件显示视频标题
-- 如果某个组件实在难以实现，用通用 TextCard 降级显示文字描述
-
-### 8. 字幕渲染规则（Stage 4）
-
-字幕组件 `SubtitleOverlay` 需要处理：
-- 从 `blocks.json` 的 `subtitleBlocks` 读取分块信息
-- 与 Stage 2 的 VTT 时间戳配合，在正确的时间显示正确的字幕块
-- `highlights` 中的词用 `THEME.textAccent` 颜色高亮
-- 每块最多显示 2 行
-- 块间切换用快速淡入淡出（0.15s）
-
-### 9. 完成标准
-
-最终输出 `output/final_normalized.mp4`，满足：
-- 分辨率: {{WIDTH}}x{{HEIGHT}}
-- 编码: h264 + aac
-- 时长: 与口播稿匹配（允许 ±15% 偏差）
-- 非纯黑帧（5 个抽帧点均有画面内容）
-- 中文正确显示
-- 字幕无溢出/换行异常
+`output/final_normalized.mp4` 满足：
+- 分辨率 {{WIDTH}}×{{HEIGHT}}，h264 + aac
+- 时长与口播稿匹配（±15% 以内）
+- 5 个抽帧点均有画面内容（非纯黑）
+- 中文字幕正确显示，无溢出

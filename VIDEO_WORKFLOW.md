@@ -77,12 +77,50 @@ VENV_DIR=~/video-agent-venv
 [ -f "$VENV_DIR/bin/activate" ] || python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 pip install -q edge-tts
-
-# 可选：Azure TTS（如有 AZURE_SPEECH_KEY）
-[ -n "$AZURE_SPEECH_KEY" ] && pip install -q azure-cognitiveservices-speech
 ```
 
-### 0.4 初始化 Remotion 项目
+### 0.4 启动 CosyVoice 服务（本地 GPU TTS）
+
+CosyVoice 是主力 TTS 引擎（中英混读质量最佳）。必须在 TTS 任务开始前启动。
+
+```bash
+COSYVOICE_DIR="/home/ubuntu/tools/CosyVoice"
+COSYVOICE_LOG="/tmp/cosyvoice-server.log"
+COSYVOICE_PORT=50000
+
+# 检查服务是否已在运行
+if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${COSYVOICE_PORT}/inference_sft" \
+    2>/dev/null | grep -qE "200|422"; then
+  echo "[CosyVoice] 服务已在运行"
+else
+  echo "[CosyVoice] 启动服务..."
+  cd "$COSYVOICE_DIR"
+  source .venv/bin/activate
+  nohup python runtime/python/fastapi/server.py \
+    --port "$COSYVOICE_PORT" \
+    --model_dir pretrained_models/CosyVoice2-0.5B \
+    > "$COSYVOICE_LOG" 2>&1 &
+  COSYVOICE_PID=$!
+  echo "[CosyVoice] PID=$COSYVOICE_PID，等待模型加载..."
+
+  # 等待最多 60 秒
+  for i in $(seq 1 30); do
+    sleep 2
+    if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${COSYVOICE_PORT}/inference_sft" \
+        2>/dev/null | grep -qE "200|422"; then
+      echo "[CosyVoice] 服务就绪（${i}*2s）"
+      break
+    fi
+    if [ $i -eq 30 ]; then
+      echo "[CosyVoice] 启动超时，TTS 将降级到 edge-tts（不影响流程）"
+    fi
+  done
+  cd -
+fi
+deactivate 2>/dev/null || true
+```
+
+### 0.5 初始化 Remotion 项目
 
 **先读取 `video-agent-config.json` 获取 `projectDir`。**
 
@@ -102,7 +140,7 @@ npm install --save-dev \
   @types/node typescript ts-node
 ```
 
-### 0.5 复制 Remotion 模板文件
+### 0.6 复制 Remotion 模板文件
 
 从 `agentDir/templates/` 复制引擎核心文件：
 
@@ -138,7 +176,7 @@ Config.setBrowserExecutable(
 Config.setConcurrency(2);
 ```
 
-### 0.6 初始化 pipeline-state.json
+### 0.7 初始化 pipeline-state.json
 
 **在读取 script.md 之前，必须先创建 pipeline-state.json 的骨架，后续 Stage 1 会在解析完 blocks 后补全任务列表。**
 
@@ -148,13 +186,14 @@ cat > pipeline-state.json << 'EOF'
   "version": "2.0",
   "blocks": {},
   "global": {
-    "T00_sudo_check":   { "status": "completed" },
-    "T01_apt_install":  { "status": "completed" },
-    "T02_nodejs":       { "status": "completed" },
-    "T03_python":       { "status": "completed" },
-    "T04_remotion":     { "status": "completed" },
-    "T05_copy_sources": { "status": "completed" },
-    "T06_env_verify":   { "status": "pending" },
+    "T00_sudo_check":        { "status": "completed" },
+    "T01_apt_install":       { "status": "completed" },
+    "T02_nodejs":            { "status": "completed" },
+    "T03_python":            { "status": "completed" },
+    "T04_cosyvoice_server":  { "status": "completed" },
+    "T05_remotion_init":     { "status": "completed" },
+    "T06_copy_templates":    { "status": "completed" },
+    "T07_env_verify":        { "status": "pending" },
     "T10_compile_script": { "status": "pending" },
     "T40_timing":       { "status": "pending" },
     "T41_compose_root": { "status": "pending" },
@@ -391,41 +430,25 @@ interface AnimationProps {
 保存到：src/blocks/{id}/Component.tsx
 ```
 
-### 3.3 为 code 类型预处理源码
+### 3.3 为 code 类型预处理源码（shiki 语法高亮）
+
+使用 `scripts/preprocess-code.mjs` 对所有 `type: code` 的 block 进行 shiki 语法高亮，
+将 token 数组写入 `blocks.json` 的 `spec.__lines` 字段供 `Code.tsx` 渲染。
 
 ```bash
-preprocess_code() {
-  local ID="$1"
-  local SPEC=$(jq -r ".blocks[] | select(.id == \"$ID\") | .visual.content.spec" blocks.json)
-  local SOURCE=$(echo "$SPEC" | jq -r '.source // empty')
-  local RANGE_START=$(echo "$SPEC" | jq -r '.range[0] // 1')
-  local RANGE_END=$(echo "$SPEC" | jq -r '.range[1] // 9999')
+AGENT_DIR=$(jq -r .agentDir video-agent-config.json)
+node "$AGENT_DIR/scripts/preprocess-code.mjs" \
+  blocks.json \
+  src/data/source-samples/
+```
 
-  SRC_FILE="src/data/source-samples/$SOURCE"
-  if [ -z "$SOURCE" ] || [ ! -f "$SRC_FILE" ]; then return; fi
-
-  # Extract lines and embed into blocks.json as __lines
-  node -e "
-    const fs = require('fs');
-    const lines = fs.readFileSync('$SRC_FILE', 'utf-8').split('\n');
-    const start = $RANGE_START - 1;
-    const end   = Math.min($RANGE_END, lines.length);
-    const sliced = lines.slice(start, end);
-
-    const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
-    const blk = blocks.blocks.find(b => b.id === '$ID');
-    if (blk && blk.visual.content.type === 'code') {
-      blk.visual.content.spec.__lines = sliced;
-      blk.artifacts.assetFiles = ['$SRC_FILE'];
-    }
-    fs.writeFileSync('blocks.json', JSON.stringify(blocks, null, 2));
-    console.log('Code preprocessed for $ID:', sliced.length, 'lines');
-  "
-}
-export -f preprocess_code
-
-jq -r '.blocks[] | select(.visual.content.type == "code") | .id' blocks.json | \
-  xargs -I{} bash -c 'preprocess_code "$@"' _ {}
+输出示例：
+```
+[preprocess-code] Processing 3 code block(s)...
+[preprocess-code] B02: microgpt.py [29-72] → 44 lines (lang: python)
+[preprocess-code] B05: microgpt.py [74-90] → 17 lines (lang: python)
+[preprocess-code] B09: microgpt.py [146-184] → 39 lines (lang: python)
+[preprocess-code] Done. Modified 3 block(s) in blocks.json
 ```
 
 ---

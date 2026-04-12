@@ -52,9 +52,9 @@ while [[ $# -gt 0 ]]; do
 
 必选参数:
   --script FILE       口播稿 Markdown 文件（含内嵌素材描述，格式见 INPUT_SPEC.md）
-  --repo   DIR        项目 Git 仓库路径（用于代码展示素材）
 
 可选参数:
+  --repo   DIR        项目 Git 仓库路径（用于代码展示素材，可省略）
   --out-dir DIR       输出项目目录（默认: ~/teaching-video-YYYYMMDD-HHMMSS）
   --model MODEL       Claude 模型: opus / sonnet（默认: opus）
   --voice VOICE       TTS 声音（默认: zh-CN-YunxiNeural）
@@ -74,9 +74,8 @@ done
 err() { echo "ERROR: $1" >&2; exit 1; }
 
 [[ -n "$SCRIPT_FILE" ]] || err "缺少 --script 参数"
-[[ -n "$REPO_DIR" ]]    || err "缺少 --repo 参数"
 [[ -f "$SCRIPT_FILE" ]] || err "口播稿文件不存在: $SCRIPT_FILE"
-[[ -d "$REPO_DIR" ]]    || err "仓库目录不存在: $REPO_DIR"
+[[ -z "$REPO_DIR" ]] || [[ -d "$REPO_DIR" ]] || err "仓库目录不存在: $REPO_DIR"
 
 # ── 查找 claude CLI（延迟到实际需要时才报错） ──
 find_claude() {
@@ -125,7 +124,9 @@ mkdir -p "$OUT_DIR"/{src/data/source-samples,public/audio,output,logs,scripts,as
 cp "$SCRIPT_FILE" "$OUT_DIR/src/data/script.md"
 
 # ── 自动检测或复制源码文件 ──
-if [[ -n "$SOURCE_FILES" ]]; then
+if [[ -z "$REPO_DIR" ]]; then
+  echo "未指定 --repo，跳过源码文件复制"
+elif [[ -n "$SOURCE_FILES" ]]; then
   # 用户指定的文件
   IFS=',' read -ra FILES <<< "$SOURCE_FILES"
   for f in "${FILES[@]}"; do
@@ -195,14 +196,17 @@ jq -n \
     voice: $voice, model: $model, width: $width, height: $height, fps: $fps, aspect: $aspect,
     tts: {
       strategy: "auto",
-      edge:       { voice: $voice },
-      azure:      { voice: "zh-CN-YunyiMultilingualNeural", region: "eastasia" },
-      cosyvoice:  { endpoint: "http://127.0.0.1:50000", voice: "中文男" },
+      edge:      { voice: $voice },
+      cosyvoice: {
+        endpoint:    "http://127.0.0.1:50000",
+        promptWav:   "assets/voice-prompts/default.wav",
+        promptText:  "希望你以后能够做的比我还好呦。"
+      },
       routing: {
         mixedLangThreshold: 0.15,
         minLengthForUpgrade: 30,
         upgradeOnEmphasis: true,
-        fallbackChain: ["cosyvoice","azure","edge"]
+        fallbackChain: ["cosyvoice","edge"]
       }
     }}' \
   > "$OUT_DIR/video-agent-config.json"
@@ -218,6 +222,14 @@ chmod +x "$OUT_DIR/scripts/"*.sh
 mkdir -p "$OUT_DIR/scripts/tts/providers"
 cp "$AGENT_DIR/scripts/tts/"*.py           "$OUT_DIR/scripts/tts/"         2>/dev/null || true
 cp "$AGENT_DIR/scripts/tts/providers/"*.py "$OUT_DIR/scripts/tts/providers/" 2>/dev/null || true
+
+# 复制 CosyVoice 默认音色参考音频
+COSYVOICE_PROMPT="/home/ubuntu/tools/CosyVoice/asset/zero_shot_prompt.wav"
+if [[ -f "$COSYVOICE_PROMPT" ]]; then
+  cp "$COSYVOICE_PROMPT" "$OUT_DIR/assets/voice-prompts/default.wav"
+else
+  echo "WARN: CosyVoice 参考音频不存在: $COSYVOICE_PROMPT（TTS 将降级到 edge-tts）"
+fi
 
 # ── 生成项目 CLAUDE.md ──
 sed \
