@@ -10,7 +10,7 @@ set -euo pipefail
 #     --visual    ./素材指南.md \
 #     --repo      /path/to/project-repo \
 #     --out-dir   ~/my-video              # 可选，默认 ~/teaching-video-$(date)
-#     --model     opus                    # 可选，默认 opus
+#     --model     sonnet                  # 可选，默认 sonnet
 #     --voice     zh-CN-YunxiNeural       # 可选，默认 zh-CN-YunxiNeural
 #     --aspect    16:9                    # 可选，默认 16:9（支持 9:16 竖屏）
 #     --source-files "src/core/Foo.h,src/Bar.cpp"  # 可选，展示的代码文件
@@ -24,10 +24,11 @@ AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_FILE=""
 REPO_DIR=""
 OUT_DIR=""
-MODEL="opus"
+MODEL="sonnet"
 VOICE="zh-CN-YunxiNeural"
 ASPECT="16:9"
 SOURCE_FILES=""
+REUSE_FROM=""
 RESUME=false
 DRY_RUN=false
 MAX_TURNS=200
@@ -43,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --voice)        VOICE="$2"; shift 2 ;;
     --aspect)       ASPECT="$2"; shift 2 ;;
     --source-files) SOURCE_FILES="$2"; shift 2 ;;
+    --reuse-from)   REUSE_FROM="$(realpath "$2")"; shift 2 ;;
     --max-turns)    MAX_TURNS="$2"; shift 2 ;;
     --resume)       RESUME=true; shift ;;
     --dry-run)      DRY_RUN=true; shift ;;
@@ -56,11 +58,12 @@ while [[ $# -gt 0 ]]; do
 可选参数:
   --repo   DIR        项目 Git 仓库路径（用于代码展示素材，可省略）
   --out-dir DIR       输出项目目录（默认: ~/teaching-video-YYYYMMDD-HHMMSS）
-  --model MODEL       Claude 模型: opus / sonnet（默认: opus）
+  --model MODEL       Claude 模型: opus / sonnet（默认: sonnet）
   --voice VOICE       TTS 声音（默认: zh-CN-YunxiNeural）
   --aspect RATIO      画面比例: 16:9 / 9:16 / 1:1（默认: 16:9）
   --source-files LIST 要展示的代码文件，逗号分隔的相对路径（相对于 repo）
                       省略则自动选择 repo 中最有代表性的文件
+  --reuse-from DIR    上一个项目目录，扫描可复用的动画组件（Stage 3 使用）
   --max-turns N       Claude 最大工具调用轮数（默认: 200）
   --resume            断点续跑（检测已有 pipeline-state.json）
   --dry-run           只初始化项目目录，不启动 Claude
@@ -190,7 +193,9 @@ jq -n \
   --argjson height "$HEIGHT" \
   --argjson fps 30 \
   --arg aspect "$ASPECT" \
+  --arg reuseFrom "$REUSE_FROM" \
   '{title: $title, repoDir: $repoDir, projectDir: $projectDir, agentDir: $agentDir,
+    reuseFrom: $reuseFrom,
     scriptFile: $scriptFile,
     sourceCodeSamples: $sourceCodeSamples, sourceFileList: $sourceFileList,
     voice: $voice, model: $model, width: $width, height: $height, fps: $fps, aspect: $aspect,
@@ -241,6 +246,23 @@ sed \
   -e "s|{{VIDEO_TITLE}}|$VIDEO_TITLE|g" \
   "$AGENT_DIR/CLAUDE.md" > "$OUT_DIR/CLAUDE.md"
 
+# ── 资产复用扫描（可选） ──
+if [[ -n "$REUSE_FROM" ]]; then
+  if [[ ! -d "$REUSE_FROM" ]]; then
+    echo "WARN: --reuse-from 目录不存在: $REUSE_FROM，跳过复用扫描"
+  else
+    echo "扫描可复用资产: $REUSE_FROM ..."
+    node "$AGENT_DIR/scripts/scan-reusable-assets.mjs" \
+      --prev-project "$REUSE_FROM" \
+      --new-blocks   "$OUT_DIR/src/data/script.md" \
+      --out          "$OUT_DIR/reuse-plan.json" \
+      2>/dev/null || echo "WARN: 资产扫描失败（脚本可能还未运行 Stage 1 编译），Stage 3 时 Agent 可手动运行"
+    if [[ -f "$OUT_DIR/reuse-plan.json" ]]; then
+      echo "复用计划已生成: $OUT_DIR/reuse-plan.json"
+    fi
+  fi
+fi
+
 # ── 磁盘空间预检 ──
 AVAIL_KB=$(df --output=avail "$OUT_DIR" | tail -1)
 AVAIL_GB=$((AVAIL_KB / 1024 / 1024))
@@ -264,6 +286,7 @@ cat << SUMMARY
   TTS 声音: $VOICE
   画面尺寸: ${WIDTH}x${HEIGHT} ($ASPECT)
   模型:     $MODEL
+  复用来源: ${REUSE_FROM:-（无）}
   断点续跑: $RESUME
   磁盘空间: ${AVAIL_GB}GB 可用
 

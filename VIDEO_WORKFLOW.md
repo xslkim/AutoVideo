@@ -289,7 +289,13 @@ bash scripts/update-task.sh pipeline-state.json T10_compile_script completed \
 **Stage 2 和 Stage 3 必须并行。** 每个 block 的三个子任务顺序依赖：
 `T20_tts_B{xx}` → `T21_vtt_B{xx}` → `T22_sub_B{xx}`
 
-### 2.1 TTS 合成（每块独立）
+### 2.1 TTS 合成（每块独立，自动走全局缓存）
+
+`router.py` 在合成前自动查询 `~/.autovideo-cache/`：
+- **命中** → 直接复制缓存文件，跳过模型调用，日志打印 `cache hit (xxxxxxxx…)`
+- **未命中** → 正常合成，成功后自动写入缓存
+
+缓存 key = MD5(narration文本归一化 + voice名称 + TTS provider)，任一项变化即失效。
 
 ```bash
 source ~/video-agent-venv/bin/activate
@@ -385,18 +391,103 @@ node -e "
 
 主题来自 `src/engine/theme.ts`，无需修改。
 
-### 3.2 为 animation 类型生成 React 组件
+### 3.2 检查并应用复用计划（reuse-plan.json）
 
-对每个 `visual.content.type === 'animation'` 的 block，生成 `src/blocks/{id}/Component.tsx`：
+**优先复用上一个项目的动画组件，避免重复生成。**
+
+如果 `reuse-plan.json` 存在（由 `run.sh --reuse-from` 生成），先处理复用：
 
 ```bash
-bash scripts/update-task.sh pipeline-state.json "T31_component_${ID}" running
-
-# 创建目录
-mkdir -p "src/blocks/${ID}"
+if [[ -f reuse-plan.json ]]; then
+  # 对每个匹配到的 block，直接复制组件文件
+  node -e "
+    const plan = JSON.parse(require('fs').readFileSync('reuse-plan.json','utf8'));
+    const fs = require('fs');
+    const path = require('path');
+    for (const [newId, m] of Object.entries(plan.components)) {
+      const destDir = path.dirname(m.destPath);
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.copyFileSync(m.sourcePath, m.destPath);
+      console.log('Reused:', newId, '<-', m.sourceBlock, '(conf='+m.confidence.toFixed(2)+')');
+    }
+    // 复制图片
+    for (const [filename, im] of Object.entries(plan.images || {})) {
+      const destDir = path.dirname(im.destPath);
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.copyFileSync(im.sourcePath, im.destPath);
+      console.log('Reused image:', filename);
+    }
+  "
+  # 对每个复用的 block，标记 T31 为 completed
+  for BLOCK_ID in $(node -e "const p=JSON.parse(require('fs').readFileSync('reuse-plan.json','utf8')); console.log(Object.keys(p.components).join(' '))"); do
+    bash scripts/update-task.sh pipeline-state.json "T31_component_${BLOCK_ID}" completed "reused from prev project"
+  done
+fi
 ```
 
-**组件生成 Prompt（内嵌在 Agent 执行流程里）：**
+如果还未有 `reuse-plan.json` 但 `video-agent-config.json` 里有 `reuseFrom` 字段，手动生成：
+
+```bash
+REUSE_FROM=$(jq -r '.reuseFrom // empty' video-agent-config.json)
+AGENT_DIR=$(jq -r '.agentDir' video-agent-config.json)
+if [[ -n "$REUSE_FROM" && -d "$REUSE_FROM" ]]; then
+  node "$AGENT_DIR/scripts/scan-reusable-assets.mjs" \
+    --prev-project "$REUSE_FROM" \
+    --new-blocks   blocks.json \
+    --out          reuse-plan.json
+fi
+```
+
+### 3.3 为 animation 类型生成 React 组件
+
+对每个 `visual.content.type === 'animation'` 的 block（**跳过已在 3.2 复用的**），
+**先查全局缓存**，命中则直接复制，跳过模型调用：
+
+```bash
+AGENT_DIR=$(jq -r .agentDir video-agent-config.json)
+
+# 将当前 block 导出为临时 JSON 文件供 cache.mjs 使用
+node -e "
+  const b = require('./blocks.json').blocks.find(b => b.id === process.argv[1]);
+  require('fs').writeFileSync('/tmp/block-\${ID}.json', JSON.stringify(b));
+" "$ID"
+
+# 计算 hash（包含 spec 全部字段；code 块还包含实际源码行内容）
+HASH=$(node "$AGENT_DIR/scripts/cache.mjs" hash \
+  --type component \
+  --block-json "/tmp/block-${ID}.json" \
+  --source-dir src/data/source-samples)
+
+# 查缓存
+CACHE_RESULT=$(node "$AGENT_DIR/scripts/cache.mjs" lookup --hash "$HASH" --type component 2>/dev/null)
+CACHE_HIT=$(echo "$CACHE_RESULT" | node -e "process.stdin.resume();let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.parse(d).hit||false))" 2>/dev/null)
+
+if [[ "$CACHE_HIT" == "true" ]]; then
+  CACHED_FILE=$(echo "$CACHE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['file'])")
+  mkdir -p "src/blocks/${ID}"
+  cp "$CACHED_FILE" "src/blocks/${ID}/Component.tsx"
+  echo "[Stage3] ${ID}: cache hit (${HASH:0:8}…) — skipping generation"
+  bash scripts/update-task.sh pipeline-state.json "T31_component_${ID}" completed "cache-hit:${HASH:0:8}"
+else
+  # Cache miss — generate with AI (see prompt below), then store
+  bash scripts/update-task.sh pipeline-state.json "T31_component_${ID}" running
+  mkdir -p "src/blocks/${ID}"
+  # ... AI generation writes to src/blocks/${ID}/Component.tsx ...
+  # After generation:
+  node "$AGENT_DIR/scripts/cache.mjs" store \
+    --hash    "$HASH" \
+    --type    component \
+    --file    "src/blocks/${ID}/Component.tsx" \
+    --title   "$(jq -r ".blocks[] | select(.id==\"${ID}\") | .title" blocks.json)" \
+    --project "$(pwd)"
+  bash scripts/update-task.sh pipeline-state.json "T31_component_${ID}" completed
+fi
+```
+
+缓存 key = MD5(block.title + block.spec全字段)，对 code 块还包含实际源码行内容。
+`narration`、`timing`、`subtitles` 不影响视觉，不参与 hash。
+
+**组件生成 Prompt（cache miss 时，内嵌在 Agent 执行流程里）：**
 
 ```
 基于以下信息，生成一个 Remotion React 动画组件：
@@ -430,16 +521,16 @@ interface AnimationProps {
 保存到：src/blocks/{id}/Component.tsx
 ```
 
-### 3.3 为 code 类型预处理源码（shiki 语法高亮）
+### 3.4 为 code 类型预处理源码（shiki 语法高亮，带缓存）
 
-使用 `scripts/preprocess-code.mjs` 对所有 `type: code` 的 block 进行 shiki 语法高亮，
-将 token 数组写入 `blocks.json` 的 `spec.__lines` 字段供 `Code.tsx` 渲染。
+`preprocess-code.mjs` 内部对每个 code block 先查全局 shiki 缓存（key = 实际源码行内容 + lang + highlights + code-theme），命中直接读取，未命中才调用 shiki 并写入缓存。
 
 ```bash
 AGENT_DIR=$(jq -r .agentDir video-agent-config.json)
 node "$AGENT_DIR/scripts/preprocess-code.mjs" \
   blocks.json \
-  src/data/source-samples/
+  src/data/source-samples/ \
+  --cache-dir ~/.autovideo-cache
 ```
 
 输出示例：

@@ -43,17 +43,19 @@ const THEMES: Record<string, Theme> = {
       display: '"Noto Serif SC", "Source Han Serif SC", serif',
     },
     sizes: {
-      hero:     108,
-      title:    64,
-      subtitle: 48,
-      body:     38,
-      caption:  28,
-      code:     32,
+      hero:     120,   // was 108 — large title cards
+      title:    80,    // was 64
+      subtitle: 60,    // was 48 — main content labels
+      body:     52,    // was 38 — primary narration/explanation text
+      caption:  40,    // was 28
+      code:     44,    // was 32 — code blocks
+      narration: 56,   // subtitle strip at bottom
     },
-    subtitleSafeArea: { x: 0.05, y: 0.84, w: 0.9, h: 0.1 },
+    // Bottom strip: y=0.82, h=0.14 — gives ~150px at 1080p, enough for 2 lines
+    subtitleSafeArea: { x: 0.04, y: 0.82, w: 0.92, h: 0.14 },
     codeTheme: 'github-dark',
-    borderRadius: 12,
-    subtitleBg: 'rgba(0,0,0,0.65)',
+    borderRadius: 14,
+    subtitleBg: 'rgba(0,0,0,0.72)',
     subtitleFg: '#e6edf3',
   },
   'light': {
@@ -72,17 +74,18 @@ const THEMES: Record<string, Theme> = {
       display: '"Noto Serif SC", serif',
     },
     sizes: {
-      hero:     108,
-      title:    64,
-      subtitle: 48,
-      body:     38,
-      caption:  28,
-      code:     32,
+      hero:     120,
+      title:    80,
+      subtitle: 60,
+      body:     52,
+      caption:  40,
+      code:     44,
+      narration: 56,
     },
-    subtitleSafeArea: { x: 0.05, y: 0.84, w: 0.9, h: 0.1 },
+    subtitleSafeArea: { x: 0.04, y: 0.82, w: 0.92, h: 0.14 },
     codeTheme: 'github-light',
-    borderRadius: 12,
-    subtitleBg: 'rgba(255,255,255,0.8)',
+    borderRadius: 14,
+    subtitleBg: 'rgba(255,255,255,0.85)',
     subtitleFg: '#1f2328',
   },
 };

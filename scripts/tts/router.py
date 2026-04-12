@@ -26,6 +26,16 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import Optional
 
+# Global audio cache (imported lazily so missing file doesn't break anything)
+_cache_available = False
+try:
+    _scripts_dir = Path(__file__).parent.parent
+    sys.path.insert(0, str(_scripts_dir))
+    from cache_utils import AudioCache
+    _cache_available = True
+except Exception:
+    pass
+
 # ─── Routing config defaults ──────────────────────────────────────────────────
 
 DEFAULT_ROUTING = {
@@ -150,6 +160,45 @@ def synth_block(block: dict, config: dict, out_dir: Path, voice: str) -> TTSResu
         routing["strategy"] = strategy_override
 
     initial_provider = select_provider(narration, routing)
+
+    # ── Cache lookup ──────────────────────────────────────────────────────────
+    _audio_cache = None
+    _audio_hash  = None
+    if _cache_available:
+        try:
+            resolved_voice    = _resolve_voice(initial_provider, voice, tts_config)
+            _audio_cache      = AudioCache()
+            _audio_hash       = _audio_cache.compute_hash(text, resolved_voice, initial_provider)
+            hit               = _audio_cache.lookup(_audio_hash)
+            if hit:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                wav_path = out_dir / f"{block_id}.wav"
+                vtt_path = out_dir / f"{block_id}.vtt"
+                shutil.copy2(hit["wav"], wav_path)
+                shutil.copy2(hit["vtt"], vtt_path)
+                if hit.get("meta"):
+                    meta_src = Path(hit["meta"])
+                    if meta_src.exists():
+                        shutil.copy2(meta_src, out_dir / f"{block_id}.meta.json")
+                # Read duration from cached meta if available
+                duration_s = 0.0
+                try:
+                    cached_meta_path = out_dir / f"{block_id}.meta.json"
+                    if cached_meta_path.exists():
+                        duration_s = json.loads(cached_meta_path.read_text()).get("duration_s", 0.0)
+                except Exception:
+                    pass
+                print(f"[TTS] {block_id}: cache hit ({_audio_hash[:8]}…) → {wav_path}")
+                return TTSResult(
+                    wav_path=str(wav_path),
+                    vtt_path=str(vtt_path),
+                    provider_used=f"cache({initial_provider})",
+                    duration_s=duration_s,
+                    success=True,
+                )
+        except Exception as _ce:
+            print(f"[TTS] {block_id}: cache lookup failed (non-fatal): {_ce}", file=sys.stderr)
+    # ── End cache lookup ──────────────────────────────────────────────────────
     fallback_chain = routing.get("fallbackChain", ["cosyvoice", "edge"])
 
     # Build ordered list of providers to try
@@ -189,6 +238,23 @@ def synth_block(block: dict, config: dict, out_dir: Path, voice: str) -> TTSResu
             result.provider_used = provider_name
             if result.success:
                 print(f"[TTS] {block_id}: {provider_name} OK ({result.duration_s:.1f}s)")
+                # ── Cache store ───────────────────────────────────────────────
+                if _cache_available and _audio_cache and _audio_hash:
+                    try:
+                        meta_file = out_dir / f"{block_id}.meta.json"
+                        _audio_cache.store(
+                            hash_val  = _audio_hash,
+                            wav_path  = str(wav_path),
+                            vtt_path  = str(vtt_path),
+                            meta_path = str(meta_file) if meta_file.exists() else None,
+                            title     = block.get("title", block_id),
+                            project   = config.get("projectDir", str(out_dir)),
+                            provider  = provider_name,
+                        )
+                        print(f"[TTS] {block_id}: stored in cache ({_audio_hash[:8]}…)")
+                    except Exception as _se:
+                        print(f"[TTS] {block_id}: cache store failed (non-fatal): {_se}", file=sys.stderr)
+                # ── End cache store ───────────────────────────────────────────
                 return result
             else:
                 last_error = result.error or "unknown error"

@@ -13,10 +13,11 @@ bash run.sh \
   --script   ./script.md \           # required: narration + inline asset descriptions (see INPUT_SPEC.md)
   [--repo    /path/to/source-repo]   # optional: codebase to draw code samples from
   [--out-dir ~/my-video]             # default: ~/teaching-video-YYYYMMDD-HHMMSS
-  [--model   opus|sonnet]            # default: opus
+  [--model   opus|sonnet]            # default: sonnet
   [--voice   zh-CN-YunxiNeural]      # edge-tts fallback voice
   [--aspect  16:9|9:16|1:1]          # resolution: 1920×1080 / 1080×1920 / 1080×1080
   [--source-files "src/foo.cpp,..."]  # comma-separated repo-relative paths; auto-detected if omitted
+  [--reuse-from ~/prev-video]        # scan previous project for reusable animation components
   [--max-turns 200]
   [--resume]                         # continue from existing pipeline-state.json
   [--dry-run]                        # initialize project dir without launching Claude
@@ -151,8 +152,8 @@ Task IDs follow `T{stage}{seq}_{name}` (e.g. `T20_tts_B01` = Stage 2, TTS for bl
 ```
 Stage 0: 环境搭建（apt、Node、Python venv、Remotion init、启动 CosyVoice 服务）
 Stage 1: 脚本编译（compile-script.mjs: script.md → blocks.json）
-Stage 2: 音频合成（TTS router → WAV + VTT + 字幕切段）  ← 与 Stage 3 并行
-Stage 3: 视觉资产（代码预处理 + animation 组件生成）      ← 与 Stage 2 并行
+Stage 2: 音频合成（TTS router → WAV + VTT + 字幕切段，自动查全局缓存）  ← 与 Stage 3 并行
+Stage 3: 视觉资产（代码预处理 + animation 组件生成，自动查全局缓存）      ← 与 Stage 2 并行
 Stage 4: 时序装配（帧计算 + 主音轨拼接 + Video.tsx）
 Stage 5: Remotion 渲染（→ MP4）
 Stage 6: 后处理（音频标准化 + 质量校验）
@@ -213,7 +214,21 @@ wait
 
 ## 组件生成原则（Stage 3）
 
-对 `type: animation` 的 block，在 `src/blocks/{id}/Component.tsx` 生成 React 组件：
+**Step 1: 先检查复用计划**
+
+如果 `reuse-plan.json` 存在，先复用已匹配的组件（直接复制文件，标记 T31 为 completed "reused"）。
+如果 `video-agent-config.json` 的 `reuseFrom` 字段非空但无 `reuse-plan.json`，先运行扫描：
+
+```bash
+REUSE_FROM=$(jq -r '.reuseFrom // empty' video-agent-config.json)
+AGENT_DIR=$(jq -r '.agentDir' video-agent-config.json)
+[[ -n "$REUSE_FROM" ]] && node "$AGENT_DIR/scripts/scan-reusable-assets.mjs" \
+  --prev-project "$REUSE_FROM" --new-blocks blocks.json --out reuse-plan.json
+```
+
+**Step 2: 为未复用的 animation block 生成组件**
+
+对 `type: animation` 且 T31 未 completed 的 block，在 `src/blocks/{id}/Component.tsx` 生成 React 组件：
 
 ```typescript
 // 必须满足此签名
@@ -229,7 +244,26 @@ interface AnimationProps {
 - 使用 Remotion `useCurrentFrame()`、`interpolate()`、`spring()`
 - 优先 CSS/SVG，不依赖外部图片
 - 实在难以实现 → 将 block 的 `visual.content.type` 改为 `textcard` 降级
-- `type: code` 的 block 需在此阶段用 shiki 预处理代码，写入 `spec.__lines`（见 VIDEO_WORKFLOW.md §3.2）
+- `type: code` 的 block 需在此阶段用 shiki 预处理代码，写入 `spec.__lines`（见 VIDEO_WORKFLOW.md §3.4）
+
+## 全局资产缓存（~/.autovideo-cache）
+
+所有生成的音频和视觉组件都会被缓存到 `~/.autovideo-cache/`，下次内容相同时直接复用，无需重新调用模型或 TTS。
+
+```
+~/.autovideo-cache/
+  manifest.json          # 索引：hash → {type, title, project, createdAt, hitCount, files}
+  audio/{md5}.wav/vtt    # 缓存音频（key = 口播文本 + voice + provider）
+  components/{md5}.tsx   # 缓存动画组件（key = block.title + spec全字段 + 源码行内容）
+  shiki/{md5}.json       # 缓存 shiki 高亮结果（key = 源码行内容 + lang + highlights + theme）
+```
+
+**缓存规则：**
+- 音频 hash 输入：`narration`（归一化空白）+ `voice` + `provider`（edge/cosyvoice/...）
+- 组件 hash 输入：`title` + `spec.*`（全部字段，不含 narration/timing/subtitles）；code 块额外包含实际源码行内容
+- 任一输入变化 → hash 不同 → 自动重新生成
+- 缓存文件被删除 → 静默 miss，重新生成并重新写入缓存
+- 查看缓存统计：`node scripts/cache.mjs stats`
 
 ## 完成标准
 

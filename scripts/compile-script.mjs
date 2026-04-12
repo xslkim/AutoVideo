@@ -14,17 +14,23 @@ import path from 'node:path';
 
 // ─── Rect presets ────────────────────────────────────────────────────────────
 
+// NOTE: all presets keep y + h ≤ 0.80 to avoid overlapping the subtitle strip (y≥0.82).
 const RECT_PRESETS = {
   'fullscreen':   { x: 0,    y: 0,    w: 1,    h: 1    },
-  'safe':         { x: 0.05, y: 0.05, w: 0.9,  h: 0.75 },
-  'center-60':    { x: 0.2,  y: 0.2,  w: 0.6,  h: 0.6  },
-  'center-80':    { x: 0.1,  y: 0.1,  w: 0.8,  h: 0.8  },
-  'left-half':    { x: 0.05, y: 0.1,  w: 0.45, h: 0.7  },
-  'right-half':   { x: 0.5,  y: 0.1,  w: 0.45, h: 0.7  },
-  'top-half':     { x: 0.1,  y: 0.05, w: 0.8,  h: 0.4  },
-  'bottom-half':  { x: 0.1,  y: 0.45, w: 0.8,  h: 0.4  },
-  'code-left':    { x: 0.02, y: 0.05, w: 0.55, h: 0.75 },
-  'code-right':   { x: 0.43, y: 0.05, w: 0.55, h: 0.75 },
+  // safe: near-full usable area, leaves subtitle gap at bottom
+  'safe':         { x: 0.03, y: 0.03, w: 0.94, h: 0.77 },
+  // center-70: medium card — replaced old center-60 which was too small
+  'center-60':    { x: 0.10, y: 0.08, w: 0.80, h: 0.70 },
+  // center-80: large card, almost full width
+  'center-80':    { x: 0.04, y: 0.04, w: 0.92, h: 0.76 },
+  // split layouts
+  'left-half':    { x: 0.02, y: 0.05, w: 0.47, h: 0.73 },
+  'right-half':   { x: 0.51, y: 0.05, w: 0.47, h: 0.73 },
+  'top-half':     { x: 0.04, y: 0.03, w: 0.92, h: 0.38 },
+  'bottom-half':  { x: 0.04, y: 0.43, w: 0.92, h: 0.37 },
+  // code: slightly wider than before
+  'code-left':    { x: 0.01, y: 0.03, w: 0.57, h: 0.77 },
+  'code-right':   { x: 0.42, y: 0.03, w: 0.57, h: 0.77 },
 };
 
 // ─── Animation enter/exit defaults by type ───────────────────────────────────

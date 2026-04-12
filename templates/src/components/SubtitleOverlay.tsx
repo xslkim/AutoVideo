@@ -1,6 +1,16 @@
 /**
  * AutoVideo v2 — SubtitleOverlay
- * Single-line subtitle renderer with smooth transitions and emphasis highlighting.
+ *
+ * Sync design:
+ *   - `frame` = useCurrentFrame() inside the block's Sequence (0 = block audio start)
+ *   - `sub.startMs / endMs` = ms relative to the block's audio start (same zero-point)
+ *   - Conversion: currentMs = (frame / fps) * 1000
+ *
+ * Behaviour:
+ *   - Between subtitle segments: persists the LAST active subtitle (no flash-to-black)
+ *   - At block enter/exit: fades entire strip with the block animation
+ *   - Short crossfade between consecutive segments
+ *   - Allows 2-line wrapping so long Chinese sentences are never clipped
  */
 
 import React from 'react';
@@ -17,7 +27,7 @@ interface SubtitleOverlayProps {
   totalFrames: number;
 }
 
-const CROSSFADE_FRAMES = 5;  // ~0.17s at 30fps
+const CROSSFADE_FRAMES = 6;  // ~0.2s at 30fps
 
 export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   subtitles,
@@ -34,37 +44,59 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
 
   const currentMs = (frame / fps) * 1000;
 
-  // Find the active subtitle segment
-  const activeIdx = subtitles.findIndex(
+  // ── Find the active subtitle ──────────────────────────────────────────────
+  let activeIdx = subtitles.findIndex(
     (s) => currentMs >= s.startMs && currentMs < s.endMs
   );
 
-  if (activeIdx === -1) return null;
+  // Between segments or after last segment: persist the most-recently-started
+  // subtitle instead of disappearing (prevents disorienting flicker).
+  if (activeIdx === -1) {
+    for (let i = subtitles.length - 1; i >= 0; i--) {
+      if (currentMs >= subtitles[i].startMs) {
+        activeIdx = i;
+        break;
+      }
+    }
+  }
+
+  if (activeIdx === -1) return null;  // before first subtitle
+
+  // More than 300ms past the last subtitle's end → hide
+  const lastSub = subtitles[subtitles.length - 1];
+  if (currentMs > lastSub.endMs + 300) return null;
 
   const sub = subtitles[activeIdx];
 
-  // Subtitle block opacity: fade in/out at enter/exit of the entire block
+  // ── Block-level opacity: tied to enter/exit animation ────────────────────
   const blockOpacity = (() => {
-    const fadeInEnd  = enterDurationFrames;
-    const fadeOutStart = totalFrames - exitDurationFrames;
+    const fadeInEnd    = Math.max(enterDurationFrames, 1);
+    const fadeOutStart = Math.max(totalFrames - exitDurationFrames, 0);
     if (frame < fadeInEnd) {
-      return interpolate(frame, [0, fadeInEnd], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+      return interpolate(frame, [0, fadeInEnd], [0, 1], {
+        extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+      });
     }
     if (frame > fadeOutStart) {
-      return interpolate(frame, [fadeOutStart, totalFrames], [1, 0], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+      return interpolate(frame, [fadeOutStart, totalFrames], [1, 0], {
+        extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
+      });
     }
     return 1;
   })();
 
-  // Per-segment crossfade
+  // ── Per-segment crossfade when a new segment appears ─────────────────────
   const segStartFrame = Math.round((sub.startMs / 1000) * fps);
-  const segProgress = frame - segStartFrame;
-  const segOpacity = interpolate(segProgress, [0, CROSSFADE_FRAMES], [0.3, 1], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
+  const segProgress   = Math.max(0, frame - segStartFrame);
+  const segOpacity    = interpolate(segProgress, [0, CROSSFADE_FRAMES], [0.35, 1], {
+    extrapolateLeft: 'clamp', extrapolateRight: 'clamp',
   });
 
   const finalOpacity = blockOpacity * segOpacity;
+
+  // Font size: prefer theme.sizes.narration (new), fall back to subtitle
+  const sizes = theme.sizes as Record<string, number>;
+  const fontSize = sizes.narration ?? sizes.subtitle ?? 56;
 
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
@@ -84,8 +116,8 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
         <div
           style={{
             background: theme.subtitleBg,
-            borderRadius: 8,
-            padding: '8px 24px',
+            borderRadius: 10,
+            padding: '12px 32px',
             maxWidth: '100%',
           }}
         >
@@ -93,13 +125,18 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
             style={{
               margin: 0,
               fontFamily: theme.fonts.body,
-              fontSize: theme.sizes.subtitle,
+              fontSize,
               color: theme.subtitleFg,
-              lineHeight: 1.4,
-              whiteSpace: 'nowrap',
+              lineHeight: 1.45,
+              // wrap at word/char boundaries — no ellipsis-clipping for Chinese
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+              textAlign: 'center',
+              // hard-limit: at most 2 visual lines
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
               overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              maxWidth: '100%',
             }}
           >
             {renderWithEmphases(sub.text, sub.emphases ?? [], theme.accent)}
