@@ -10,7 +10,9 @@ This is the **AutoVideo** base framework — a shell + Node.js + Remotion system
 
 ```bash
 bash run.sh \
-  --script   ./script.md \           # required: narration + inline asset descriptions (see INPUT_SPEC.md)
+  --script   "part1.md,part2.md" \   # required: comma-separated input files (blocks only, no frontmatter)
+  --title    "视频标题" \              # required: video title (CLI param, not in file)
+  [--theme   dark-code]              # optional: visual theme (default: dark-code)
   [--repo    /path/to/source-repo]   # optional: codebase to draw code samples from
   [--out-dir ~/my-video]             # default: ~/teaching-video-YYYYMMDD-HHMMSS
   [--model   opus|sonnet]            # default: sonnet
@@ -65,25 +67,28 @@ The Remotion TypeScript project (`src/`, `package.json`, `remotion.config.ts`) i
 
 ## Input Format
 
-A single file (`script.md`) contains both narration text and asset descriptions. `>>>` markers define asset blocks:
+Input files contain **only blocks** (delimited by `>>>` markers). No frontmatter. Any text before the first `>>>` is ignored. Multiple input files can be specified (comma-separated), and blocks are numbered continuously across files.
+
+Video metadata (title, theme, voice, aspect) is passed via CLI parameters, not written in the file.
 
 ```markdown
-# Video Title
-
-Opening narration (shown over title card)
-
 >>> Asset Title
-**[Type]**
-Asset description lines...
+@type: animation
+@rect: safe
 
-Narration text during this asset.
+Narration line 1 (= subtitle line 1)
+Narration line 2 (= subtitle line 2)
+
+Narration line 3 after a blank line (blank lines are ignored for subtitles)
 
 >>> Next Asset
-**[Type]**
-Description...
+@type: code
+@source: example.py
 
 More narration...
 ```
+
+**Subtitle rule:** Each non-empty narration line becomes exactly one subtitle entry. Empty lines are ignored. Subtitle timing is computed from TTS VTT word-level timestamps (fallback: proportional by character count).
 
 See `INPUT_SPEC.md` for full syntax.
 

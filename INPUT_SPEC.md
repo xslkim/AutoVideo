@@ -1,22 +1,14 @@
 # AutoVideo v2 输入格式规范
 
-> 版本：2.0
-> 一个文件包含一切：口播文案、视觉定义、时序提示。
+> 版本：2.1
+> 输入文件只包含块（`>>>`），不含任何前言或 frontmatter。
+> 视频标题、主题等元数据通过 CLI 参数传入。
 
 ---
 
 ## 一、整体结构
 
 ```markdown
----
-title: 视频标题
-aspect: 16:9
-theme: dark-code
-voice: zh-CN-YunyiMultilingualNeural
----
-
-开场旁白（可选，第一个 >>> 之前的文字）
-
 >>> 块标题
 @type: <类型>
 @rect: <位置>
@@ -33,20 +25,27 @@ voice: zh-CN-YunyiMultilingualNeural
 ...
 ```
 
+**注意：**
+- 输入文件**只由块构成**，第一个 `>>>` 之前的任何文字会被忽略。
+- 视频标题、画面比例、主题、TTS 声音等元数据通过 `run.sh` 的 CLI 参数传入（`--title`、`--aspect`、`--theme`、`--voice`）。
+- 可以指定多个输入文件（逗号分隔），按顺序合并为单个视频，块编号跨文件连续递增。
+
 ---
 
-## 二、YAML Frontmatter（必填）
+## 二、CLI 元数据参数
 
-放在文件最开头，用 `---` 包裹：
+元数据不再写在文件里，而是通过命令行传入：
 
-```yaml
----
-title:  200 行纯 Python 手撕 GPT    # 视频标题（必填）
-aspect: 16:9                        # 画面比例：16:9 / 9:16 / 1:1（默认 16:9）
-theme:  dark-code                   # 主题：dark-code / light（默认 dark-code）
-voice:  zh-CN-YunyiMultilingualNeural  # TTS 声音（默认 zh-CN-YunxiNeural）
----
+```bash
+bash run.sh \
+  --script  "part1.md,part2.md" \   # 逗号分隔多文件，合并为单个视频
+  --title   "200 行纯 Python 手撕 GPT" \  # 视频标题（必填）
+  --aspect  16:9 \                  # 画面比例（默认 16:9）
+  --theme   dark-code \             # 主题（默认 dark-code）
+  --voice   zh-CN-YunxiNeural      # TTS 声音（默认 zh-CN-YunxiNeural）
 ```
+
+如果文件中仍然存在 YAML frontmatter（`---` 包裹），编译器会解析它作为后备，但 CLI 参数优先级更高。
 
 ---
 
@@ -274,16 +273,29 @@ karpathy 用一个 Value 类实现了它。
 
 ## 七、旁白控制
 
-### 7.1 字幕切换（空行）
+### 7.1 字幕行 = 旁白行（逐行对应）
+
+**每个非空行就是一条字幕。** 不再自动切段。空行直接忽略，不算字幕。
 
 ```markdown
-每个空行分隔一个字幕片段。
-TTS 会在空行处短暂停顿（~0.3s）。
+要训练神经网络，必须有自动求导。
+karpathy 用一个 Value 类实现了它。
 
-下一个字幕片段从这里开始。
+每个 Value 节点记四件事：
+当前值、梯度、子节点、局部偏导。
 ```
 
-### 7.2 停顿标记
+上面的文案会产生 4 条字幕（空行被忽略）。
+
+### 7.2 字幕时间计算
+
+字幕的 `startMs` / `endMs` 由 TTS 生成的 VTT 文件中的词级时间戳自动计算：
+1. 解析 VTT 的每个词/片段的起止时间
+2. 将 VTT 文本模糊匹配到完整旁白文本中的字符位置
+3. 每条字幕行在旁白文本中的字符范围映射到 VTT 时间轴
+4. 如果 VTT 不可用，按字符数比例均分总时长
+
+### 7.3 停顿标记
 
 | 标记 | 效果 |
 |------|------|
@@ -298,7 +310,7 @@ TTS 会在空行处短暂停顿（~0.3s）。
 让我们从 Value 类开始。
 ```
 
-### 7.3 强调词
+### 7.4 强调词
 
 ```markdown
 用 **RMSNorm** 代替 LayerNorm，
@@ -308,29 +320,17 @@ TTS 会在空行处短暂停顿（~0.3s）。
 - 字幕中以 `accent` 颜色高亮
 - 路由到高质量 TTS（CosyVoice / Azure）时，会在 SSML 中加 `<emphasis>`
 
-### 7.4 单行字幕字符上限（自动切段）
-
-| 画面比例 | 大约上限 |
-|---------|---------|
-| 16:9 | ~22 个中文字符 |
-| 9:16 | ~14 个中文字符 |
-| 1:1  | ~17 个中文字符 |
-
-> 实际上限由 Canvas 像素测量决定，英文/数字约 0.5 字符宽。
-> 超出自动切段，不需要手动换行。
-
 ---
 
 ## 八、完整示例
 
-```markdown
----
-title: 200 行纯 Python 手撕 GPT
-aspect: 16:9
-theme: dark-code
-voice: zh-CN-YunyiMultilingualNeural
----
+运行命令：
+```bash
+bash run.sh --script script.md --title "200 行纯 Python 手撕 GPT" --theme dark-code --voice zh-CN-YunyiMultilingualNeural
+```
 
+script.md 内容：
+```markdown
 >>> 开场标题卡
 @type: textcard
 @rect: center-60
@@ -415,11 +415,11 @@ karpathy 用一个 Value 类实现了它。
 
 写完脚本后检查：
 
-- [ ] 文件开头有 YAML frontmatter（`---` 包裹，含 `title` 和 `aspect`）
+- [ ] 文件只包含 `>>>` 块，无 frontmatter（标题等由 CLI 参数传入）
 - [ ] 每个块有 `>>> 标题` + `@type:` 指令
 - [ ] `@type: code` 的块写了 `@source:` 文件名
 - [ ] 无口播的块写了 `@duration:`（如片头、片尾）
 - [ ] 文字卡的显示内容用 `>` 引用行或 `# 标题` 标出
 - [ ] 主题切换处用 `（停顿）` 或 `（长停顿）`
 - [ ] 最后一个块是片尾文字卡
-- [ ] 字幕单行不需要手动控制（自动切段），但可以用空行主动切换
+- [ ] 字幕行与旁白行一一对应，每行就是一条字幕（注意行长度适中）

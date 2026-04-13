@@ -211,14 +211,22 @@ function buildContentSpec(type, directives, narrationRaw, title) {
     }
 
     case 'animation': {
-      // All narration text doubles as the description for AI component generation
+      // Extract inline timeline hints: [Ns: description] or [N.Ns: description]
+      // These are visual cues for the AI animator, NOT narration for TTS.
+      const { timeline: inlineTimeline, narrationOnly } = extractInlineTimeline(narrationRaw);
+      const timeline = inlineTimeline.length > 0
+        ? inlineTimeline
+        : parseTimeline(directives['timeline'] ?? '');
+
       return {
         spec: {
+          // Keep full raw text (including [Ns:] hints) as description for AI component generation
           description: `[Block: ${title}]\n${narrationRaw.trim()}`,
-          timeline: parseTimeline(directives['timeline'] ?? ''),
+          timeline,
           componentPath: null, // Filled in by Stage 3
         },
-        narrationRest: narrationRaw,
+        // TTS only receives the actual spoken narration (no [Ns:] lines)
+        narrationRest: narrationOnly,
       };
     }
 
@@ -290,6 +298,51 @@ function buildContentSpec(type, directives, narrationRaw, title) {
 }
 
 /** Parse simple timeline string "0s: do thing; 2s: do other" */
+/**
+ * Extract inline timeline hints from animation block body text.
+ *
+ * Inline format (one or more lines):
+ *   [0s: 屏幕中央显示大标题 "GPT = ?"，带脉冲动画]
+ *   [2.5s: 标题变为 "GPT = 下一个词预测器"，
+ *    文字高亮闪烁后稳定]
+ *
+ * Returns:
+ *   timeline    — array of { at: number, do: string }
+ *   narrationOnly — the text with all [Ns: ...] blocks removed
+ */
+function extractInlineTimeline(text) {
+  // Find all [Ns: ...] blocks using balanced-bracket counting,
+  // so that nested brackets like [4, 12, 12, 0] inside descriptions work correctly.
+  const startRe = /\[(\d+(?:\.\d+)?)s:/g;
+  const found = [];
+  let m;
+
+  while ((m = startRe.exec(text)) !== null) {
+    const at       = parseFloat(m[1]);
+    const bodyStart = m.index + m[0].length;
+    let depth = 1, i = bodyStart;
+    while (i < text.length && depth > 0) {
+      if (text[i] === '[') depth++;
+      else if (text[i] === ']') depth--;
+      i++;
+    }
+    const body = text.slice(bodyStart, i - 1).trim().replace(/\n[ \t]*/g, ' ');
+    found.push({ at, do: body, start: m.index, end: i });
+  }
+
+  // Build narration-only by removing found ranges
+  const parts = [];
+  let pos = 0;
+  for (const f of found) {
+    if (f.start > pos) parts.push(text.slice(pos, f.start));
+    pos = f.end;
+  }
+  parts.push(text.slice(pos));
+
+  const narrationOnly = parts.join('').replace(/\n{3,}/g, '\n\n').trim();
+  return { timeline: found.map(({ at, do: d }) => ({ at, do: d })), narrationOnly };
+}
+
 function parseTimeline(val) {
   if (!val) return [];
   return val.split(';').map(s => {
@@ -316,18 +369,21 @@ function buildNarration(rawText) {
 
 // ─── Main compiler ────────────────────────────────────────────────────────────
 
-function compile(src, aspect = '16:9') {
-  const resolution = RESOLUTIONS[aspect] ?? RESOLUTIONS['16:9'];
-  const { meta, body } = parseFrontmatter(src);
+function compile(src, cliMeta = {}) {
+  // CLI meta overrides everything; frontmatter is still parsed for backward compat
+  const { meta: fileMeta, body } = parseFrontmatter(src);
 
-  const finalAspect = meta.aspect ?? aspect;
-  const finalResolution = RESOLUTIONS[finalAspect] ?? resolution;
+  const mergedMeta = { ...fileMeta, ...Object.fromEntries(
+    Object.entries(cliMeta).filter(([, v]) => v !== undefined && v !== '')
+  )};
+
+  const finalAspect = mergedMeta.aspect ?? '16:9';
+  const finalResolution = RESOLUTIONS[finalAspect] ?? RESOLUTIONS['16:9'];
 
   // Split body by >>> markers
-  // Pattern: lines starting with ">>>"
   const rawBlocks = body.split(/^>>>\s*/m);
 
-  // rawBlocks[0] is pre-first-block text (optional opening text)
+  // rawBlocks[0] is pre-first-block text → IGNORED (blocks-only input)
   // rawBlocks[1..] each start with the block title on first line
 
   const blocks = [];
@@ -337,19 +393,13 @@ function compile(src, aspect = '16:9') {
     const chunk = rawBlocks[i];
     if (!chunk.trim()) continue;
 
-    const lines = chunk.split('\n');
+    // Skip pre-block text (anything before the first >>> marker)
+    if (i === 0) continue;
 
-    // The first line is the block title (for i > 0, where chunk starts after >>>)
-    // For i === 0 (pre-block text), handle differently
-    let title, bodyLines;
-    if (i === 0) {
-      // Pre-block opening content
-      title = meta.title ?? '开场';
-      bodyLines = lines;
-    } else {
-      title = lines[0].trim();
-      bodyLines = lines.slice(1);
-    }
+    const lines = chunk.split('\n');
+    const title = lines[0].trim();
+    const bodyLines = lines.slice(1);
+    if (!title) continue;
 
     // Parse @directives
     const directives = {};
@@ -387,9 +437,6 @@ function compile(src, aspect = '16:9') {
 
     // Explicit duration (for no-narration blocks)
     const explicitDuration = parseDuration(directives['duration']);
-
-    // Skip blocks with no useful content (empty pre-block text)
-    if (i === 0 && !narration.text.trim() && !explicitDuration) continue;
 
     const id = `B${String(blockIdx).padStart(2, '0')}`;
     blockIdx++;
@@ -441,12 +488,12 @@ function compile(src, aspect = '16:9') {
   return {
     version: '2.0',
     meta: {
-      title:      meta.title ?? 'Untitled',
+      title:      mergedMeta.title ?? 'Untitled',
       aspect:     finalAspect,
       resolution: finalResolution,
-      fps:        parseInt(meta.fps ?? '30'),
-      theme:      meta.theme ?? 'dark-code',
-      voice:      meta.voice ?? 'zh-CN-YunxiNeural',
+      fps:        parseInt(mergedMeta.fps ?? '30'),
+      theme:      mergedMeta.theme ?? 'dark-code',
+      voice:      mergedMeta.voice ?? 'zh-CN-YunxiNeural',
     },
     blocks,
   };
@@ -454,10 +501,27 @@ function compile(src, aspect = '16:9') {
 
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
-const [,, scriptPath, outPath, aspect] = process.argv;
+// ── Parse CLI args ──
+import { parseArgs } from 'util';
+
+const { values: cliArgs, positionals } = parseArgs({
+  args: process.argv.slice(2),
+  options: {
+    title:  { type: 'string' },
+    aspect: { type: 'string' },
+    theme:  { type: 'string' },
+    voice:  { type: 'string' },
+    fps:    { type: 'string' },
+  },
+  allowPositionals: true,
+  strict: false,
+});
+
+const scriptPath = positionals[0];
+const outPath    = positionals[1];
 
 if (!scriptPath || !outPath) {
-  console.error('Usage: node compile-script.mjs <script.md> <blocks.json> [aspect]');
+  console.error('Usage: node compile-script.mjs <script.md> <blocks.json> [--title T] [--aspect 16:9] [--theme dark-code] [--voice V]');
   process.exit(1);
 }
 
@@ -468,7 +532,7 @@ if (!fs.existsSync(scriptPath)) {
 
 try {
   const src = fs.readFileSync(scriptPath, 'utf-8');
-  const result = compile(src, aspect ?? '16:9');
+  const result = compile(src, cliArgs);
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(result, null, 2), 'utf-8');

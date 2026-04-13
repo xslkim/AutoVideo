@@ -6,8 +6,9 @@ set -euo pipefail
 #
 # 用法:
 #   ~/video-agent/run.sh \
-#     --script    ./口播稿.md \
-#     --visual    ./素材指南.md \
+#     --script    "part1.md,part2.md"     # 必选，逗号分隔多文件合并
+#     --title     "视频标题"               # 必选
+#     --theme     dark-code               # 可选，默认 dark-code
 #     --repo      /path/to/project-repo \
 #     --out-dir   ~/my-video              # 可选，默认 ~/teaching-video-$(date)
 #     --model     sonnet                  # 可选，默认 sonnet
@@ -21,7 +22,9 @@ set -euo pipefail
 AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── 默认值 ──
-SCRIPT_FILE=""
+SCRIPT_FILES=""       # comma-separated list of script files
+TITLE=""              # video title (required if not --resume)
+THEME="dark-code"     # visual theme
 REPO_DIR=""
 OUT_DIR=""
 MODEL="sonnet"
@@ -36,8 +39,10 @@ MAX_TURNS=200
 # ── 参数解析 ──
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --script)       SCRIPT_FILE="$(realpath "$2")"; shift 2 ;;
-    --visual)       echo "WARN: --visual 已废弃，素材描述现在内嵌在口播稿中（见 INPUT_SPEC.md）"; shift 2 ;;
+    --script)       SCRIPT_FILES="$2"; shift 2 ;;
+    --title)        TITLE="$2"; shift 2 ;;
+    --theme)        THEME="$2"; shift 2 ;;
+    --visual)       echo "WARN: --visual 已废弃"; shift 2 ;;
     --repo)         REPO_DIR="$(realpath "$2")"; shift 2 ;;
     --out-dir)      OUT_DIR="$2"; shift 2 ;;
     --model)        MODEL="$2"; shift 2 ;;
@@ -53,9 +58,11 @@ while [[ $# -gt 0 ]]; do
 全自动视频制作工具
 
 必选参数:
-  --script FILE       口播稿 Markdown 文件（含内嵌素材描述，格式见 INPUT_SPEC.md）
+  --script FILES      口播稿文件（逗号分隔可传多个，按顺序合并为单个视频）
+  --title  TEXT       视频标题
 
 可选参数:
+  --theme  THEME      视觉主题（默认: dark-code）
   --repo   DIR        项目 Git 仓库路径（用于代码展示素材，可省略）
   --out-dir DIR       输出项目目录（默认: ~/teaching-video-YYYYMMDD-HHMMSS）
   --model MODEL       Claude 模型: opus / sonnet（默认: sonnet）
@@ -76,9 +83,16 @@ done
 # ── 参数校验 ──
 err() { echo "ERROR: $1" >&2; exit 1; }
 
-[[ -n "$SCRIPT_FILE" ]] || err "缺少 --script 参数"
-[[ -f "$SCRIPT_FILE" ]] || err "口播稿文件不存在: $SCRIPT_FILE"
+[[ -n "$SCRIPT_FILES" ]] || err "缺少 --script 参数"
+[[ -n "$TITLE" ]] || [[ "$RESUME" == true ]] || err "缺少 --title 参数"
 [[ -z "$REPO_DIR" ]] || [[ -d "$REPO_DIR" ]] || err "仓库目录不存在: $REPO_DIR"
+
+# Validate each script file exists
+IFS=',' read -ra _SCRIPTS <<< "$SCRIPT_FILES"
+for _sf in "${_SCRIPTS[@]}"; do
+  _sf="$(echo "$_sf" | xargs)"
+  [[ -f "$_sf" ]] || err "口播稿文件不存在: $_sf"
+done
 
 # ── 查找 claude CLI（延迟到实际需要时才报错） ──
 find_claude() {
@@ -123,8 +137,14 @@ fi
 
 mkdir -p "$OUT_DIR"/{src/data/source-samples,public/audio,output,logs,scripts,assets/{images,lottie,clips,voice-prompts}}
 
-# ── 复制输入文件 ──
-cp "$SCRIPT_FILE" "$OUT_DIR/src/data/script.md"
+# ── 复制输入文件（多文件合并） ──
+> "$OUT_DIR/src/data/script.md"
+IFS=',' read -ra _SCRIPTS <<< "$SCRIPT_FILES"
+for _sf in "${_SCRIPTS[@]}"; do
+  _sf="$(echo "$_sf" | xargs)"
+  cat "$(realpath "$_sf")" >> "$OUT_DIR/src/data/script.md"
+  echo "" >> "$OUT_DIR/src/data/script.md"  # ensure newline between files
+done
 
 # ── 自动检测或复制源码文件 ──
 if [[ -z "$REPO_DIR" ]]; then
@@ -169,14 +189,8 @@ fi
 
 SOURCE_SAMPLE_LIST=$(ls "$OUT_DIR/src/data/source-samples/" 2>/dev/null | tr '\n' ',' | sed 's/,$//' | tr -d '\n')
 
-# ── 提取视频标题（v2: frontmatter title 优先，v1: # 标题回退）──
-VIDEO_TITLE=$(awk '/^---/{fm=1;next} fm && /^title:/{sub(/^title:\s*/,"",$0);print;exit} fm && /^---/{exit}' "$SCRIPT_FILE" | tr -d '\n')
-if [[ -z "$VIDEO_TITLE" ]]; then
-  VIDEO_TITLE=$(head -10 "$SCRIPT_FILE" | grep '^# ' | head -1 | sed 's/^# //' | tr -d '\n')
-fi
-if [[ -z "$VIDEO_TITLE" ]]; then
-  VIDEO_TITLE="教学视频"
-fi
+# ── 视频标题 ──
+VIDEO_TITLE="${TITLE:-教学视频}"
 
 # ── 写入配置文件 ──
 jq -n \
@@ -194,8 +208,9 @@ jq -n \
   --argjson fps 30 \
   --arg aspect "$ASPECT" \
   --arg reuseFrom "$REUSE_FROM" \
+  --arg theme "$THEME" \
   '{title: $title, repoDir: $repoDir, projectDir: $projectDir, agentDir: $agentDir,
-    reuseFrom: $reuseFrom,
+    reuseFrom: $reuseFrom, theme: $theme,
     scriptFile: $scriptFile,
     sourceCodeSamples: $sourceCodeSamples, sourceFileList: $sourceFileList,
     voice: $voice, model: $model, width: $width, height: $height, fps: $fps, aspect: $aspect,
@@ -279,8 +294,9 @@ cat << SUMMARY
 ╚══════════════════════════════════════════════╝
 
   标题:     $VIDEO_TITLE
+  主题:     $THEME
   项目目录: $OUT_DIR
-  口播稿:   $SCRIPT_FILE
+  口播稿:   $SCRIPT_FILES
   源码仓库: $REPO_DIR
   代码样本: ${SOURCE_SAMPLE_LIST:-（无）}
   TTS 声音: $VOICE
@@ -299,7 +315,7 @@ if [[ "$DRY_RUN" == true ]]; then
   echo "    cd $OUT_DIR && claude -p --model $MODEL --dangerously-skip-permissions --max-turns $MAX_TURNS \"读取 CLAUDE.md 和 video-agent-config.json，执行全流程\""
   echo ""
   echo "  断点续跑:"
-  echo "    $0 --resume --out-dir $OUT_DIR --script $SCRIPT_FILE --repo $REPO_DIR"
+  echo "    $0 --resume --out-dir $OUT_DIR --script $SCRIPT_FILES --repo $REPO_DIR"
   exit 0
 fi
 
@@ -355,7 +371,7 @@ if [[ $EXIT_CODE -eq 0 ]]; then
 else
   echo "Agent 异常退出 (code=$EXIT_CODE)。"
   echo "检查日志: $OUT_DIR/logs/agent.log"
-  echo "断点续跑: $0 --resume --out-dir $OUT_DIR --script $SCRIPT_FILE --repo $REPO_DIR"
+  echo "断点续跑: $0 --resume --out-dir $OUT_DIR --script $SCRIPT_FILES --repo $REPO_DIR"
 fi
 
 # 打印进度

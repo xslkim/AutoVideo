@@ -219,12 +219,16 @@ EOF
 
 ```bash
 source ~/video-agent-venv/bin/activate
-ASPECT=$(jq -r .aspect video-agent-config.json)
+AGENT_DIR=$(jq -r .agentDir video-agent-config.json)
 
 node "$AGENT_DIR/scripts/compile-script.mjs" \
   src/data/script.md \
   blocks.json \
-  "$ASPECT"
+  --title  "$(jq -r .title  video-agent-config.json)" \
+  --aspect "$(jq -r .aspect video-agent-config.json)" \
+  --theme  "$(jq -r .theme  video-agent-config.json)" \
+  --voice  "$(jq -r .voice  video-agent-config.json)" \
+  --fps    "$(jq -r .fps    video-agent-config.json)"
 ```
 
 编译器输出示例：
