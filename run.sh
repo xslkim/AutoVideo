@@ -15,6 +15,7 @@ set -euo pipefail
 #     --voice     zh-CN-YunxiNeural       # 可选，默认 zh-CN-YunxiNeural
 #     --aspect    16:9                    # 可选，默认 16:9（支持 9:16 竖屏）
 #     --source-files "src/core/Foo.h,src/Bar.cpp"  # 可选，展示的代码文件
+#     --cosyvoice-dir /path/to/CosyVoice  # 可选，CosyVoice 安装目录
 #     --resume                            # 可选，断点续跑
 #     --dry-run                           # 可选，只初始化不执行
 # ============================================================================
@@ -32,6 +33,7 @@ VOICE="zh-CN-YunxiNeural"
 ASPECT="16:9"
 SOURCE_FILES=""
 REUSE_FROM=""
+COSYVOICE_DIR=""      # CosyVoice installation directory
 RESUME=false
 DRY_RUN=false
 MAX_TURNS=200
@@ -48,11 +50,12 @@ while [[ $# -gt 0 ]]; do
     --model)        MODEL="$2"; shift 2 ;;
     --voice)        VOICE="$2"; shift 2 ;;
     --aspect)       ASPECT="$2"; shift 2 ;;
-    --source-files) SOURCE_FILES="$2"; shift 2 ;;
-    --reuse-from)   REUSE_FROM="$(realpath "$2")"; shift 2 ;;
-    --max-turns)    MAX_TURNS="$2"; shift 2 ;;
-    --resume)       RESUME=true; shift ;;
-    --dry-run)      DRY_RUN=true; shift ;;
+    --source-files)  SOURCE_FILES="$2"; shift 2 ;;
+    --reuse-from)    REUSE_FROM="$(realpath "$2")"; shift 2 ;;
+    --cosyvoice-dir) COSYVOICE_DIR="$(realpath "$2")"; shift 2 ;;
+    --max-turns)     MAX_TURNS="$2"; shift 2 ;;
+    --resume)        RESUME=true; shift ;;
+    --dry-run)       DRY_RUN=true; shift ;;
     -h|--help)
       cat <<'USAGE'
 全自动视频制作工具
@@ -71,6 +74,8 @@ while [[ $# -gt 0 ]]; do
   --source-files LIST 要展示的代码文件，逗号分隔的相对路径（相对于 repo）
                       省略则自动选择 repo 中最有代表性的文件
   --reuse-from DIR    上一个项目目录，扫描可复用的动画组件（Stage 3 使用）
+  --cosyvoice-dir DIR CosyVoice 安装目录（默认: 无，TTS 降级到 edge-tts）
+                      例: --cosyvoice-dir ~/tools/CosyVoice
   --max-turns N       Claude 最大工具调用轮数（默认: 200）
   --resume            断点续跑（检测已有 pipeline-state.json）
   --dry-run           只初始化项目目录，不启动 Claude
@@ -138,13 +143,17 @@ fi
 mkdir -p "$OUT_DIR"/{src/data/source-samples,public/audio,output,logs,scripts,assets/{images,lottie,clips,voice-prompts}}
 
 # ── 复制输入文件（多文件合并） ──
-> "$OUT_DIR/src/data/script.md"
-IFS=',' read -ra _SCRIPTS <<< "$SCRIPT_FILES"
-for _sf in "${_SCRIPTS[@]}"; do
-  _sf="$(echo "$_sf" | xargs)"
-  cat "$(realpath "$_sf")" >> "$OUT_DIR/src/data/script.md"
-  echo "" >> "$OUT_DIR/src/data/script.md"  # ensure newline between files
-done
+if [[ "$RESUME" == true ]] && [[ -f "$OUT_DIR/src/data/script.md" ]]; then
+  echo "断点续跑：保留已有 script.md，不覆盖"
+else
+  > "$OUT_DIR/src/data/script.md"
+  IFS=',' read -ra _SCRIPTS <<< "$SCRIPT_FILES"
+  for _sf in "${_SCRIPTS[@]}"; do
+    _sf="$(echo "$_sf" | xargs)"
+    cat "$(realpath "$_sf")" >> "$OUT_DIR/src/data/script.md"
+    echo "" >> "$OUT_DIR/src/data/script.md"  # ensure newline between files
+  done
+fi
 
 # ── 自动检测或复制源码文件 ──
 if [[ -z "$REPO_DIR" ]]; then
@@ -197,7 +206,7 @@ jq -n \
   --arg title "$VIDEO_TITLE" \
   --arg repoDir "$REPO_DIR" \
   --arg projectDir "$OUT_DIR" \
-  --arg agentDir "$AGENT_DIR" \
+  --arg agentDir "$OUT_DIR" \
   --arg scriptFile "src/data/script.md" \
   --arg sourceCodeSamples "src/data/source-samples/" \
   --arg sourceFileList "$SOURCE_SAMPLE_LIST" \
@@ -209,7 +218,10 @@ jq -n \
   --arg aspect "$ASPECT" \
   --arg reuseFrom "$REUSE_FROM" \
   --arg theme "$THEME" \
-  '{title: $title, repoDir: $repoDir, projectDir: $projectDir, agentDir: $agentDir,
+  --arg cosyvoiceDir "$COSYVOICE_DIR" \
+  '{title: $title, repoDir: $repoDir, projectDir: $projectDir,
+    agentDir: $agentDir,
+    cosyvoiceDir: $cosyvoiceDir,
     reuseFrom: $reuseFrom, theme: $theme,
     scriptFile: $scriptFile,
     sourceCodeSamples: $sourceCodeSamples, sourceFileList: $sourceFileList,
@@ -231,24 +243,41 @@ jq -n \
     }}' \
   > "$OUT_DIR/video-agent-config.json"
 
-# ── 复制工作流文档和脚本 ──
+# ── 复制工作流文档、脚本、模板（项目自包含） ──
 cp "$AGENT_DIR/VIDEO_WORKFLOW.md" "$OUT_DIR/VIDEO_WORKFLOW.md"
 cp "$AGENT_DIR/INPUT_SPEC.md"    "$OUT_DIR/INPUT_SPEC.md"
+
+# scripts/*.sh 和 *.mjs
 cp "$AGENT_DIR/scripts/"*.sh     "$OUT_DIR/scripts/"
 cp "$AGENT_DIR/scripts/"*.mjs    "$OUT_DIR/scripts/" 2>/dev/null || true
 chmod +x "$OUT_DIR/scripts/"*.sh
 
-# 复制 TTS provider 脚本
+# scripts/*.py（根目录，如 cache_utils.py）
+cp "$AGENT_DIR/scripts/"*.py     "$OUT_DIR/scripts/" 2>/dev/null || true
+
+# TTS provider 脚本
 mkdir -p "$OUT_DIR/scripts/tts/providers"
 cp "$AGENT_DIR/scripts/tts/"*.py           "$OUT_DIR/scripts/tts/"         2>/dev/null || true
 cp "$AGENT_DIR/scripts/tts/providers/"*.py "$OUT_DIR/scripts/tts/providers/" 2>/dev/null || true
 
-# 复制 CosyVoice 默认音色参考音频
-COSYVOICE_PROMPT="/home/ubuntu/tools/CosyVoice/asset/zero_shot_prompt.wav"
-if [[ -f "$COSYVOICE_PROMPT" ]]; then
-  cp "$COSYVOICE_PROMPT" "$OUT_DIR/assets/voice-prompts/default.wav"
+# Remotion 模板（Stage 0 时 agent 用 agentDir 查找，agentDir=projectDir 时需要模板在项目内）
+mkdir -p "$OUT_DIR/templates/src/engine" \
+         "$OUT_DIR/templates/src/components/contents" \
+         "$OUT_DIR/templates/src/components/backgrounds" \
+         "$OUT_DIR/templates/types"
+cp -r "$AGENT_DIR/templates/" "$OUT_DIR/" 2>/dev/null || true
+
+# 复制 CosyVoice 默认音色参考音频（需 --cosyvoice-dir 指定路径）
+if [[ -n "$COSYVOICE_DIR" ]]; then
+  COSYVOICE_PROMPT="$COSYVOICE_DIR/asset/zero_shot_prompt.wav"
+  if [[ -f "$COSYVOICE_PROMPT" ]]; then
+    cp "$COSYVOICE_PROMPT" "$OUT_DIR/assets/voice-prompts/default.wav"
+    echo "CosyVoice 参考音频已复制: $COSYVOICE_PROMPT"
+  else
+    echo "WARN: CosyVoice 参考音频不存在: $COSYVOICE_PROMPT（TTS 将降级到 edge-tts）"
+  fi
 else
-  echo "WARN: CosyVoice 参考音频不存在: $COSYVOICE_PROMPT（TTS 将降级到 edge-tts）"
+  echo "未指定 --cosyvoice-dir，TTS 将使用 edge-tts（不需要 GPU）"
 fi
 
 # ── 生成项目 CLAUDE.md ──
@@ -303,6 +332,7 @@ cat << SUMMARY
   画面尺寸: ${WIDTH}x${HEIGHT} ($ASPECT)
   模型:     $MODEL
   复用来源: ${REUSE_FROM:-（无）}
+  CosyVoice: ${COSYVOICE_DIR:-（未指定，使用 edge-tts）}
   断点续跑: $RESUME
   磁盘空间: ${AVAIL_GB}GB 可用
 
@@ -325,6 +355,15 @@ if ! find_claude; then
   或设置环境变量: export CLAUDE_BIN=/path/to/claude"
 fi
 echo "使用 Claude CLI: $CLAUDE_BIN"
+
+# ── 断点续跑：修复脏状态 ──
+if [[ "$RESUME" == true ]] && [[ -f "$OUT_DIR/pipeline-state.json" ]]; then
+  echo "断点续跑：运行 resume-heal.sh..."
+  # Use project-local copy (projects are self-contained; agentDir = projectDir)
+  bash "$OUT_DIR/scripts/resume-heal.sh" \
+    "$OUT_DIR/pipeline-state.json" \
+    "$OUT_DIR/blocks.json" 2>&1 || true
+fi
 
 # ── 启动 Claude Agent ──
 echo "启动 Claude Agent..."

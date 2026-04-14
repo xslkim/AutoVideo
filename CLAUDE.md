@@ -20,6 +20,7 @@ bash run.sh \
   [--aspect  16:9|9:16|1:1]          # resolution: 1920×1080 / 1080×1920 / 1080×1080
   [--source-files "src/foo.cpp,..."]  # comma-separated repo-relative paths; auto-detected if omitted
   [--reuse-from ~/prev-video]        # scan previous project for reusable animation components
+  [--cosyvoice-dir ~/tools/CosyVoice] # CosyVoice install dir (omit to use edge-tts only)
   [--max-turns 200]
   [--resume]                         # continue from existing pipeline-state.json
   [--dry-run]                        # initialize project dir without launching Claude

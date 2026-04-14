@@ -84,16 +84,19 @@ pip install -q edge-tts
 CosyVoice 是主力 TTS 引擎（中英混读质量最佳）。必须在 TTS 任务开始前启动。
 
 ```bash
-COSYVOICE_DIR="/home/ubuntu/tools/CosyVoice"
+COSYVOICE_DIR=$(jq -r '.cosyvoiceDir // ""' video-agent-config.json)
 COSYVOICE_LOG="/tmp/cosyvoice-server.log"
 COSYVOICE_PORT=50000
 
+# 如果未配置 cosyvoiceDir，跳过（TTS 降级到 edge-tts）
+if [[ -z "$COSYVOICE_DIR" ]] || [[ ! -d "$COSYVOICE_DIR" ]]; then
+  echo "[CosyVoice] cosyvoiceDir 未配置或目录不存在，跳过启动（TTS 将使用 edge-tts）"
 # 检查服务是否已在运行
-if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${COSYVOICE_PORT}/inference_sft" \
+elif curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${COSYVOICE_PORT}/inference_sft" \
     2>/dev/null | grep -qE "200|422"; then
   echo "[CosyVoice] 服务已在运行"
 else
-  echo "[CosyVoice] 启动服务..."
+  echo "[CosyVoice] 启动服务: $COSYVOICE_DIR"
   cd "$COSYVOICE_DIR"
   source .venv/bin/activate
   nohup python runtime/python/fastapi/server.py \
@@ -116,8 +119,8 @@ else
     fi
   done
   cd -
+  deactivate 2>/dev/null || true
 fi
-deactivate 2>/dev/null || true
 ```
 
 ### 0.5 初始化 Remotion 项目
@@ -570,9 +573,11 @@ for (const b of blocks.blocks) {
   const exitDur   = b.visual.exit.duration  ?? EXIT_DEF;
   const ttsDur    = b.timing.ttsDuration ?? 0;
   const pauseAfter = b.narration.hints?.pauseAfter ?? 0;
-  const explicitHold = b.timing.holdDuration; // set if @duration was specified
+  // @duration is a MINIMUM — if TTS is longer, use TTS duration
+  // explicitHold comes from @duration in the script (may be null/undefined)
+  const explicitMin = b.timing.holdDuration ?? 0;  // set if @duration was specified
 
-  const holdDur = explicitHold ?? Math.max(ttsDur + pauseAfter, MIN_HOLD);
+  const holdDur = Math.max(explicitMin, ttsDur + pauseAfter, MIN_HOLD);
   const totalDur = enterDur + holdDur + exitDur;
 
   b.timing.enterDuration  = enterDur;

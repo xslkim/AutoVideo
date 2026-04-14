@@ -7,10 +7,11 @@
  *   - Conversion: currentMs = (frame / fps) * 1000
  *
  * Behaviour:
- *   - Between subtitle segments: persists the LAST active subtitle (no flash-to-black)
+ *   - Each subtitle occupies its own non-overlapping time window (char-count proportional)
+ *   - Between subtitle segments: persists the last active subtitle (no flash-to-black)
  *   - At block enter/exit: fades entire strip with the block animation
- *   - Short crossfade between consecutive segments
- *   - Allows 2-line wrapping so long Chinese sentences are never clipped
+ *   - Short crossfade when switching between segments
+ *   - Positioned at the bottom of the screen
  */
 
 import React from 'react';
@@ -38,7 +39,6 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   totalFrames,
 }) => {
   const theme = getTheme();
-  const safeArea = theme.subtitleSafeArea;
 
   if (!subtitles || subtitles.length === 0) return null;
 
@@ -49,8 +49,7 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
     (s) => currentMs >= s.startMs && currentMs < s.endMs
   );
 
-  // Between segments or after last segment: persist the most-recently-started
-  // subtitle instead of disappearing (prevents disorienting flicker).
+  // Between segments or after last segment: persist the most-recently-started subtitle
   if (activeIdx === -1) {
     for (let i = subtitles.length - 1; i >= 0; i--) {
       if (currentMs >= subtitles[i].startMs) {
@@ -103,12 +102,10 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
       <div
         style={{
           position: 'absolute',
-          left:   `${safeArea.x * 100}%`,
-          top:    `${safeArea.y * 100}%`,
-          width:  `${safeArea.w * 100}%`,
-          height: `${safeArea.h * 100}%`,
+          bottom: '4%',
+          left: '5%',
+          right: '5%',
           display: 'flex',
-          alignItems: 'center',
           justifyContent: 'center',
           opacity: finalOpacity,
         }}
@@ -128,45 +125,15 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
               fontSize,
               color: theme.subtitleFg,
               lineHeight: 1.45,
-              // wrap at word/char boundaries — no ellipsis-clipping for Chinese
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-all',
               textAlign: 'center',
-              // hard-limit: at most 2 visual lines
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
             }}
           >
-            {renderWithEmphases(sub.text, sub.emphases ?? [], theme.accent)}
+            {sub.text}
           </p>
         </div>
       </div>
     </AbsoluteFill>
   );
 };
-
-function renderWithEmphases(
-  text: string,
-  emphases: Array<{ start: number; end: number }>,
-  accentColor: string,
-): React.ReactNode {
-  if (!emphases || emphases.length === 0) return text;
-
-  const sorted = [...emphases].sort((a, b) => a.start - b.start);
-  const nodes: React.ReactNode[] = [];
-  let last = 0;
-
-  for (const e of sorted) {
-    if (e.start > last) nodes.push(text.slice(last, e.start));
-    nodes.push(
-      <span key={e.start} style={{ color: accentColor, fontWeight: 700 }}>
-        {text.slice(e.start, e.end)}
-      </span>
-    );
-    last = e.end;
-  }
-  if (last < text.length) nodes.push(text.slice(last));
-  return <>{nodes}</>;
-}

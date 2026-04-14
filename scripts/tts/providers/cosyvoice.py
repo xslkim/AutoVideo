@@ -6,7 +6,8 @@ SFT speakers. Requires a short reference WAV (~3-10s) configured in
 video-agent-config.json as tts.cosyvoice.promptWav and tts.cosyvoice.promptText.
 
 Service startup (done in Stage 0):
-  cd /home/ubuntu/tools/CosyVoice
+  COSYVOICE_DIR=$(jq -r '.cosyvoiceDir // ""' video-agent-config.json)
+  cd "$COSYVOICE_DIR"
   source .venv/bin/activate
   python runtime/python/fastapi/server.py \
     --port 50000 \
@@ -31,8 +32,9 @@ from typing import Optional
 
 
 COSYVOICE_ENDPOINT   = os.environ.get("COSYVOICE_ENDPOINT", "http://127.0.0.1:50000")
-# Default reference audio bundled with CosyVoice
-DEFAULT_PROMPT_WAV   = "/home/ubuntu/tools/CosyVoice/asset/zero_shot_prompt.wav"
+# Default reference audio: resolved from COSYVOICE_DIR env var or left empty (config takes precedence)
+_cosyvoice_dir       = os.environ.get("COSYVOICE_DIR", "")
+DEFAULT_PROMPT_WAV   = os.path.join(_cosyvoice_dir, "asset/zero_shot_prompt.wav") if _cosyvoice_dir else ""
 DEFAULT_PROMPT_TEXT  = "希望你以后能够做的比我还好呦。"
 COSYVOICE_SAMPLE_RATE = 22050   # server always returns 22050 Hz PCM
 

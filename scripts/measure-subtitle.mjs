@@ -3,19 +3,20 @@
  * AutoVideo v2 — Subtitle builder (Stage 2 helper)
  *
  * Each non-empty line in the narration text becomes one subtitle entry.
- * Timing (startMs / endMs) is computed from VTT word-level timestamps.
- * If VTT is unavailable, timing is distributed proportionally by char count.
+ * Timing (startMs / endMs) is distributed proportionally by character count
+ * to guarantee every line gets a non-overlapping display window.
+ * The VTT file is used only to determine the total audio duration.
  *
  * Usage:
  *   node measure-subtitle.mjs <blocks.json> <block-id> <vtt-file> <out-subtitles.json>
  *
- * Output: JSON array of { text, startMs, endMs, emphases }
+ * Output: JSON array of { text, startMs, endMs }
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 
-// ─── VTT parser ───────────────────────────────────────────────────────────────
+// ─── VTT parser (used only to get total duration) ─────────────────────────────
 
 function parseVTT(vttContent) {
   const entries = [];
@@ -26,19 +27,12 @@ function parseVTT(vttContent) {
       /(\d{2}:\d{2}:\d{2}[.,]\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}[.,]\d{3})/
     );
     if (tm) {
-      const startMs = vttTimeToMs(tm[1]);
-      const endMs   = vttTimeToMs(tm[2]);
-      const textLines = [];
-      i++;
-      while (i < lines.length && lines[i].trim() !== '') {
-        textLines.push(lines[i].trim());
-        i++;
-      }
-      const text = textLines.join(' ').replace(/<[^>]+>/g, '').trim();
-      if (text) entries.push({ startMs, endMs, text });
-    } else {
-      i++;
+      entries.push({
+        startMs: vttTimeToMs(tm[1]),
+        endMs:   vttTimeToMs(tm[2]),
+      });
     }
+    i++;
   }
   return entries;
 }
@@ -48,157 +42,38 @@ function vttTimeToMs(ts) {
   return Math.round((parseInt(h) * 3600 + parseInt(m) * 60 + parseFloat(s)) * 1000);
 }
 
-// ─── Emphasis mapping ─────────────────────────────────────────────────────────
-
-function mapEmphases(segmentText, globalEmphases, segmentOffset) {
-  return globalEmphases
-    .map(e => ({
-      start: Math.max(0, e.start - segmentOffset),
-      end:   Math.max(0, e.end   - segmentOffset),
-    }))
-    .filter(e => e.start < segmentText.length && e.end > 0)
-    .map(e => ({
-      start: Math.max(0, e.start),
-      end:   Math.min(segmentText.length, e.end),
-    }))
-    .filter(e => e.start < e.end);
-}
-
-// ─── Build subtitle timing from VTT word entries ──────────────────────────────
-
-/**
- * Build a character-position → ms map from VTT entries by fuzzy-matching
- * VTT text against the full narration text.
- */
-function buildPosMap(fullText, vttEntries) {
-  const posMap = []; // { pos, startMs, endMs, len }
-  let searchFrom = 0;
-
-  for (const entry of vttEntries) {
-    // Normalize for matching: strip whitespace-only differences
-    const needle = entry.text.replace(/\s+/g, '');
-    if (!needle) continue;
-
-    // Search in a normalized version of fullText from current position
-    let bestIdx = -1;
-    let bestScore = 0;
-
-    // Try exact substring match first
-    const idx = fullText.indexOf(entry.text, searchFrom);
-    if (idx !== -1) {
-      posMap.push({ pos: idx, startMs: entry.startMs, endMs: entry.endMs, len: entry.text.length });
-      searchFrom = idx + entry.text.length;
-      continue;
-    }
-
-    // Fallback: try matching without whitespace
-    const stripped = fullText.slice(searchFrom);
-    let strippedIdx = 0;
-    let origIdx = searchFrom;
-    let matchStart = -1;
-
-    for (let si = 0; si < stripped.length && strippedIdx < needle.length; si++) {
-      const ch = stripped[si];
-      if (/\s/.test(ch)) { origIdx++; continue; }
-      if (ch === needle[strippedIdx]) {
-        if (strippedIdx === 0) matchStart = origIdx;
-        strippedIdx++;
-      } else {
-        strippedIdx = 0;
-        matchStart = -1;
-      }
-      origIdx++;
-    }
-
-    if (strippedIdx === needle.length && matchStart !== -1) {
-      posMap.push({ pos: matchStart, startMs: entry.startMs, endMs: entry.endMs, len: origIdx - matchStart });
-      searchFrom = origIdx;
-    }
-  }
-
-  return posMap;
-}
-
-/**
- * Given a subtitle line's start/end position in fullText, find its
- * startMs/endMs from the VTT position map.
- */
-function findTimingForRange(lineStart, lineEnd, posMap, totalDuration, totalChars) {
-  // Find first VTT entry overlapping lineStart
-  let startMs = null;
-  let endMs   = null;
-
-  for (const p of posMap) {
-    const pEnd = p.pos + p.len;
-    // This entry overlaps our line range
-    if (pEnd > lineStart && p.pos < lineEnd) {
-      if (startMs === null) startMs = p.startMs;
-      endMs = p.endMs;
-    }
-    if (p.pos >= lineEnd) break;
-  }
-
-  // Fallback: proportional by character position
-  if (startMs === null) startMs = Math.round((lineStart / totalChars) * totalDuration);
-  if (endMs === null)   endMs   = Math.round((lineEnd   / totalChars) * totalDuration);
-
-  return { startMs, endMs };
-}
-
 // ─── Main logic ───────────────────────────────────────────────────────────────
 
-function buildSubtitles(narration, vttEntries) {
-  const { text: fullText, emphases } = narration;
+function buildSubtitles(narration, totalDurationMs) {
+  const { text: fullText } = narration;
 
-  // Split narration into lines; filter out empty lines
-  const rawLines = fullText.split('\n');
-  const lines = [];
-  let charOffset = 0;
-
-  for (const raw of rawLines) {
-    const trimmed = raw.trim();
-    // Find the actual position of this line in fullText (accounting for \n)
-    const linePos = fullText.indexOf(raw, charOffset);
-    if (linePos === -1) {
-      charOffset += raw.length + 1;
-      continue;
-    }
-    charOffset = linePos + raw.length + 1;
-
-    if (!trimmed) continue; // skip empty lines
-
-    lines.push({
-      text: trimmed,
-      posStart: linePos + (raw.length - raw.trimStart().length), // skip leading spaces
-      posEnd:   linePos + raw.length - (raw.length - raw.trimEnd().length),
-    });
-  }
-
+  // Split into non-empty lines — each line = one subtitle
+  const lines = fullText.split('\n').map(l => l.trim()).filter(Boolean);
   if (lines.length === 0) return [];
 
-  // Compute total duration
-  const totalDuration = vttEntries.length > 0
-    ? vttEntries[vttEntries.length - 1].endMs
-    : 0;
-  const totalChars = fullText.length || 1;
+  if (totalDurationMs <= 0) {
+    // No timing info: return stubs with zero times
+    return lines.map(text => ({ text, startMs: 0, endMs: 0 }));
+  }
 
-  // Build position→ms map from VTT
-  const posMap = vttEntries.length > 0 ? buildPosMap(fullText, vttEntries) : [];
-
-  // Build subtitle entries
+  // Proportional distribution by character count
+  const totalChars = lines.reduce((s, l) => s + l.length, 0) || 1;
   const subtitles = [];
-  for (const line of lines) {
-    const { startMs, endMs } = findTimingForRange(
-      line.posStart, line.posEnd, posMap, totalDuration, totalChars
-    );
-    const lineEmphases = mapEmphases(line.text, emphases, line.posStart);
+  let cumMs = 0;
 
+  for (const text of lines) {
+    const durMs = Math.round((text.length / totalChars) * totalDurationMs);
     subtitles.push({
-      text: line.text,
-      startMs,
-      endMs,
-      emphases: lineEmphases,
+      text,
+      startMs: cumMs,
+      endMs:   cumMs + durMs,
     });
+    cumMs += durMs;
+  }
+
+  // Last entry gets any rounding remainder
+  if (subtitles.length > 0) {
+    subtitles[subtitles.length - 1].endMs = totalDurationMs;
   }
 
   return subtitles;
@@ -226,15 +101,29 @@ if (!block.narration.text.trim()) {
   process.exit(0);
 }
 
-let vttEntries = [];
+// Get total duration from VTT
+let totalDurationMs = 0;
 if (fs.existsSync(vttPath)) {
-  vttEntries = parseVTT(fs.readFileSync(vttPath, 'utf-8'));
+  const entries = parseVTT(fs.readFileSync(vttPath, 'utf-8'));
+  if (entries.length > 0) {
+    totalDurationMs = entries[entries.length - 1].endMs;
+  }
 } else {
-  console.warn(`[measure-subtitle] VTT file not found: ${vttPath} — using proportional timing`);
+  // Try meta.json for duration
+  const metaPath = vttPath.replace(/\.vtt$/, '.meta.json');
+  if (fs.existsSync(metaPath)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+      totalDurationMs = Math.round((meta.duration_s ?? 0) * 1000);
+    } catch {}
+  }
+  if (totalDurationMs === 0) {
+    console.warn(`[measure-subtitle] VTT not found: ${vttPath} — timing will be zero`);
+  }
 }
 
-const subtitles = buildSubtitles(block.narration, vttEntries);
+const subtitles = buildSubtitles(block.narration, totalDurationMs);
 
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 fs.writeFileSync(outPath, JSON.stringify(subtitles, null, 2), 'utf-8');
-console.log(`[measure-subtitle] ${blockId}: ${subtitles.length} subtitle lines → ${outPath}`);
+console.log(`[measure-subtitle] ${blockId}: ${subtitles.length} subtitle lines → ${outPath} (total ${totalDurationMs}ms)`);
