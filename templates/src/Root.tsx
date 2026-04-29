@@ -1,31 +1,30 @@
 /**
- * AutoVideo v2 — Root composition
+ * AutoVideo v2 — Root
+ * Registers one independent Remotion composition per block.
+ * Each composition is rendered separately; final video is assembled by ffmpeg concat.
  */
 import React from 'react';
 import { Composition } from 'remotion';
-import { Video } from './Video';
+import { BlockComposition } from './BlockComposition';
 import blocksData from '../blocks.json';
 
 export const RemotionRoot: React.FC = () => {
-  // Compute total duration from timing
-  const blocks = blocksData.blocks;
-  let totalFrames = 0;
-  for (const b of blocks) {
-    const end = (b.timing?.startFrame ?? 0) + (b.timing?.frames ?? 0);
-    if (end > totalFrames) totalFrames = end;
-  }
-  if (totalFrames === 0) totalFrames = 900; // default 30s
-
   const { resolution, fps } = blocksData.meta;
 
   return (
-    <Composition
-      id="Video"
-      component={Video}
-      durationInFrames={totalFrames}
-      fps={fps}
-      width={resolution.w}
-      height={resolution.h}
-    />
+    <>
+      {blocksData.blocks.map((block) => (
+        <Composition
+          key={block.id}
+          id={block.id}
+          component={BlockComposition}
+          defaultProps={{ blockId: block.id }}
+          durationInFrames={Math.max(block.timing?.frames ?? 1, 1)}
+          fps={fps}
+          width={resolution.w}
+          height={resolution.h}
+        />
+      ))}
+    </>
   );
 };

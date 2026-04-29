@@ -90,9 +90,15 @@ class VoxCPMProvider:
             return False
 
     def synth(self, *, text: str, voice: str, out_wav: Path, out_vtt: Path,
-              emphases=None, hints=None) -> TTSResult:
+              emphases=None, hints=None,
+              reference_wav: Optional[str] = None,
+              prompt_text: Optional[str] = None) -> TTSResult:
         emphases = emphases or []
         hints = hints or {}
+
+        # Per-call overrides take precedence over constructor values
+        effective_ref_wav  = reference_wav  if reference_wav  is not None else self._reference_wav
+        effective_prompt   = prompt_text    if prompt_text    is not None else self._prompt_text
 
         # Build multipart request
         boundary = "----AutoVideoVoxCPM"
@@ -105,14 +111,13 @@ class VoxCPMProvider:
         if self._voice_design:
             fields["voice_design"] = self._voice_design
 
-        if self._prompt_text:
-            fields["prompt_text"] = self._prompt_text
+        if effective_prompt:
+            fields["prompt_text"] = effective_prompt
 
         # Build body
         files = {}
-        ref_wav_path = None
-        if self._reference_wav:
-            ref_wav_path = Path(self._reference_wav)
+        if effective_ref_wav:
+            ref_wav_path = Path(effective_ref_wav)
             if ref_wav_path.exists():
                 ref_bytes = ref_wav_path.read_bytes()
                 files["reference_wav"] = ("reference.wav", ref_bytes, "audio/wav")

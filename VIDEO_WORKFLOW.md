@@ -32,9 +32,9 @@ Stage 1: 脚本编译 (script.md → blocks.json)
     ├──→ Stage 2: 音频合成 (TTS + VTT + 字幕切段)  ← 按 Block 并行
     ├──→ Stage 3: 视觉资产 (组件生成 / 代码读取)    ← 按 Block 并行，与 Stage 2 同时
     │
-Stage 4: 时序装配 (计算帧/主音轨/Video.tsx)
+Stage 4: 时序装配 (计算每块帧数 + TypeScript 编译检查)
     │
-Stage 5: Remotion 渲染 (→ MP4)
+Stage 5: Remotion 逐块渲染 (每块独立 MP4) + ffmpeg concat → output/final.mp4
     │
 Stage 6: 后处理 (音频标准化 + 质量校验)
 ```
@@ -619,182 +619,136 @@ node "$AGENT_DIR/scripts/preprocess-code.mjs" \
 
 **等待 Stage 2（TTS）和 Stage 3（组件生成）都完成后执行。**
 
-### 4.1 计算每个 block 的 startFrame 和 frames
+每个 block 是独立的 Remotion composition，`startFrame` 固定为 0，只需计算该块自身的帧数。
+
+### 4.1 计算每个 block 的帧数
 
 ```javascript
 // 在 Node.js 中执行
+const fs = require('fs');
 const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
 const { fps } = blocks.meta;
 
-const ENTER_DEF = 0.5;  // default enter duration seconds
-const EXIT_DEF  = 0.3;  // default exit duration seconds
-const MIN_HOLD  = 1.5;  // minimum hold for any block
-
-let cursor = 0;  // current frame
+const ENTER_DEF = 0.5;
+const EXIT_DEF  = 0.3;
+const MIN_HOLD  = 1.5;
 
 for (const b of blocks.blocks) {
-  const enterDur  = b.visual.enter.duration ?? ENTER_DEF;
-  const exitDur   = b.visual.exit.duration  ?? EXIT_DEF;
-  const ttsDur    = b.timing.ttsDuration ?? 0;
+  const enterDur   = b.visual.enter.duration ?? ENTER_DEF;
+  const exitDur    = b.visual.exit.duration  ?? EXIT_DEF;
+  const ttsDur     = b.timing.ttsDuration ?? 0;
   const pauseAfter = b.narration.hints?.pauseAfter ?? 0;
-  // @duration is a MINIMUM — if TTS is longer, use TTS duration
-  // explicitHold comes from @duration in the script (may be null/undefined)
-  const explicitMin = b.timing.holdDuration ?? 0;  // set if @duration was specified
+  const explicitMin = b.timing.holdDuration ?? 0;
 
-  const holdDur = Math.max(explicitMin, ttsDur + pauseAfter, MIN_HOLD);
+  const holdDur  = Math.max(explicitMin, ttsDur + pauseAfter, MIN_HOLD);
   const totalDur = enterDur + holdDur + exitDur;
 
-  b.timing.enterDuration  = enterDur;
-  b.timing.holdDuration   = holdDur;
-  b.timing.exitDuration   = exitDur;
-  b.timing.totalDuration  = totalDur;
-  b.timing.startFrame     = cursor;
-  b.timing.frames         = Math.round(totalDur * fps);
-
-  cursor += b.timing.frames;
+  b.timing.enterDuration = enterDur;
+  b.timing.holdDuration  = holdDur;
+  b.timing.exitDuration  = exitDur;
+  b.timing.totalDuration = totalDur;
+  b.timing.startFrame    = 0;          // each block is its own composition
+  b.timing.frames        = Math.round(totalDur * fps);
 }
 
 fs.writeFileSync('blocks.json', JSON.stringify(blocks, null, 2));
-console.log('Total duration:', (cursor / fps).toFixed(1), 's');
+console.log('Timing written. Blocks:', blocks.blocks.length);
 ```
 
-### 4.2 拼接主音轨
-
 ```bash
-# 生成 FFmpeg concat 列表
-node -e "
-  const fs = require('fs');
-  const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
-  const lines = ['ffconcat version 1.0'];
-
-  for (const b of blocks.blocks) {
-    if (b.timing.audioPath && fs.existsSync(b.timing.audioPath)) {
-      const hold = b.timing.holdDuration ?? 3;
-      // If audio is shorter than hold, pad with silence
-      const dur  = b.timing.ttsDuration ?? 0;
-      lines.push('file ' + b.timing.audioPath);
-      if (hold - dur > 0.1) {
-        // We'll handle padding with ffmpeg filter
-      }
-    } else {
-      // No audio: generate silence
-      const dur = b.timing.holdDuration ?? 3;
-      const silFile = 'public/audio/' + b.id + '_silence.wav';
-      lines.push('file ' + silFile);
-    }
-  }
-
-  // Simpler approach: use sox or ffmpeg concat with durations
-  fs.writeFileSync('public/audio/concat.txt', lines.join('\n'));
-"
-
-# Better: build master track with proper timing using ffmpeg
-node -e "
-  const fs = require('fs');
-  const { execSync } = require('child_process');
-  const blocks = JSON.parse(fs.readFileSync('blocks.json', 'utf-8'));
-  const { fps } = blocks.meta;
-
-  // Build a silent base track of total duration
-  const totalFrames = Math.max(...blocks.blocks.map(b => (b.timing.startFrame ?? 0) + (b.timing.frames ?? 0)));
-  const totalSecs   = totalFrames / fps;
-
-  // Create silence base
-  execSync(\`ffmpeg -y -f lavfi -i anullsrc=r=24000:cl=mono -t \${totalSecs} -acodec pcm_s16le public/audio/master_silence.wav\`);
-
-  // Build amix/adelay filter chain
-  const filterParts = ['[0:a]'];
-  const inputs = ['-i public/audio/master_silence.wav'];
-  const delays = [];
-
-  let audioIdx = 1;
-  for (const b of blocks.blocks) {
-    const wavPath = b.timing.audioPath;
-    if (!wavPath || !fs.existsSync(wavPath)) continue;
-    const delayMs = Math.round(((b.timing.startFrame ?? 0) + (b.timing.enterDuration ?? 0) * fps) / fps * 1000);
-    inputs.push('-i ' + wavPath);
-    delays.push(\`[1:a]adelay=\${delayMs}|0[a\${audioIdx}]\`);
-    filterParts.push(\`[a\${audioIdx}]\`);
-    audioIdx++;
-  }
-
-  if (audioIdx === 1) {
-    // No audio files at all
-    fs.copyFileSync('public/audio/master_silence.wav', 'public/audio/master.wav');
-  } else {
-    const filterStr = delays.join(';') + ';' + filterParts.join('') + 'amix=inputs=' + audioIdx + ':normalize=0[out]';
-    const cmd = 'ffmpeg -y ' + inputs.join(' ') + ' -filter_complex \"' + filterStr + '\" -map [out] -acodec pcm_s16le public/audio/master.wav';
-    execSync(cmd);
-  }
-  console.log('master.wav created:', totalSecs.toFixed(1) + 's');
-" 2>&1
-
 bash scripts/update-task.sh pipeline-state.json T40_timing completed
 ```
 
-### 4.3 编译检查
+### 4.2 TypeScript 编译检查
 
 ```bash
+bash scripts/update-task.sh pipeline-state.json T41_compile_check running
+
 npx tsc --noEmit 2>&1 | head -50
 if [ ${PIPESTATUS[0]} -ne 0 ]; then
   echo "TypeScript compile error — fix before rendering"
-  bash scripts/update-task.sh pipeline-state.json T42_compile_check error "TypeScript error"
+  bash scripts/update-task.sh pipeline-state.json T41_compile_check error "TypeScript error"
   exit 1
 fi
 
-TOTAL_FRAMES=$(jq '[.blocks[] | (.timing.startFrame // 0) + (.timing.frames // 0)] | max' blocks.json)
-TOTAL_SECS=$(node -e "console.log(($TOTAL_FRAMES/$(jq .meta.fps blocks.json)).toFixed(1))")
-bash scripts/update-task.sh pipeline-state.json T42_compile_check completed "${TOTAL_FRAMES} frames ${TOTAL_SECS}s"
+BLOCK_COUNT=$(jq '.blocks | length' blocks.json)
+bash scripts/update-task.sh pipeline-state.json T41_compile_check completed "${BLOCK_COUNT} blocks ready"
 ```
 
 ---
 
-## STAGE 5：渲染
+## STAGE 5：逐块渲染 + 拼接
 
-### 5.1 预览帧验证（快速）
+每个 block 渲染为独立 MP4，已完成的块跳过（断点续渲）。所有块完成后 ffmpeg concat。
+
+### 5.1 逐块渲染
 
 ```bash
-bash scripts/update-task.sh pipeline-state.json T50_preview_frames running
+mkdir -p output/blocks
 
-W=$(jq -r .meta.resolution.w blocks.json)
-H=$(jq -r .meta.resolution.h blocks.json)
-TOTAL=$(jq '[.blocks[] | (.timing.startFrame // 0) + (.timing.frames // 0)] | max' blocks.json)
+for BLOCK_ID in $(jq -r '.blocks[].id' blocks.json); do
+  TASK="T50_render_${BLOCK_ID}"
 
-# 渲染 5 个抽样帧
-for FRAC in 0.1 0.3 0.5 0.7 0.9; do
-  FRAME=$(node -e "console.log(Math.floor($TOTAL * $FRAC))")
-  npx remotion still \
+  # 断点续渲：已 completed 的块直接跳过
+  STATUS=$(jq -r ".global[\"${TASK}\"].status // \"pending\"" pipeline-state.json 2>/dev/null || echo "pending")
+  if [[ "$STATUS" == "completed" && -f "output/blocks/${BLOCK_ID}.mp4" ]]; then
+    echo "[Stage5] ${BLOCK_ID}: already rendered, skipping"
+    continue
+  fi
+
+  bash scripts/update-task.sh pipeline-state.json "${TASK}" running
+
+  npx remotion render \
     --config remotion.config.ts \
-    --frame "$FRAME" \
-    --output "output/preview_${FRAME}.png" \
-    src/Root.tsx Video \
-    2>&1 || true
-done
+    --codec h264 \
+    --output "output/blocks/${BLOCK_ID}.mp4" \
+    --log error \
+    src/Root.tsx "${BLOCK_ID}" \
+    2>&1 | tail -5
 
-bash scripts/update-task.sh pipeline-state.json T50_preview_frames completed
+  if [[ -f "output/blocks/${BLOCK_ID}.mp4" ]]; then
+    SIZE=$(du -sh "output/blocks/${BLOCK_ID}.mp4" | cut -f1)
+    bash scripts/update-task.sh pipeline-state.json "${TASK}" completed "${SIZE}"
+    echo "[Stage5] ${BLOCK_ID}: rendered (${SIZE})"
+  else
+    bash scripts/update-task.sh pipeline-state.json "${TASK}" error "MP4 not created"
+    echo "[Stage5] ERROR: ${BLOCK_ID} failed"
+  fi
+done
 ```
 
-### 5.2 完整渲染
+### 5.2 拼接所有块
 
 ```bash
-bash scripts/update-task.sh pipeline-state.json T51_full_render running
+bash scripts/update-task.sh pipeline-state.json T51_concat running
 
-W=$(jq -r .meta.resolution.w blocks.json)
-H=$(jq -r .meta.resolution.h blocks.json)
+mkdir -p output
 
-npx remotion render \
-  --config remotion.config.ts \
-  --codec h264 \
-  --output output/final.mp4 \
-  --log error \
-  src/Root.tsx Video \
-  2>&1 | tail -20
+# 验证所有块都已渲染
+MISSING=0
+for BLOCK_ID in $(jq -r '.blocks[].id' blocks.json); do
+  [[ -f "output/blocks/${BLOCK_ID}.mp4" ]] || { echo "Missing: output/blocks/${BLOCK_ID}.mp4"; MISSING=$((MISSING+1)); }
+done
+if [[ "$MISSING" -gt 0 ]]; then
+  bash scripts/update-task.sh pipeline-state.json T51_concat error "${MISSING} block(s) missing"
+  exit 1
+fi
 
-if [ -f output/final.mp4 ]; then
+# 生成 concat 列表（按 blocks.json 顺序）
+jq -r '.blocks[].id' blocks.json | \
+  while read ID; do echo "file '$(pwd)/output/blocks/${ID}.mp4'"; done \
+  > output/blocks/concat.txt
+
+ffmpeg -y -f concat -safe 0 -i output/blocks/concat.txt \
+  -c copy output/final.mp4 \
+  2>&1 | tail -5
+
+if [[ -f output/final.mp4 ]]; then
   SIZE=$(du -sh output/final.mp4 | cut -f1)
-  bash scripts/update-task.sh pipeline-state.json T51_full_render completed "$SIZE"
+  bash scripts/update-task.sh pipeline-state.json T51_concat completed "${SIZE}"
+  echo "[Stage5] concat OK: output/final.mp4 (${SIZE})"
 else
-  bash scripts/update-task.sh pipeline-state.json T51_full_render error "MP4 not created"
+  bash scripts/update-task.sh pipeline-state.json T51_concat error "concat failed"
   exit 1
 fi
 ```
@@ -837,7 +791,7 @@ RES=$(ffprobe -v quiet -select_streams v:0 \
 echo "$RES" | grep -q "^${W},${H}$" || { echo "ERROR: resolution mismatch: $RES"; ERRORS=$((ERRORS+1)); }
 
 # 3. 时长与预期接近（±20%）
-EXPECTED_SECS=$(jq '([.blocks[] | (.timing.startFrame // 0) + (.timing.frames // 0)] | max) / .meta.fps' blocks.json)
+EXPECTED_SECS=$(jq '[.blocks[].timing.totalDuration // 0] | add' blocks.json)
 ACTUAL_SECS=$(ffprobe -v quiet -show_entries format=duration \
   -of default=noprint_wrappers=1:nokey=1 output/final_normalized.mp4)
 node -e "
@@ -852,10 +806,9 @@ node -e "
 " || ERRORS=$((ERRORS+1))
 
 # 4. 抽查 5 帧，确认非纯黑
-TOTAL=$(jq '[.blocks[] | (.timing.startFrame // 0) + (.timing.frames // 0)] | max' blocks.json)
-FPS=$(jq -r .meta.fps blocks.json)
+TOTAL_SECS=$(jq '[.blocks[].timing.totalDuration // 0] | add' blocks.json)
 for FRAC in 0.1 0.3 0.5 0.7 0.9; do
-  T=$(node -e "console.log(($TOTAL * $FRAC / $FPS).toFixed(2))")
+  T=$(node -e "console.log(($TOTAL_SECS * $FRAC).toFixed(2))")
   ffmpeg -y -ss "$T" -i output/final_normalized.mp4 -frames:v 1 /tmp/check_frame.png 2>/dev/null
   BRIGHT=$(ffprobe -f lavfi -i "movie=/tmp/check_frame.png,signalstats" \
     -show_entries frame_tags=lavfi.signalstats.YAVG -of default=noprint_wrappers=1:nokey=1 2>/dev/null || echo 5)
@@ -898,18 +851,17 @@ T{stage}{seq}_{kind}[_{BlockId}]
 
 全局任务（无 BlockId）:
   T00_sudo_check, T01_apt_install, T02_nodejs, T03_python,
-  T04_remotion, T05_copy_sources, T06_env_verify
+  T04_voxcpm_server, T05_remotion_init, T06_copy_templates, T07_env_verify
   T10_compile_script
-  T30_theme, T30_code_highlight
-  T40_timing, T41_compose_root, T42_compile_check
-  T50_preview_frames, T51_full_render
+  T40_timing, T41_compile_check
+  T51_concat
   T60_normalize, T61_quality_check
 
 Per-block 任务（BlockId = B00 ... B99）:
   T20_tts_B03        Stage 2 TTS 合成
-  T21_vtt_B03        Stage 2 VTT 对齐（当 TTS 无词级时间戳时）
   T22_sub_B03        Stage 2 字幕切段
   T31_component_B03  Stage 3 animation 组件生成
+  T50_render_B03     Stage 5 Remotion 单块渲染
 ```
 
 ## 错误处理原则

@@ -157,12 +157,12 @@ Task IDs follow `T{stage}{seq}_{name}` (e.g. `T20_tts_B01` = Stage 2, TTS for bl
 ## Stage 概览
 
 ```
-Stage 0: 环境搭建（apt、Node、Python venv、Remotion init、启动 VoxCPM / CosyVoice 服务）
+Stage 0: 环境搭建（apt、Node、Python venv、Remotion init、启动 VoxCPM 服务）
 Stage 1: 脚本编译（compile-script.mjs: script.md → blocks.json）
 Stage 2: 音频合成（TTS router → WAV + VTT + 字幕切段，自动查全局缓存）  ← 与 Stage 3 并行
 Stage 3: 视觉资产（代码预处理 + animation 组件生成，自动查全局缓存）      ← 与 Stage 2 并行
-Stage 4: 时序装配（帧计算 + 主音轨拼接 + Video.tsx）
-Stage 5: Remotion 渲染（→ MP4）
+Stage 4: 时序装配（帧计算 + BlockComposition.tsx per-block + TypeScript 编译检查）
+Stage 5: Remotion 逐块渲染（每块独立 MP4）+ ffmpeg concat → output/final.mp4
 Stage 6: 后处理（音频标准化 + 质量校验）
 ```
 
@@ -170,14 +170,13 @@ Stage 6: 后处理（音频标准化 + 质量校验）
 
 ```
 T00_sudo_check          T01_apt_install         T02_nodejs
-T03_python              T04_cosyvoice_server     T04b_voxcpm_server  T05_remotion_init
+T03_python              T04_voxcpm_server        T05_remotion_init
 T06_copy_templates      T07_env_verify
 T10_compile_script
-T20_tts_B{nn}           T21_vtt_align_B{nn}     T22_subtitle_B{nn}
+T20_tts_B{nn}           T22_subtitle_B{nn}
 T31_component_B{nn}
-T40_timing              T41_master_audio        T42_compose_video
-T43_compile_check
-T50_preview_frames      T51_full_render
+T40_timing              T41_compile_check
+T50_render_B{nn}        T51_concat
 T60_normalize           T61_quality_check
 ```
 

@@ -1,52 +1,45 @@
 #!/usr/bin/env python3
 """
-AutoVideo v2 — TTS Router
-Routes narration blocks to the best TTS provider based on content.
+AutoVideo — TTS Router (VoxCPM only)
+
+Each narration line is synthesized separately. 200 ms silence is inserted between
+lines, then all segments are concatenated into one WAV per block.
+
+Voice persistence:
+  - On first synthesis in a project (no voice-ref.wav), VoxCPM is called with no
+    reference audio, producing a random voice. The resulting audio is saved as
+    {project_dir}/voice-ref.wav and the spoken text as {project_dir}/voice-ref-text.txt.
+  - All subsequent calls (same or later blocks) use voice-ref.wav for voice cloning.
 
 Usage:
-  python3 router.py <blocks.json> <block-id> <out-dir> [--provider auto|edge|cosyvoice|voxcpm]
-
-Outputs:
-  <out-dir>/<block-id>.wav
-  <out-dir>/<block-id>.vtt   (word-level timestamps)
-  <out-dir>/<block-id>.meta.json
-
-See TTS_RESEARCH.md for provider selection rationale.
+  python3 router.py <blocks.json> <block-id> <out-dir> [--config video-agent-config.json]
 """
 
 import sys
 import os
 import json
-import re
-import time
-import argparse
-import subprocess
 import shutil
-from pathlib import Path
+import struct
+import subprocess
+import time
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Optional
 
-# Global audio cache (imported lazily so missing file doesn't break anything)
+_scripts_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(_scripts_dir))
+sys.path.insert(0, str(Path(__file__).parent))
+
 _cache_available = False
 try:
-    _scripts_dir = Path(__file__).parent.parent
-    sys.path.insert(0, str(_scripts_dir))
     from cache_utils import AudioCache
     _cache_available = True
 except Exception:
     pass
 
-# ─── Routing config defaults ──────────────────────────────────────────────────
+SILENCE_MS = 200
 
-DEFAULT_ROUTING = {
-    "strategy": "auto",           # auto | edge | cosyvoice | voxcpm
-    "mixedLangThreshold": 0.15,   # EN chars ratio > threshold → upgrade
-    "minLengthForUpgrade": 30,    # text length > this → upgrade
-    "upgradeOnEmphasis": True,    # has **bold** → upgrade
-    "fallbackChain": ["voxcpm", "cosyvoice", "edge"],
-}
-
-# ─── Result dataclass ─────────────────────────────────────────────────────────
+# ─── Result ───────────────────────────────────────────────────────────────────
 
 @dataclass
 class TTSResult:
@@ -57,295 +50,266 @@ class TTSResult:
     success: bool
     error: Optional[str] = None
 
-# ─── Content analysis ─────────────────────────────────────────────────────────
+# ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def analyze_content(narration: dict) -> dict:
-    """Analyze narration for routing decisions."""
-    text = narration.get("text", "")
-    emphases = narration.get("emphases", [])
+def _ms_to_vtt(ms: int) -> str:
+    h = ms // 3600000
+    m = (ms % 3600000) // 60000
+    s = (ms % 60000) // 1000
+    r = ms % 1000
+    return f"{h:02d}:{m:02d}:{s:02d}.{r:03d}"
 
-    if not text:
-        return {"en_ratio": 0, "length": 0, "has_emphasis": False, "has_code": False}
 
-    # Count ASCII letters as "English"
-    ascii_letters = sum(1 for c in text if c.isascii() and c.isalpha())
-    total_letters = sum(1 for c in text if c.isalpha())
-    en_ratio = ascii_letters / max(total_letters, 1)
+def _detect_sample_rate(wav_path: Path) -> int:
+    try:
+        with open(wav_path, "rb") as f:
+            f.seek(24)
+            return struct.unpack('<I', f.read(4))[0]
+    except Exception:
+        return 48000
 
-    # Detect code-like terms (camelCase, ALL_CAPS, contains digits mixed with letters)
-    code_pattern = re.search(r'[A-Z][a-z]+[A-Z]|[a-z]+[A-Z]|[A-Z]{2,}|`[^`]+`', text)
 
-    return {
-        "en_ratio": en_ratio,
-        "length": len(text),
-        "has_emphasis": len(emphases) > 0,
-        "has_code": code_pattern is not None,
-    }
+def _create_silence_wav(out_path: Path, duration_ms: int, sample_rate: int):
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "lavfi",
+        "-i", f"anullsrc=r={sample_rate}:cl=mono",
+        "-t", str(duration_ms / 1000),
+        "-acodec", "pcm_s16le",
+        str(out_path),
+    ], check=True, capture_output=True)
 
-def select_provider(narration: dict, routing: dict) -> str:
-    """Decide which provider to use based on content analysis."""
-    strategy = routing.get("strategy", "auto")
-    if strategy != "auto":
-        return strategy
 
-    analysis = analyze_content(narration)
-    threshold = routing.get("mixedLangThreshold", 0.15)
-    min_len = routing.get("minLengthForUpgrade", 30)
-    upgrade_on_emphasis = routing.get("upgradeOnEmphasis", True)
+def _concat_wavs(wav_paths: list, out_path: Path):
+    list_file = out_path.parent / f"_concat_{out_path.stem}.txt"
+    try:
+        with open(list_file, "w") as f:
+            for p in wav_paths:
+                f.write(f"file '{p}'\n")
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(list_file),
+            "-c", "copy",
+            str(out_path),
+        ], check=True, capture_output=True)
+    finally:
+        list_file.unlink(missing_ok=True)
 
-    should_upgrade = (
-        analysis["en_ratio"] > threshold
-        or analysis["length"] > min_len
-        or (upgrade_on_emphasis and analysis["has_emphasis"])
-        or analysis["has_code"]
-    )
 
-    fallback_chain = routing.get("fallbackChain", ["cosyvoice", "azure", "edge"])
+def _build_vtt(lines: list, durations_s: list, silence_ms: int) -> str:
+    entries = ["WEBVTT", ""]
+    cursor_ms = 0
+    for line, dur_s in zip(lines, durations_s):
+        end_ms = cursor_ms + int(dur_s * 1000)
+        entries.append(f"{_ms_to_vtt(cursor_ms)} --> {_ms_to_vtt(end_ms)}")
+        entries.append(line)
+        entries.append("")
+        cursor_ms = end_ms + silence_ms
+    return "\n".join(entries)
 
-    if should_upgrade:
-        return fallback_chain[0]
-    return "edge"
 
-# ─── Load providers ───────────────────────────────────────────────────────────
+def _create_empty_wav(path: Path, duration_s: float):
+    subprocess.run([
+        "ffmpeg", "-y", "-f", "lavfi",
+        "-i", "anullsrc=r=24000:cl=mono",
+        "-t", str(duration_s),
+        "-acodec", "pcm_s16le",
+        str(path),
+    ], check=True, capture_output=True)
 
-def get_provider(name: str, tts_config: dict = None, project_dir: Path = None):
-    """Lazy-import provider by name."""
-    providers_dir = Path(__file__).parent / "providers"
-    sys.path.insert(0, str(providers_dir.parent))
-    tts_config = tts_config or {}
+# ─── Voice reference ──────────────────────────────────────────────────────────
 
-    if name == "edge":
-        from providers.edge import EdgeTTSProvider
-        return EdgeTTSProvider()
-    elif name == "cosyvoice":
-        from providers.cosyvoice import CosyVoiceProvider
-        cv_cfg = tts_config.get("cosyvoice", {})
-        prompt_wav  = cv_cfg.get("promptWav")
-        prompt_text = cv_cfg.get("promptText")
-        # Resolve relative path against project dir
-        if prompt_wav and project_dir and not Path(prompt_wav).is_absolute():
-            prompt_wav = str(project_dir / prompt_wav)
-        return CosyVoiceProvider(prompt_wav=prompt_wav, prompt_text=prompt_text)
-    elif name == "voxcpm":
-        from providers.voxcpm import VoxCPMProvider
-        vx_cfg = tts_config.get("voxcpm", {})
-        endpoint = vx_cfg.get("endpoint")
-        voice_design = vx_cfg.get("voiceDesign", "")
-        reference_wav = vx_cfg.get("referenceWav", "")
-        prompt_text = vx_cfg.get("promptText", "")
-        # Resolve relative paths against project dir
-        if reference_wav and project_dir and not Path(reference_wav).is_absolute():
-            reference_wav = str(project_dir / reference_wav)
-        return VoxCPMProvider(
-            endpoint=endpoint,
-            voice_design=voice_design,
-            reference_wav=reference_wav,
-            prompt_text=prompt_text,
-        )
-    else:
-        raise ValueError(f"Unknown TTS provider: {name}")
+def _voice_ref_paths(project_dir: Path):
+    return project_dir / "voice-ref.wav", project_dir / "voice-ref-text.txt"
 
-# ─── Router ───────────────────────────────────────────────────────────────────
+# ─── Main synthesis ───────────────────────────────────────────────────────────
 
 def synth_block(block: dict, config: dict, out_dir: Path, voice: str) -> TTSResult:
-    """Synthesize a block's narration, with automatic provider fallback."""
-    block_id = block["id"]
-    narration = block.get("narration", {})
-    text = narration.get("text", "").strip()
+    from providers.voxcpm import VoxCPMProvider
+
+    block_id   = block["id"]
+    narration  = block.get("narration", {})
+    text       = narration.get("text", "").strip()
 
     if not text:
-        # Create silent placeholder
         silence_path = out_dir / f"{block_id}.wav"
-        vtt_path = out_dir / f"{block_id}.vtt"
-        _create_silence(silence_path, 0.5)
+        vtt_path     = out_dir / f"{block_id}.vtt"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        _create_empty_wav(silence_path, 0.5)
         vtt_path.write_text("WEBVTT\n\n")
-        return TTSResult(
-            wav_path=str(silence_path),
-            vtt_path=str(vtt_path),
-            provider_used="none",
-            duration_s=0.0,
-            success=True,
-        )
+        return TTSResult(wav_path=str(silence_path), vtt_path=str(vtt_path),
+                         provider_used="none", duration_s=0.0, success=True)
 
-    routing = {**DEFAULT_ROUTING, **config.get("tts", {}).get("routing", {})}
-    tts_config = config.get("tts", {})
+    lines = [l for l in text.split('\n') if l.strip()]
+    if not lines:
+        lines = [text]
 
-    # Override strategy from CLI if set
-    strategy_override = config.get("_strategy_override")
-    if strategy_override:
-        routing["strategy"] = strategy_override
+    project_dir = Path(config.get("projectDir", "."))
+    tts_config  = config.get("tts", {})
+    vx_cfg      = tts_config.get("voxcpm", {})
+    endpoint    = vx_cfg.get("endpoint")
 
-    initial_provider = select_provider(narration, routing)
+    voice_ref_wav, voice_ref_txt = _voice_ref_paths(project_dir)
+    has_ref = voice_ref_wav.exists()
+
+    final_wav = out_dir / f"{block_id}.wav"
+    final_vtt = out_dir / f"{block_id}.vtt"
 
     # ── Cache lookup ──────────────────────────────────────────────────────────
     _audio_cache = None
     _audio_hash  = None
     if _cache_available:
         try:
-            resolved_voice    = _resolve_voice(initial_provider, voice, tts_config)
-            _audio_cache      = AudioCache()
-            _audio_hash       = _audio_cache.compute_hash(text, resolved_voice, initial_provider)
-            hit               = _audio_cache.lookup(_audio_hash)
+            _audio_cache = AudioCache()
+            _audio_hash  = _audio_cache.compute_hash(text, "voxcpm", "voxcpm")
+            hit = _audio_cache.lookup(_audio_hash)
             if hit:
                 out_dir.mkdir(parents=True, exist_ok=True)
-                wav_path = out_dir / f"{block_id}.wav"
-                vtt_path = out_dir / f"{block_id}.vtt"
-                shutil.copy2(hit["wav"], wav_path)
-                shutil.copy2(hit["vtt"], vtt_path)
+                shutil.copy2(hit["wav"], final_wav)
+                shutil.copy2(hit["vtt"], final_vtt)
                 if hit.get("meta"):
                     meta_src = Path(hit["meta"])
                     if meta_src.exists():
                         shutil.copy2(meta_src, out_dir / f"{block_id}.meta.json")
-                # Read duration from cached meta if available
                 duration_s = 0.0
                 try:
-                    cached_meta_path = out_dir / f"{block_id}.meta.json"
-                    if cached_meta_path.exists():
-                        duration_s = json.loads(cached_meta_path.read_text()).get("duration_s", 0.0)
+                    mp = out_dir / f"{block_id}.meta.json"
+                    if mp.exists():
+                        duration_s = json.loads(mp.read_text()).get("duration_s", 0.0)
                 except Exception:
                     pass
-                print(f"[TTS] {block_id}: cache hit ({_audio_hash[:8]}…) → {wav_path}")
-                return TTSResult(
-                    wav_path=str(wav_path),
-                    vtt_path=str(vtt_path),
-                    provider_used=f"cache({initial_provider})",
-                    duration_s=duration_s,
-                    success=True,
-                )
-        except Exception as _ce:
-            print(f"[TTS] {block_id}: cache lookup failed (non-fatal): {_ce}", file=sys.stderr)
+                print(f"[TTS] {block_id}: cache hit ({_audio_hash[:8]}…) → {final_wav}")
+                return TTSResult(wav_path=str(final_wav), vtt_path=str(final_vtt),
+                                 provider_used="cache(voxcpm)", duration_s=duration_s, success=True)
+        except Exception as e:
+            print(f"[TTS] {block_id}: cache lookup failed (non-fatal): {e}", file=sys.stderr)
     # ── End cache lookup ──────────────────────────────────────────────────────
-    fallback_chain = routing.get("fallbackChain", ["voxcpm", "cosyvoice", "edge"])
-
-    # Build ordered list of providers to try
-    providers_to_try = [initial_provider]
-    for fb in fallback_chain:
-        if fb not in providers_to_try:
-            providers_to_try.append(fb)
-    # Always end with edge-tts as final fallback
-    if "edge" not in providers_to_try:
-        providers_to_try.append("edge")
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    wav_path = out_dir / f"{block_id}.wav"
-    vtt_path = out_dir / f"{block_id}.vtt"
 
-    # Resolve project dir for relative asset paths
-    project_dir = Path(config.get("projectDir", "."))
-
-    last_error = None
-    for provider_name in providers_to_try:
-        print(f"[TTS] {block_id}: trying {provider_name}...", flush=True)
-        try:
-            provider = get_provider(provider_name, tts_config=tts_config, project_dir=project_dir)
-            if not provider.is_available():
-                print(f"[TTS] {block_id}: {provider_name} not available, skipping")
-                continue
-
-            provider_voice = _resolve_voice(provider_name, voice, tts_config)
-            result = provider.synth(
-                text=text,
-                voice=provider_voice,
-                out_wav=wav_path,
-                out_vtt=vtt_path,
-                emphases=narration.get("emphases", []),
-                hints=narration.get("hints", {}),
-            )
-            result.provider_used = provider_name
-            if result.success:
-                print(f"[TTS] {block_id}: {provider_name} OK ({result.duration_s:.1f}s)")
-                # ── Cache store ───────────────────────────────────────────────
-                if _cache_available and _audio_cache and _audio_hash:
-                    try:
-                        meta_file = out_dir / f"{block_id}.meta.json"
-                        _audio_cache.store(
-                            hash_val  = _audio_hash,
-                            wav_path  = str(wav_path),
-                            vtt_path  = str(vtt_path),
-                            meta_path = str(meta_file) if meta_file.exists() else None,
-                            title     = block.get("title", block_id),
-                            project   = config.get("projectDir", str(out_dir)),
-                            provider  = provider_name,
-                        )
-                        print(f"[TTS] {block_id}: stored in cache ({_audio_hash[:8]}…)")
-                    except Exception as _se:
-                        print(f"[TTS] {block_id}: cache store failed (non-fatal): {_se}", file=sys.stderr)
-                # ── End cache store ───────────────────────────────────────────
-                return result
-            else:
-                last_error = result.error or "unknown error"
-                print(f"[TTS] {block_id}: {provider_name} returned failure: {last_error}", file=sys.stderr)
-                time.sleep(1)
-
-        except Exception as e:
-            last_error = str(e)
-            print(f"[TTS] {block_id}: {provider_name} FAILED: {e}", file=sys.stderr)
-            time.sleep(2)
-
-    return TTSResult(
-        wav_path=str(wav_path),
-        vtt_path=str(vtt_path),
-        provider_used="none",
-        duration_s=0.0,
-        success=False,
-        error=last_error,
+    provider = VoxCPMProvider(
+        endpoint=endpoint,
+        reference_wav=str(voice_ref_wav) if has_ref else None,
+        prompt_text=voice_ref_txt.read_text(encoding="utf-8").strip() if (has_ref and voice_ref_txt.exists()) else "",
     )
 
-def _resolve_voice(provider_name: str, default_voice: str, tts_config: dict) -> str:
-    if provider_name == "edge":
-        return tts_config.get("edge", {}).get("voice", default_voice)
-    elif provider_name == "cosyvoice":
-        # CosyVoice uses zero-shot cloning; voice param is ignored (controlled by promptWav)
-        return "zero_shot"
-    elif provider_name == "voxcpm":
-        # VoxCPM uses voice design / cloning; no voice name needed
-        return "voxcpm"
-    return default_voice
+    if not provider.is_available():
+        return TTSResult(wav_path=str(final_wav), vtt_path=str(final_vtt),
+                         provider_used="voxcpm", duration_s=0.0, success=False,
+                         error="VoxCPM server not available")
 
-def _create_silence(path: Path, duration_s: float):
-    """Create a silent WAV file using ffmpeg."""
-    subprocess.run([
-        "ffmpeg", "-y", "-f", "lavfi",
-        "-i", f"anullsrc=r=24000:cl=mono",
-        "-t", str(duration_s),
-        "-acodec", "pcm_s16le",
-        str(path),
-    ], check=True, capture_output=True)
+    tmp_dir = out_dir / f"_tmp_{block_id}"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        line_wavs      = []
+        line_durations = []
+
+        for i, line in enumerate(lines):
+            line_wav = tmp_dir / f"line{i:03d}.wav"
+            line_vtt = tmp_dir / f"line{i:03d}.vtt"
+
+            # First line ever (no voice-ref.wav): synthesize without reference
+            if not has_ref and i == 0:
+                ref_wav_arg  = None
+                prompt_arg   = None
+            else:
+                ref_wav_arg  = str(voice_ref_wav) if has_ref else None
+                prompt_arg   = voice_ref_txt.read_text(encoding="utf-8").strip() if (has_ref and voice_ref_txt.exists()) else None
+
+            print(f"[TTS] {block_id} line {i}: {line[:50]}", flush=True)
+            result = provider.synth(
+                text=line,
+                voice="voxcpm",
+                out_wav=line_wav,
+                out_vtt=line_vtt,
+                reference_wav=ref_wav_arg,
+                prompt_text=prompt_arg,
+            )
+
+            if not result.success:
+                return TTSResult(wav_path=str(final_wav), vtt_path=str(final_vtt),
+                                 provider_used="voxcpm", duration_s=0.0, success=False,
+                                 error=f"line {i}: {result.error}")
+
+            # Save first-ever output as voice reference
+            if not has_ref and i == 0:
+                shutil.copy2(line_wav, voice_ref_wav)
+                voice_ref_txt.write_text(line, encoding="utf-8")
+                has_ref = True
+                print(f"[TTS] Voice reference saved → {voice_ref_wav}")
+
+            line_wavs.append(line_wav)
+            line_durations.append(result.duration_s)
+
+        # Build interleaved list: line0 [silence line1] [silence line2] ...
+        sample_rate    = _detect_sample_rate(line_wavs[0])
+        wavs_to_concat = []
+        if len(line_wavs) > 1:
+            silence_wav = tmp_dir / "silence.wav"
+            _create_silence_wav(silence_wav, SILENCE_MS, sample_rate)
+            for idx, lw in enumerate(line_wavs):
+                wavs_to_concat.append(lw)
+                if idx < len(line_wavs) - 1:
+                    wavs_to_concat.append(silence_wav)
+        else:
+            wavs_to_concat = line_wavs
+
+        if len(wavs_to_concat) == 1:
+            shutil.copy2(wavs_to_concat[0], final_wav)
+        else:
+            _concat_wavs(wavs_to_concat, final_wav)
+
+        vtt_content    = _build_vtt(lines, line_durations, SILENCE_MS)
+        final_vtt.write_text(vtt_content, encoding="utf-8")
+
+        total_duration = sum(line_durations) + (len(lines) - 1) * SILENCE_MS / 1000
+        print(f"[TTS] {block_id}: OK ({total_duration:.1f}s, {len(lines)} lines)")
+
+        # ── Cache store ───────────────────────────────────────────────────────
+        if _cache_available and _audio_cache and _audio_hash:
+            try:
+                meta_file = out_dir / f"{block_id}.meta.json"
+                _audio_cache.store(
+                    hash_val=_audio_hash, wav_path=str(final_wav), vtt_path=str(final_vtt),
+                    meta_path=str(meta_file) if meta_file.exists() else None,
+                    title=block.get("title", block_id), project=str(project_dir), provider="voxcpm",
+                )
+            except Exception as e:
+                print(f"[TTS] {block_id}: cache store failed (non-fatal): {e}", file=sys.stderr)
+
+        return TTSResult(wav_path=str(final_wav), vtt_path=str(final_vtt),
+                         provider_used="voxcpm", duration_s=total_duration, success=True)
+
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="AutoVideo TTS Router")
-    parser.add_argument("blocks_json",  help="Path to blocks.json")
-    parser.add_argument("block_id",     help="Block ID to synthesize (e.g. B03)")
-    parser.add_argument("out_dir",      help="Output directory for wav/vtt files")
-    parser.add_argument("--config",     help="Path to video-agent-config.json", default="video-agent-config.json")
-    parser.add_argument("--provider",   help="Force provider: auto|edge|cosyvoice|voxcpm", default="auto")
+    import argparse
+    parser = argparse.ArgumentParser(description="AutoVideo TTS Router (VoxCPM)")
+    parser.add_argument("blocks_json")
+    parser.add_argument("block_id")
+    parser.add_argument("out_dir")
+    parser.add_argument("--config", default="video-agent-config.json")
     args = parser.parse_args()
 
-    # Load blocks.json
     blocks_data = json.loads(Path(args.blocks_json).read_text())
     block = next((b for b in blocks_data["blocks"] if b["id"] == args.block_id), None)
     if not block:
         print(f"ERROR: Block {args.block_id} not found in {args.blocks_json}", file=sys.stderr)
         sys.exit(1)
 
-    # Load config
     config = {}
     config_path = Path(args.config)
     if config_path.exists():
         config = json.loads(config_path.read_text())
 
-    # Override provider
-    if args.provider != "auto":
-        config["_strategy_override"] = args.provider
-
-    voice = config.get("voice", "zh-CN-YunxiNeural")
+    voice   = config.get("voice", "zh-CN-YunxiNeural")
     out_dir = Path(args.out_dir)
 
     result = synth_block(block, config, out_dir, voice)
 
-    # Write meta
     meta_path = out_dir / f"{args.block_id}.meta.json"
     meta_path.write_text(json.dumps(asdict(result), indent=2))
 
@@ -353,7 +317,7 @@ def main():
         print(f"ERROR: TTS failed for {args.block_id}: {result.error}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"OK: {args.block_id} → {result.wav_path} ({result.duration_s:.2f}s, provider={result.provider_used})")
+    print(f"OK: {args.block_id} → {result.wav_path} ({result.duration_s:.2f}s)")
 
 if __name__ == "__main__":
     main()

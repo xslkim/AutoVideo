@@ -218,10 +218,24 @@ function buildContentSpec(type, directives, narrationRaw, title) {
         ? inlineTimeline
         : parseTimeline(directives['timeline'] ?? '');
 
+      // Rebuild visual-only description from structured timeline entries.
+      // Narration text is explicitly labeled as audio-only so the AI does NOT
+      // render it as on-screen text elements.
+      const visualDesc = timeline.length > 0
+        ? timeline.map(t => `[${t.at}s: ${t.do}]`).join('\n')
+        : '（无时间轴，根据标题自由发挥动画）';
+
       return {
         spec: {
-          // Keep full raw text (including [Ns:] hints) as description for AI component generation
-          description: `[Block: ${title}]\n${narrationRaw.trim()}`,
+          description: [
+            `[Block: ${title}]`,
+            '',
+            '【动画时间轴（视觉元素，需在画面中实现）】',
+            visualDesc,
+            '',
+            '【口播文字（TTS 语音播放，不要在动画画面中显示为文本）】',
+            narrationOnly || '（无口播）',
+          ].join('\n'),
           timeline,
           componentPath: null, // Filled in by Stage 3
         },
