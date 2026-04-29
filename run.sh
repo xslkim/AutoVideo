@@ -16,6 +16,7 @@ set -euo pipefail
 #     --aspect    16:9                    # 可选，默认 16:9（支持 9:16 竖屏）
 #     --source-files "src/core/Foo.h,src/Bar.cpp"  # 可选，展示的代码文件
 #     --cosyvoice-dir /path/to/CosyVoice  # 可选，CosyVoice 安装目录
+#     --voxcpm-dir /path/to/VoxCPM         # 可选，VoxCPM 安装目录（pip install voxcpm 则不需指定）
 #     --resume                            # 可选，断点续跑
 #     --dry-run                           # 可选，只初始化不执行
 # ============================================================================
@@ -34,6 +35,7 @@ ASPECT="16:9"
 SOURCE_FILES=""
 REUSE_FROM=""
 COSYVOICE_DIR=""      # CosyVoice installation directory
+VOXCPM_DIR=""         # VoxCPM installation directory (optional, for server mode)
 RESUME=false
 DRY_RUN=false
 MAX_TURNS=200
@@ -53,6 +55,7 @@ while [[ $# -gt 0 ]]; do
     --source-files)  SOURCE_FILES="$2"; shift 2 ;;
     --reuse-from)    REUSE_FROM="$(realpath "$2")"; shift 2 ;;
     --cosyvoice-dir) COSYVOICE_DIR="$(realpath "$2")"; shift 2 ;;
+    --voxcpm-dir)    VOXCPM_DIR="$(realpath "$2")"; shift 2 ;;
     --max-turns)     MAX_TURNS="$2"; shift 2 ;;
     --resume)        RESUME=true; shift ;;
     --dry-run)       DRY_RUN=true; shift ;;
@@ -76,6 +79,8 @@ while [[ $# -gt 0 ]]; do
   --reuse-from DIR    上一个项目目录，扫描可复用的动画组件（Stage 3 使用）
   --cosyvoice-dir DIR CosyVoice 安装目录（默认: 无，TTS 降级到 edge-tts）
                       例: --cosyvoice-dir ~/tools/CosyVoice
+  --voxcpm-dir DIR    VoxCPM 安装目录（可选，pip install voxcpm 后可不指定）
+                      例: --voxcpm-dir ~/tools/VoxCPM
   --max-turns N       Claude 最大工具调用轮数（默认: 200）
   --resume            断点续跑（检测已有 pipeline-state.json）
   --dry-run           只初始化项目目录，不启动 Claude
@@ -219,9 +224,11 @@ jq -n \
   --arg reuseFrom "$REUSE_FROM" \
   --arg theme "$THEME" \
   --arg cosyvoiceDir "$COSYVOICE_DIR" \
+  --arg voxcpmDir "$VOXCPM_DIR" \
   '{title: $title, repoDir: $repoDir, projectDir: $projectDir,
     agentDir: $agentDir,
     cosyvoiceDir: $cosyvoiceDir,
+    voxcpmDir: $voxcpmDir,
     reuseFrom: $reuseFrom, theme: $theme,
     scriptFile: $scriptFile,
     sourceCodeSamples: $sourceCodeSamples, sourceFileList: $sourceFileList,
@@ -234,11 +241,17 @@ jq -n \
         promptWav:   "assets/voice-prompts/default.wav",
         promptText:  "希望你以后能够做的比我还好呦。"
       },
+      voxcpm: {
+        endpoint:     "http://127.0.0.1:50001",
+        voiceDesign:  "",
+        referenceWav: "",
+        promptText:   ""
+      },
       routing: {
         mixedLangThreshold: 0.15,
         minLengthForUpgrade: 30,
         upgradeOnEmphasis: true,
-        fallbackChain: ["cosyvoice","edge"]
+        fallbackChain: ["voxcpm","cosyvoice","edge"]
       }
     }}' \
   > "$OUT_DIR/video-agent-config.json"
@@ -274,10 +287,18 @@ if [[ -n "$COSYVOICE_DIR" ]]; then
     cp "$COSYVOICE_PROMPT" "$OUT_DIR/assets/voice-prompts/default.wav"
     echo "CosyVoice 参考音频已复制: $COSYVOICE_PROMPT"
   else
-    echo "WARN: CosyVoice 参考音频不存在: $COSYVOICE_PROMPT（TTS 将降级到 edge-tts）"
+    echo "WARN: CosyVoice 参考音频不存在: $COSYVOICE_PROMPT（CosyVoice 将不可用）"
   fi
 else
-  echo "未指定 --cosyvoice-dir，TTS 将使用 edge-tts（不需要 GPU）"
+  echo "未指定 --cosyvoice-dir，CosyVoice 将不可用（VoxCPM 或 edge-tts 可用）"
+fi
+
+# VoxCPM 模型路径检测（不复制文件，仅提示）
+if [[ -d "$HOME/.cache/voxcpm/VoxCPM2" ]]; then
+  echo "VoxCPM 模型已就绪: ~/.cache/voxcpm/VoxCPM2"
+else
+  echo "VoxCPM 模型未下载，启动时将从 ModelScope 自动下载（建议提前下载）"
+  echo "  下载命令: python3 -c \"from modelscope import snapshot_download; snapshot_download('OpenBMB/VoxCPM2', local_dir='$HOME/.cache/voxcpm/VoxCPM2')\""
 fi
 
 # ── 生成项目 CLAUDE.md ──
@@ -333,6 +354,7 @@ cat << SUMMARY
   模型:     $MODEL
   复用来源: ${REUSE_FROM:-（无）}
   CosyVoice: ${COSYVOICE_DIR:-（未指定，使用 edge-tts）}
+  VoxCPM:    ${VOXCPM_DIR:-（未指定）}
   断点续跑: $RESUME
   磁盘空间: ${AVAIL_GB}GB 可用
 

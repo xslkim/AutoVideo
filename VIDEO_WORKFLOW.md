@@ -81,7 +81,7 @@ pip install -q edge-tts
 
 ### 0.4 启动 CosyVoice 服务（本地 GPU TTS）
 
-CosyVoice 是主力 TTS 引擎（中英混读质量最佳）。必须在 TTS 任务开始前启动。
+CosyVoice 是备选 TTS 引擎（中英混读质量较好）。必须在 TTS 任务开始前启动。
 
 ```bash
 COSYVOICE_DIR=$(jq -r '.cosyvoiceDir // ""' video-agent-config.json)
@@ -122,6 +122,70 @@ else
   deactivate 2>/dev/null || true
 fi
 ```
+
+### 0.4b 启动 VoxCPM 服务（高质量多语言 TTS，最高优先级）
+
+VoxCPM2 是主力 TTS 引擎（支持 30 种语言，音质最佳，支持声音设计和声音克隆）。需要在 TTS 任务开始前启动。
+
+```bash
+VOXCPM_DIR=$(jq -r '.voxcpmDir // ""' video-agent-config.json)
+VOXCPM_ENDPOINT=$(jq -r '.tts.voxcpm.endpoint // "http://127.0.0.1:50001"' video-agent-config.json)
+VOXCPM_PORT=$(echo "$VOXCPM_ENDPOINT" | sed 's|.*:||')
+VOXCPM_LOG="/tmp/voxcpm-server.log"
+
+# 确定模型路径：优先用本地缓存，其次 voxcpmDir，最后用 HuggingFace 自动下载
+VOXCPM_MODEL="$HOME/.cache/voxcpm/VoxCPM2"
+if [[ ! -d "$VOXCPM_MODEL" ]] && [[ -n "$VOXCPM_DIR" ]]; then
+  VOXCPM_MODEL="$VOXCPM_DIR"
+fi
+if [[ ! -d "$VOXCPM_MODEL" ]]; then
+  VOXCPM_MODEL="openbmb/VoxCPM2"  # HuggingFace 自动下载
+fi
+
+# 检查服务是否已在运行
+if curl -s -o /dev/null -w "%{http_code}" "${VOXCPM_ENDPOINT}/health" \
+    2>/dev/null | grep -q "200"; then
+  echo "[VoxCPM] 服务已在运行"
+else
+  # 安装 voxcpm（如果未安装）
+  source ~/video-agent-venv/bin/activate
+  pip install -q voxcpm fastapi uvicorn 2>/dev/null || true
+
+  echo "[VoxCPM] 启动服务 (port=$VOXCPM_PORT, model=$VOXCPM_MODEL)..."
+  nohup python scripts/tts/voxcpm_server.py \
+    --port "$VOXCPM_PORT" \
+    --model "$VOXCPM_MODEL" \
+    > "$VOXCPM_LOG" 2>&1 &
+  VOXCPM_PID=$!
+  echo "[VoxCPM] PID=$VOXCPM_PID，等待模型加载..."
+
+  # 等待最多 120 秒（首次下载模型可能较慢）
+  for i in $(seq 1 60); do
+    sleep 2
+    if curl -s -o /dev/null -w "%{http_code}" "${VOXCPM_ENDPOINT}/health" \
+        2>/dev/null | grep -q "200"; then
+      echo "[VoxCPM] 服务就绪（${i}*2s）"
+      break
+    fi
+    if [ $i -eq 60 ]; then
+      echo "[VoxCPM] 启动超时，TTS 将降级到 CosyVoice 或 edge-tts（不影响流程）"
+    fi
+  done
+fi
+```
+
+**VoxCPM 声音配置**（在 `video-agent-config.json` 的 `tts.voxcpm` 中）：
+
+| 字段 | 说明 | 示例 |
+|------|------|------|
+| `voiceDesign` | 声音设计描述（自然语言） | `"年轻男声，温和专业"` |
+| `referenceWav` | 参考音频路径（声音克隆） | `"assets/voice-prompts/voxcpm-ref.wav"` |
+| `promptText` | 参考音频的文字稿（高保真克隆） | `"这是参考音频的内容"` |
+
+- 仅填 `voiceDesign` → 声音设计模式（不需要参考音频）
+- 仅填 `referenceWav` → 声音克隆模式
+- 同时填 `referenceWav` + `promptText` → 高保真克隆模式
+- 都不填 → 使用默认音色
 
 ### 0.5 初始化 Remotion 项目
 

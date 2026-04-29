@@ -4,7 +4,7 @@ AutoVideo v2 — TTS Router
 Routes narration blocks to the best TTS provider based on content.
 
 Usage:
-  python3 router.py <blocks.json> <block-id> <out-dir> [--provider auto|edge|cosyvoice|azure]
+  python3 router.py <blocks.json> <block-id> <out-dir> [--provider auto|edge|cosyvoice|voxcpm]
 
 Outputs:
   <out-dir>/<block-id>.wav
@@ -39,11 +39,11 @@ except Exception:
 # ─── Routing config defaults ──────────────────────────────────────────────────
 
 DEFAULT_ROUTING = {
-    "strategy": "auto",           # auto | edge | cosyvoice
+    "strategy": "auto",           # auto | edge | cosyvoice | voxcpm
     "mixedLangThreshold": 0.15,   # EN chars ratio > threshold → upgrade
     "minLengthForUpgrade": 30,    # text length > this → upgrade
     "upgradeOnEmphasis": True,    # has **bold** → upgrade
-    "fallbackChain": ["cosyvoice", "edge"],
+    "fallbackChain": ["voxcpm", "cosyvoice", "edge"],
 }
 
 # ─── Result dataclass ─────────────────────────────────────────────────────────
@@ -126,6 +126,22 @@ def get_provider(name: str, tts_config: dict = None, project_dir: Path = None):
         if prompt_wav and project_dir and not Path(prompt_wav).is_absolute():
             prompt_wav = str(project_dir / prompt_wav)
         return CosyVoiceProvider(prompt_wav=prompt_wav, prompt_text=prompt_text)
+    elif name == "voxcpm":
+        from providers.voxcpm import VoxCPMProvider
+        vx_cfg = tts_config.get("voxcpm", {})
+        endpoint = vx_cfg.get("endpoint")
+        voice_design = vx_cfg.get("voiceDesign", "")
+        reference_wav = vx_cfg.get("referenceWav", "")
+        prompt_text = vx_cfg.get("promptText", "")
+        # Resolve relative paths against project dir
+        if reference_wav and project_dir and not Path(reference_wav).is_absolute():
+            reference_wav = str(project_dir / reference_wav)
+        return VoxCPMProvider(
+            endpoint=endpoint,
+            voice_design=voice_design,
+            reference_wav=reference_wav,
+            prompt_text=prompt_text,
+        )
     else:
         raise ValueError(f"Unknown TTS provider: {name}")
 
@@ -199,7 +215,7 @@ def synth_block(block: dict, config: dict, out_dir: Path, voice: str) -> TTSResu
         except Exception as _ce:
             print(f"[TTS] {block_id}: cache lookup failed (non-fatal): {_ce}", file=sys.stderr)
     # ── End cache lookup ──────────────────────────────────────────────────────
-    fallback_chain = routing.get("fallbackChain", ["cosyvoice", "edge"])
+    fallback_chain = routing.get("fallbackChain", ["voxcpm", "cosyvoice", "edge"])
 
     # Build ordered list of providers to try
     providers_to_try = [initial_provider]
@@ -281,6 +297,9 @@ def _resolve_voice(provider_name: str, default_voice: str, tts_config: dict) -> 
     elif provider_name == "cosyvoice":
         # CosyVoice uses zero-shot cloning; voice param is ignored (controlled by promptWav)
         return "zero_shot"
+    elif provider_name == "voxcpm":
+        # VoxCPM uses voice design / cloning; no voice name needed
+        return "voxcpm"
     return default_voice
 
 def _create_silence(path: Path, duration_s: float):
@@ -301,7 +320,7 @@ def main():
     parser.add_argument("block_id",     help="Block ID to synthesize (e.g. B03)")
     parser.add_argument("out_dir",      help="Output directory for wav/vtt files")
     parser.add_argument("--config",     help="Path to video-agent-config.json", default="video-agent-config.json")
-    parser.add_argument("--provider",   help="Force provider: auto|edge|cosyvoice", default="auto")
+    parser.add_argument("--provider",   help="Force provider: auto|edge|cosyvoice|voxcpm", default="auto")
     args = parser.parse_args()
 
     # Load blocks.json

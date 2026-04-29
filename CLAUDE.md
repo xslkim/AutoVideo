@@ -21,6 +21,7 @@ bash run.sh \
   [--source-files "src/foo.cpp,..."]  # comma-separated repo-relative paths; auto-detected if omitted
   [--reuse-from ~/prev-video]        # scan previous project for reusable animation components
   [--cosyvoice-dir ~/tools/CosyVoice] # CosyVoice install dir (omit to use edge-tts only)
+  [--voxcpm-dir ~/tools/VoxCPM]        # VoxCPM install dir (optional; pip install voxcpm is enough)
   [--max-turns 200]
   [--resume]                         # continue from existing pipeline-state.json
   [--dry-run]                        # initialize project dir without launching Claude
@@ -156,7 +157,7 @@ Task IDs follow `T{stage}{seq}_{name}` (e.g. `T20_tts_B01` = Stage 2, TTS for bl
 ## Stage 概览
 
 ```
-Stage 0: 环境搭建（apt、Node、Python venv、Remotion init、启动 CosyVoice 服务）
+Stage 0: 环境搭建（apt、Node、Python venv、Remotion init、启动 VoxCPM / CosyVoice 服务）
 Stage 1: 脚本编译（compile-script.mjs: script.md → blocks.json）
 Stage 2: 音频合成（TTS router → WAV + VTT + 字幕切段，自动查全局缓存）  ← 与 Stage 3 并行
 Stage 3: 视觉资产（代码预处理 + animation 组件生成，自动查全局缓存）      ← 与 Stage 2 并行
@@ -169,7 +170,7 @@ Stage 6: 后处理（音频标准化 + 质量校验）
 
 ```
 T00_sudo_check          T01_apt_install         T02_nodejs
-T03_python              T04_cosyvoice_server     T05_remotion_init
+T03_python              T04_cosyvoice_server     T04b_voxcpm_server  T05_remotion_init
 T06_copy_templates      T07_env_verify
 T10_compile_script
 T20_tts_B{nn}           T21_vtt_align_B{nn}     T22_subtitle_B{nn}
@@ -190,10 +191,10 @@ bash scripts/update-task.sh pipeline-state.json T20_tts_B01 error "timeout"
 
 ## TTS 路由规则
 
-TTS 通过 `scripts/tts/router.py` 调用，**自动选择**最佳 provider：
-- 纯中文短句 → edge-tts（兜底，无需服务）
-- 中英混读 / 有代码术语 / 有强调词 → **CosyVoice**（本地 GPU）
-- CosyVoice 不可用 → edge-tts 兜底
+TTS 通过 `scripts/tts/router.py` 调用，**自动选择**最佳 provider（优先级从高到低）：
+- 中英混读 / 有代码术语 / 有强调词 → **VoxCPM**（本地 GPU，最高音质，支持 30 种语言）
+- VoxCPM 不可用 → **CosyVoice**（本地 GPU，中英混读）
+- 纯中文短句 或 VoxCPM/CosyVoice 均不可用 → edge-tts（兜底，无需服务）
 
 ```bash
 # 合成单个 block

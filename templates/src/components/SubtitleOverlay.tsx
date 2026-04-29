@@ -95,14 +95,14 @@ export const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
 
   // Font size: prefer theme.sizes.narration (new), fall back to subtitle
   const sizes = theme.sizes as Record<string, number>;
-  const fontSize = sizes.narration ?? sizes.subtitle ?? 56;
+  const fontSize = sizes.narration ?? sizes.subtitle ?? 48;
 
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
       <div
         style={{
           position: 'absolute',
-          bottom: '4%',
+          bottom: '1.5%',
           left: '5%',
           right: '5%',
           display: 'flex',
