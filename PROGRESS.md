@@ -6,8 +6,8 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `—`
-- **last_updated**: `2026-05-01T04:52:00Z`
+- **active_task**: `T1.1`
+- **last_updated**: `2026-05-01T04:55:35Z`
 - **next_action**: `从 T1.1 继续`
 - **completed**: `4 / 40`
 - **blockers**: `0`
@@ -32,7 +32,7 @@
 | T0.1 | 仓库骨架 | done | — | 2026-05-01T04:03:26Z | 4bc6ac3 | — |
 | T0.2 | 类型定义 + Schema | done | — | 2026-05-01T04:08:26Z | ebdce66 | — |
 | T0.3 | 配置 loader | done | — | 2026-05-01T04:13:04Z | 75364b0 | — |
-| T1.1 | 项目文件 + meta 解析 | pending | done | — | 2026-05-01T04:52:00Z | 0f11306 | — |
+| T1.1 | 项目文件 + meta 解析 | in_progress | 2026-05-01T04:55:35Z | — | — | — |
 | T1.2 | 块解析 + directive | in_progress | 2026-05-01T04:52:00Z | — | — | — |
 | T1.3 | 旁白预处理 | pending | — | — | — | — |
 | T1.4 | 资产 hash 复制 | pending | — | — | — | — |
