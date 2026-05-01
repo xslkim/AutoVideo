@@ -1,0 +1,124 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generateRenderRoot > generates a valid Root.tsx string for a 2-block script 1`] = `
+"import { registerRoot, Composition } from 'remotion';
+import { BlockComposition } from '../../remotion/VideoComposition';
+
+const script = {
+  "meta": {
+    "fps": 30,
+    "width": 1920,
+    "height": 1080
+  },
+  "blocks": [
+    {
+      "id": "B01",
+      "timing": {
+        "frames": 114
+      }
+    },
+    {
+      "id": "B02",
+      "timing": {
+        "frames": 174
+      }
+    }
+  ]
+};
+
+export const Root = () => (
+  <Composition
+    id="Block"
+    component={BlockComposition}
+    durationInFrames={1}
+    fps={script.meta.fps}
+    width={script.meta.width}
+    height={script.meta.height}
+    defaultProps={{ blockId: 'B01' }}
+    calculateMetadata={({ inputProps }) => {
+      const block = script.blocks.find(b => b.id === inputProps.blockId);
+      return { durationInFrames: block.timing.frames };
+    }}
+  />
+);
+registerRoot(Root);
+"
+`;
+
+exports[`generateRenderRoot > generates correct Root.tsx for 9:16 vertical video at 60fps 1`] = `
+"import { registerRoot, Composition } from 'remotion';
+import { BlockComposition } from '../../remotion/VideoComposition';
+
+const script = {
+  "meta": {
+    "fps": 60,
+    "width": 1080,
+    "height": 1920
+  },
+  "blocks": [
+    {
+      "id": "B01",
+      "timing": {
+        "frames": 648
+      }
+    }
+  ]
+};
+
+export const Root = () => (
+  <Composition
+    id="Block"
+    component={BlockComposition}
+    durationInFrames={1}
+    fps={script.meta.fps}
+    width={script.meta.width}
+    height={script.meta.height}
+    defaultProps={{ blockId: 'B01' }}
+    calculateMetadata={({ inputProps }) => {
+      const block = script.blocks.find(b => b.id === inputProps.blockId);
+      return { durationInFrames: block.timing.frames };
+    }}
+  />
+);
+registerRoot(Root);
+"
+`;
+
+exports[`generateRenderRoot > handles single-block script 1`] = `
+"import { registerRoot, Composition } from 'remotion';
+import { BlockComposition } from '../../remotion/VideoComposition';
+
+const script = {
+  "meta": {
+    "fps": 30,
+    "width": 1080,
+    "height": 1080
+  },
+  "blocks": [
+    {
+      "id": "B03",
+      "timing": {
+        "frames": 150
+      }
+    }
+  ]
+};
+
+export const Root = () => (
+  <Composition
+    id="Block"
+    component={BlockComposition}
+    durationInFrames={1}
+    fps={script.meta.fps}
+    width={script.meta.width}
+    height={script.meta.height}
+    defaultProps={{ blockId: 'B03' }}
+    calculateMetadata={({ inputProps }) => {
+      const block = script.blocks.find(b => b.id === inputProps.blockId);
+      return { durationInFrames: block.timing.frames };
+    }}
+  />
+);
+registerRoot(Root);
+"
+`;
