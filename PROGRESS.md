@@ -7,9 +7,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T1.1`
-- **last_updated**: `2026-05-01T04:44:46Z`
-- **next_action**: `implement T1.1`
-- **completed**: `3 / 40`
+- **last_updated**: `2026-05-01T04:52:00Z`
+- **next_action**: `implement T1.2`
+- **completed**: `4 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -32,7 +32,7 @@
 | T0.1 | 仓库骨架 | done | — | 2026-05-01T04:03:26Z | 4bc6ac3 | — |
 | T0.2 | 类型定义 + Schema | done | — | 2026-05-01T04:08:26Z | ebdce66 | — |
 | T0.3 | 配置 loader | done | — | 2026-05-01T04:13:04Z | 75364b0 | — |
-| T1.1 | 项目文件 + meta 解析 | in_progress | 2026-05-01T04:44:46Z | — | — | — |
+| T1.1 | 项目文件 + meta 解析 | done | — | 2026-05-01T04:52:00Z | 0f11306 | — |
 | T1.2 | 块解析 + directive | pending | — | — | — | — |
 | T1.3 | 旁白预处理 | pending | — | — | — | — |
 | T1.4 | 资产 hash 复制 | pending | — | — | — | — |
@@ -105,6 +105,21 @@
 
 
 ### T0.3 — T0.3 @ 75364b0
+- acceptance: passed by agent
+- artifacts: see git diff
+
+### T1.1 — 项目文件 + meta 解析 @ HEAD
+- acceptance:
+  - 缺字段报错 → ✓ (missing meta/blocks/title all throw descriptive errors)
+  - voiceRef 默认值 → ✓ (defaults to ./B00.wav relative to meta.md directory)
+  - CLI override 生效 → ✓ (title/aspect/fps/voiceRef/theme overrides all tested)
+  - aspect 解析 → ✓ (16:9→1920×1080, 9:16→1080×1920, 1:1→1080×1080)
+  - tsc --noEmit 零错误 → ✓
+  - vitest run 全部 104 测试通过 → ✓
+- artifacts: `src/parser/project.ts`, `src/parser/meta.ts`, `tests/parser/project.test.ts`, `tests/parser/meta.test.ts`
+
+
+### T1.1 — T1.1 @ 0f11306
 - acceptance: passed by agent
 - artifacts: see git diff
 
