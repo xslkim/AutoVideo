@@ -7,9 +7,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T4.2`
-- **last_updated**: `2026-05-01T07:03:14Z`
-- **next_action**: `implement T4.2`
-- **completed**: `16 / 40`
+- **last_updated**: `2026-05-01T07:16:29Z`
+- **next_action**: `implement T4.3`
+- **completed**: `17 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -45,7 +45,7 @@
 | T3.4 | lineTimings 计算 | done | — | 2026-05-01T06:25:13Z | 255e089 | — |
 | T3.5 | tts 命令组装 | done | — | 2026-05-01T07:00:57Z | 8283f7f | — |
 | T4.1 | prompt + 组件骨架 | done | — | 2026-05-01T07:03:14Z | 7fb2319 | — |
-| T4.2 | Claude SDK 调用 + prompt cache | in_progress | 2026-05-01T07:03:14Z | — | — | — |
+| T4.2 | Claude SDK 调用 + prompt cache | done | — | 2026-05-01T07:16:29Z | 4daad42 | — |
 | T4.3 | 子进程隔离工具 | pending | — | — | — | — |
 | T4.4 | 验证（tsc + render smoke） | pending | — | — | — | — |
 | T4.5 | visuals 命令组装 | pending | — | — |
