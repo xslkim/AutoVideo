@@ -6,8 +6,8 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `—`
-- **last_updated**: `2026-05-01T05:10:33Z`
+- **active_task**: `T1.5`
+- **last_updated**: `2026-05-01T05:22:26Z`
 - **next_action**: `从 T1.5 继续`
 - **completed**: `7 / 40`
 - **blockers**: `0`
@@ -36,7 +36,7 @@
 | T1.2 | 块解析 + directive | done | — | 2026-05-01T05:00:14Z | 6bddc2f | — |
 | T1.3 | 旁白预处理 | done | — | 2026-05-01T05:02:26Z | ebf6311 | — |
 | T1.4 | 资产 hash 复制 | done | — | 2026-05-01T05:10:20Z | 709d16c | — |
-| T1.5 | compile 命令组装 | pending | in_progress | 2026-05-01T05:10:33Z | — | — | — |
+| T1.5 | compile 命令组装 | in_progress | 2026-05-01T05:22:26Z | — | — | — |
 | T2.1 | 缓存 store | pending | — | — | — | — |
 | T2.2 | cache CLI | pending | — | — | — | — |
 | T3.1 | VoxCPM FastAPI wrapper | pending | — | — | — | — |
