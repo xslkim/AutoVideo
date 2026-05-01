@@ -1,0 +1,236 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`generatePreviewRoot > generates a valid preview Root.tsx for a 2-block script with audio 1`] = `
+"/**
+ * AutoVideo — Preview Root (auto-generated)
+ *
+ * Each block is registered as an independent Composition
+ * for Remotion Studio sidebar navigation.
+ */
+
+import { registerRoot, Composition } from 'remotion';
+import { BlockComposition } from '../../remotion/VideoComposition';
+
+const script = {
+  "meta": {
+    "fps": 30,
+    "width": 1920,
+    "height": 1080
+  },
+  "blocks": [
+    {
+      "id": "B01",
+      "frames": 150
+    },
+    {
+      "id": "B02",
+      "frames": 204
+    }
+  ]
+};
+
+export const Root = () => (
+  <>
+    <Composition
+      id="B01"
+      component={BlockComposition}
+      durationInFrames={150}
+      fps={script.meta.fps}
+      width={script.meta.width}
+      height={script.meta.height}
+      defaultProps={{ blockId: 'B01' }}
+      calculateMetadata={() => {
+        const block = script.blocks.find(b => b.id === 'B01');
+        return { durationInFrames: block.frames };
+      }}
+    />
+    <Composition
+      id="B02"
+      component={BlockComposition}
+      durationInFrames={204}
+      fps={script.meta.fps}
+      width={script.meta.width}
+      height={script.meta.height}
+      defaultProps={{ blockId: 'B02' }}
+      calculateMetadata={() => {
+        const block = script.blocks.find(b => b.id === 'B02');
+        return { durationInFrames: block.frames };
+      }}
+    />
+  </>
+);
+registerRoot(Root);
+"
+`;
+
+exports[`generatePreviewRoot > generates correct preview Root.tsx for blocks without audio (fallback duration) 1`] = `
+"/**
+ * AutoVideo — Preview Root (auto-generated)
+ *
+ * Each block is registered as an independent Composition
+ * for Remotion Studio sidebar navigation.
+ */
+
+import { registerRoot, Composition } from 'remotion';
+import { BlockComposition } from '../../remotion/VideoComposition';
+
+const script = {
+  "meta": {
+    "fps": 30,
+    "width": 1920,
+    "height": 1080
+  },
+  "blocks": [
+    {
+      "id": "B01",
+      "frames": 69
+    },
+    {
+      "id": "B02",
+      "frames": 255
+    }
+  ]
+};
+
+export const Root = () => (
+  <>
+    <Composition
+      id="B01"
+      component={BlockComposition}
+      durationInFrames={69}
+      fps={script.meta.fps}
+      width={script.meta.width}
+      height={script.meta.height}
+      defaultProps={{ blockId: 'B01' }}
+      calculateMetadata={() => {
+        const block = script.blocks.find(b => b.id === 'B01');
+        return { durationInFrames: block.frames };
+      }}
+    />
+    <Composition
+      id="B02"
+      component={BlockComposition}
+      durationInFrames={255}
+      fps={script.meta.fps}
+      width={script.meta.width}
+      height={script.meta.height}
+      defaultProps={{ blockId: 'B02' }}
+      calculateMetadata={() => {
+        const block = script.blocks.find(b => b.id === 'B02');
+        return { durationInFrames: block.frames };
+      }}
+    />
+  </>
+);
+registerRoot(Root);
+"
+`;
+
+exports[`generatePreviewRoot > generates correct preview Root.tsx for single-block 9:16 at 60fps 1`] = `
+"/**
+ * AutoVideo — Preview Root (auto-generated)
+ *
+ * Each block is registered as an independent Composition
+ * for Remotion Studio sidebar navigation.
+ */
+
+import { registerRoot, Composition } from 'remotion';
+import { BlockComposition } from '../../remotion/VideoComposition';
+
+const script = {
+  "meta": {
+    "fps": 60,
+    "width": 1080,
+    "height": 1920
+  },
+  "blocks": [
+    {
+      "id": "B01",
+      "frames": 648
+    }
+  ]
+};
+
+export const Root = () => (
+  <>
+    <Composition
+      id="B01"
+      component={BlockComposition}
+      durationInFrames={648}
+      fps={script.meta.fps}
+      width={script.meta.width}
+      height={script.meta.height}
+      defaultProps={{ blockId: 'B01' }}
+      calculateMetadata={() => {
+        const block = script.blocks.find(b => b.id === 'B01');
+        return { durationInFrames: block.frames };
+      }}
+    />
+  </>
+);
+registerRoot(Root);
+"
+`;
+
+exports[`generatePreviewRoot > handles mixed blocks (with and without audio) 1`] = `
+"/**
+ * AutoVideo — Preview Root (auto-generated)
+ *
+ * Each block is registered as an independent Composition
+ * for Remotion Studio sidebar navigation.
+ */
+
+import { registerRoot, Composition } from 'remotion';
+import { BlockComposition } from '../../remotion/VideoComposition';
+
+const script = {
+  "meta": {
+    "fps": 30,
+    "width": 1080,
+    "height": 1080
+  },
+  "blocks": [
+    {
+      "id": "B01",
+      "frames": 114
+    },
+    {
+      "id": "B02",
+      "frames": 60
+    }
+  ]
+};
+
+export const Root = () => (
+  <>
+    <Composition
+      id="B01"
+      component={BlockComposition}
+      durationInFrames={114}
+      fps={script.meta.fps}
+      width={script.meta.width}
+      height={script.meta.height}
+      defaultProps={{ blockId: 'B01' }}
+      calculateMetadata={() => {
+        const block = script.blocks.find(b => b.id === 'B01');
+        return { durationInFrames: block.frames };
+      }}
+    />
+    <Composition
+      id="B02"
+      component={BlockComposition}
+      durationInFrames={60}
+      fps={script.meta.fps}
+      width={script.meta.width}
+      height={script.meta.height}
+      defaultProps={{ blockId: 'B02' }}
+      calculateMetadata={() => {
+        const block = script.blocks.find(b => b.id === 'B02');
+        return { durationInFrames: block.frames };
+      }}
+    />
+  </>
+);
+registerRoot(Root);
+"
+`;
