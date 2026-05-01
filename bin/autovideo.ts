@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { registerCacheCommand } from "../src/cli/cache.js";
 
 const notImplemented = (cmdName: string) => {
   console.error(`${cmdName}: not implemented`);
@@ -64,14 +65,8 @@ program
   .option("--config <file>", "path to config file")
   .action(() => notImplemented("preview"));
 
-program
-  .command("cache")
-  .description("Manage cache: stats or clean")
-  .argument("[action]", "stats or clean")
-  .option("--type <type>", "cache type: audio | component | partial")
-  .option("--older-than <duration>", "clean entries older than duration (e.g. 30d, 12h)")
-  .option("--stale", "clean stale entries only")
-  .action(() => notImplemented("cache"));
+// ── cache (implemented) ────────────────────────────────────────────────
+registerCacheCommand(program);
 
 program
   .command("doctor")
