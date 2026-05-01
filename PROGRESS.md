@@ -7,7 +7,7 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T5.2`
-- **last_updated**: `2026-05-01T08:10:00Z`
+- **last_updated**: `2026-05-01T08:09:45Z`
 - **next_action**: `implement T5.2`
 - **completed**: `21 / 40`
 - **blockers**: `0`
@@ -50,7 +50,7 @@
 | T4.4 | 验证（tsc + render smoke） | done | — | 2026-05-01T07:36:56Z | 48a7566 | — |
 | T4.5 | visuals 命令组装 | done | — | 2026-05-01T08:01:06Z | f445982 | — |
 | T5.1 | theme + 字体加载 | done | — | 2026-05-01T08:08:35Z | 3ddfd09 | — |
-| T5.2 | SubtitleOverlay | pending | — | — | — | — |
+| T5.2 | SubtitleOverlay | in_progress | 2026-05-01T08:09:45Z | — | — | — |
 | T5.3 | BlockFrame + animations | pending | — | — | — | — |
 | T5.4 | BlockComposition（render 用） | pending | — | — | — | — |
 | T6.1 | Root.tsx 生成器（render 模式） | pending | — | — | — | — |
