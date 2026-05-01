@@ -6,7 +6,7 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T0.2`
+- **active_task**: `T0.3`
 - **last_updated**: `2026-05-01T04:08:26Z`
 - **next_action**: `implement T0.3`
 - **completed**: `2 / 40`
@@ -31,7 +31,7 @@
 |----|------|------|------|------|--------|------|
 | T0.1 | 仓库骨架 | done | — | 2026-05-01T04:03:26Z | 4bc6ac3 | — |
 | T0.2 | 类型定义 + Schema | done | — | 2026-05-01T04:08:26Z | ebdce66 | — |
-| T0.3 | 配置 loader | pending | — | — | — | — |
+| T0.3 | 配置 loader | in_progress | 2026-05-01T04:08:26Z | — | — | — |
 | T1.1 | 项目文件 + meta 解析 | pending | — | — | — | — |
 | T1.2 | 块解析 + directive | pending | — | — | — | — |
 | T1.3 | 旁白预处理 | pending | — | — | — | — |
