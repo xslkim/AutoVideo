@@ -205,6 +205,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
     model: config.anthropic.model,
     promptCaching: config.anthropic.promptCaching,
     maxRetries: config.anthropic.maxRetries,
+    baseURL: config.anthropic.baseURL,
   };
 
   if (dryRun) {

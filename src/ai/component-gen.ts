@@ -26,6 +26,8 @@ export interface AnthropicConfig {
   promptCaching: boolean;
   /** Maximum SDK-level retries with exponential back-off (default: 3) */
   maxRetries: number;
+  /** Optional base URL for API proxy */
+  baseURL?: string;
 }
 
 /** Input for a single component-generation call */
@@ -164,6 +166,7 @@ export async function generateComponent(
   const client = new Anthropic({
     apiKey,
     maxRetries: config.maxRetries,
+    ...(config.baseURL && { baseURL: config.baseURL }),
   });
 
   // ---- Build messages --------------------------------------------------

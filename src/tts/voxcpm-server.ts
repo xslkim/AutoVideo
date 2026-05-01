@@ -58,8 +58,12 @@ export async function ensureVoxcpmServer(
   }
 
   // Start server process
+  const pythonBin = resolve(
+    process.env.HOME ?? "/root",
+    "video-agent-venv/bin/python"
+  );
   const serverProc = spawn(
-    "python",
+    pythonBin,
     ["-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8000"],
     {
       cwd: opts.cwd ?? resolve(import.meta.dirname ?? ".", "../../tts-server"),
@@ -68,6 +72,7 @@ export async function ensureVoxcpmServer(
       env: {
         ...process.env,
         VOXCPM_MODEL_DIR: modelDir,
+        PYTHONPATH: resolve(process.env.HOME ?? "/root", "video-agent-venv/lib/python3.12/site-packages"),
       },
     }
   );

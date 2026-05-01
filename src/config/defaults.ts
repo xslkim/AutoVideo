@@ -39,6 +39,8 @@ export interface AnthropicConfig {
   promptCaching: boolean;
   /** Max retries on API failure */
   maxRetries: number;
+  /** Optional base URL for API proxy (e.g. "https://open.bigmodel.cn/api/anthropic") */
+  baseURL?: string;
   /** Max concurrent block generation calls */
   concurrency: number;
 }
@@ -110,6 +112,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     promptCaching: true,
     maxRetries: 3,
     concurrency: 4,
+    baseURL: process.env.ANTHROPIC_BASE_URL,
   },
   render: {
     blockConcurrency: 4,
