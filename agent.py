@@ -174,7 +174,7 @@ TOOLS = [
 
 # ── Tool execution ───────────────────────────────────────────────────────────
 
-TRUNCATE = 15_000  # max chars returned per tool result
+TRUNCATE = 8_000  # max chars returned per tool result
 
 
 def _trunc(s: str) -> str:
@@ -416,6 +416,7 @@ class Agent:
         self.verbose = verbose
         self.in_tok = 0
         self.out_tok = 0
+        self._read_only_iters = 0
 
     def run(
         self,
@@ -515,7 +516,27 @@ When done, output TASK COMPLETE on its own line.
                 return {"ok": False, "msg": text}
 
             # Parse and execute XML actions
-            results = self._execute_actions(text)
+            results, action_types = self._execute_actions(text)
+
+            # Detect loop: only reads, no creates/runs for 3+ iters
+            if action_types.get("create", 0) == 0 and action_types.get("run", 0) == 0:
+                self._read_only_iters += 1
+            else:
+                self._read_only_iters = 0
+
+            if self._read_only_iters >= 3:
+                messages.append({
+                    "role": "user",
+                    "content": "You have been only reading files for 3 iterations without creating anything. "
+                               "STOP reading and START implementing now using <create_file> and <run_command>.",
+                })
+                self._read_only_iters = 0
+                continue
+
+            # Trim context if getting large (keep last 6 exchanges)
+            if len(messages) > 14:
+                # Keep first user message + last 12 messages
+                messages[:] = [messages[0]] + messages[-12:]
 
             if not results:
                 messages.append({
@@ -533,16 +554,24 @@ When done, output TASK COMPLETE on its own line.
 
         return {"ok": False, "msg": f"Max iterations ({max_iters}) reached"}
 
-    def _execute_actions(self, text: str) -> list[str]:
-        """Parse XML action tags and execute them."""
+    def _execute_actions(self, text: str) -> tuple[list[str], dict]:
+        """Parse XML action tags and execute them. Returns (results, action_counts)."""
         results: list[str] = []
+        counts: dict[str, int] = {"read": 0, "create": 0, "run": 0, "list": 0, "grep": 0}
+        seen_reads: set[str] = set()
 
-        # read_file (self-closing tag)
+        # read_file (self-closing tag) — max 8 unique reads per response
         for m in re.finditer(r'<read_file\s+path="([^"]+)"\s*/>', text):
+            if counts["read"] >= 8:
+                break
             path = m.group(1)
+            if path in seen_reads:
+                continue
+            seen_reads.add(path)
+            counts["read"] += 1
             res = _exec_tool_impl("read_file", {"path": path})
             if res.get("ok"):
-                results.append(f"**read_file {path}**:\n```\n{res['content']}\n```")
+                results.append(f"**read_file {path}**:\n```\n{res['content'][:2000]}\n```")
             else:
                 results.append(f"**read_file {path}**: ERROR: {res.get('error', 'unknown')}")
             if self.verbose:
@@ -558,6 +587,7 @@ When done, output TASK COMPLETE on its own line.
                 content = content[:-1]
             res = _exec_tool_impl("create_file", {"path": path, "content": content})
             ok = res.get("ok")
+            counts["create"] += 1
             print(f"    {'ok' if ok else 'FAIL'} create_file {path} ({len(content)} chars)")
             results.append(f"**create_file {path}**: {'OK' if ok else 'ERROR: ' + res.get('error', 'unknown')}")
 
@@ -567,6 +597,7 @@ When done, output TASK COMPLETE on its own line.
             cmd = m.group(2).strip()
             res = _exec_tool_impl("run_command", {"command": cmd, "timeout": timeout})
             ok = res.get("ok")
+            counts["run"] += 1
             print(f"    {'ok' if ok else 'FAIL'} run: {cmd[:80]} (exit={res.get('exit_code', '?')})")
             results.append(
                 f"**run_command** `{cmd[:80]}`:\n"
@@ -589,7 +620,9 @@ When done, output TASK COMPLETE on its own line.
             pattern = m.group(1)
             path = m.group(2) or "."
             res = _exec_tool_impl("grep", {"pattern": pattern, "path": path})
-            results.append(f"**grep `{pattern}`**:\n```\n{res.get('output', '')[:3000]}\n```")
+            results.append(f"**grep `{pattern}`**:\n```\n{res.get('output', '')[:2000]}\n```")
+
+        return results, counts
 
         return results
 
