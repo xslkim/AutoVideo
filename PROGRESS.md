@@ -7,9 +7,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T6.7`
-- **last_updated**: `2026-05-01T09:40:24Z`
-- **next_action**: `implement T6.7`
-- **completed**: `30 / 40`
+- **last_updated**: `2026-05-01T10:00:57Z`
+- **next_action**: `implement T7.1`
+- **completed**: `31 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -59,7 +59,7 @@
 | T6.4 | ffmpeg concat | done | — | 2026-05-01T09:14:47Z | 5db1bef | — |
 | T6.5 | loudnorm two-pass | done | — | 2026-05-01T09:16:47Z | 9e002b6 | — |
 | T6.6 | 质量校验 | done | — | 2026-05-01T09:40:24Z | dff992a | — |
-| T6.7 | render 命令组装 | in_progress | 2026-05-01T09:40:24Z | — | — | — |
+| T6.7 | render 命令组装 | done | — | 2026-05-01T10:00:57Z | 77258b6 | — |
 | T7.1 | Root.tsx 生成器（preview 模式） | pending | — | — | — | — |
 | T7.2 | preview 命令 | pending | — | — | — | — |
 | T8.1 | build orchestrator | pending | — | — | — | — |

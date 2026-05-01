@@ -351,6 +351,54 @@ export function isRenderInputReady(script: Script): script is RenderInputScript 
   );
 }
 
+
+/**
+ * Asserts that a Script is RenderInput ready (all blocks have audio + componentPath).
+ * Throws descriptive error if not.
+ */
+export function assertRenderInputReady(data: unknown): asserts data is RenderInputScript {
+  if (typeof data !== "object" || data === null) {
+    throw new Error("Expected object for RenderInputScript");
+  }
+  const s = data as Record<string, unknown>;
+
+  if (typeof s.meta !== "object" || s.meta === null) {
+    throw new Error("Missing meta");
+  }
+  const meta = s.meta as Record<string, unknown>;
+  if (meta.schemaVersion !== "1.0") throw new Error("Missing or invalid meta.schemaVersion");
+  if (typeof meta.title !== "string") throw new Error("Missing meta.title");
+  if (!Array.isArray(s.blocks)) throw new Error("Missing blocks");
+
+  for (let i = 0; i < (s.blocks as unknown[]).length; i++) {
+    const block = (s.blocks as Record<string, unknown>[])[i];
+    if (typeof block.id !== "string") throw new Error(`Block ${i}: missing id`);
+    if (typeof block.title !== "string") throw new Error(`Block ${i}: missing title`);
+
+    if (typeof block.visual !== "object" || block.visual === null) {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual`);
+    }
+    const visual = block.visual as Record<string, unknown>;
+    if (typeof visual.componentPath !== "string") {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual.componentPath (required for render)`);
+    }
+
+    if (typeof block.audio !== "object" || block.audio === null) {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing audio (required for render)`);
+    }
+    const audio = block.audio as Record<string, unknown>;
+    if (typeof audio.wavPath !== "string") {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing audio.wavPath`);
+    }
+    if (typeof audio.durationSec !== "number") {
+  }
+}
+
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing audio.durationSec`);
+    }
+  }
+}
+
 /**
  * Type guard: checks if a Script is fully Rendered (all blocks have audio + componentPath + timing + render).
  */
@@ -366,6 +414,17 @@ export function isRendered(script: Script): script is RenderedScript {
 
 // ---------------------------------------------------------------------------
 // LLM-generated component props interface
+// ---------------------------------------------------------------------------
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LLM-generated component props interface
+// ---------------------------------------------------------------------------
+
+/**
+ * Type guard: checks if a Script is fully Rendered (all blocks have audio + componentPath + timing + render).
+ */
 // ---------------------------------------------------------------------------
 
 export interface AnimationProps {

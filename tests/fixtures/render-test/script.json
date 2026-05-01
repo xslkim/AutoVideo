@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "schemaVersion": "1.0",
+    "title": "Render Test",
+    "voiceRef": "/tmp/test-voice.wav",
+    "aspect": "16:9",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "theme": "dark-code",
+    "subtitleSafeBottom": 162
+  },
+  "assets": {},
+  "blocks": [
+    {
+      "id": "B01",
+      "title": "Block One",
+      "enter": "fade",
+      "exit": "fade",
+      "visual": {
+        "description": "A test visual",
+        "componentPath": "src/blocks/B01/Component.tsx"
+      },
+      "narration": {
+        "lines": [
+          {
+            "text": "Hello world",
+            "ttsText": "Hello world",
+            "highlights": []
+          }
+        ]
+      },
+      "audio": {
+        "wavPath": "public/audio/B01.wav",
+        "durationSec": 2.0,
+        "lineTimings": [
+          { "lineIndex": 0, "startMs": 0, "endMs": 2000 }
+        ]
+      }
+    },
+    {
+      "id": "B02",
+      "title": "Block Two",
+      "enter": "fade",
+      "exit": "none",
+      "visual": {
+        "description": "Another test visual",
+        "componentPath": "src/blocks/B02/Component.tsx"
+      },
+      "narration": {
+        "lines": [
+          {
+            "text": "Goodbye world",
+            "ttsText": "Goodbye world",
+            "highlights": []
+          }
+        ]
+      },
+      "audio": {
+        "wavPath": "public/audio/B02.wav",
+        "durationSec": 1.8,
+        "lineTimings": [
+          { "lineIndex": 0, "startMs": 0, "endMs": 1800 }
+        ]
+      }
+    }
+  ],
+  "artifacts": {
+    "compiledAt": "2026-01-01T00:00:00Z",
+    "audioGeneratedAt": "2026-01-01T00:00:00Z",
+    "visualsGeneratedAt": "2026-01-01T00:00:00Z"
+  }
+}

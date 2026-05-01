@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { registerCacheCommand } from "../src/cli/cache.js";
 import { tts } from "../src/cli/tts.js";
 import { visuals } from "../src/cli/visuals.js";
+import { render } from "../src/cli/render.js";
 import { loadConfig } from "../src/config/load.js";
 
 const notImplemented = (cmdName: string) => {
@@ -121,7 +122,36 @@ program
   .option("--block <ids>", "only render specified blocks (comma-separated)")
   .option("--force", "ignore cache, force re-render")
   .option("--config <file>", "path to config file")
-  .action(() => notImplemented("render"));
+  .option("--cache-dir <dir>", "override cache directory")
+  .option("--verbose", "verbose logging")
+  .option("--dry-run", "show plan without executing")
+  .action(async (opts, cmd) => {
+    const scriptPath = cmd.args[0];
+    const { config } = loadConfig({
+      configPath: opts.config,
+      cacheDir: opts.cacheDir,
+    });
+    try {
+      const result = await render({
+        scriptPath,
+        config,
+        blockIds: parseBlockIds(opts.block),
+        force: opts.force ?? false,
+        verbose: opts.verbose ?? false,
+        dryRun: opts.dryRun ?? false,
+      });
+      console.log(
+        `✓ Render complete: ${result.renders} renders, ${result.cacheHits} cache hits`
+      );
+    } catch (err) {
+      if (err instanceof Error) {
+        console.error(`✗ Render failed: ${err.message}`);
+      } else {
+        console.error(`✗ Render failed: ${err}`);
+      }
+      process.exit(1);
+    }
+  });
 
 program
   .command("preview")
