@@ -34,9 +34,9 @@
 
 ## 2. 设计原则
 
-1. **AI 只做必要的事**。本系统只在一个地方用大模型——根据每个块的视觉描述生成 React 组件。其他所有阶段（解析、TTS、字幕对齐、渲染、拼接）都是确定性代码。
+1. **AI 只做必要的事**。只在 `visuals` 阶段做开放式生成（用 Claude 根据描述生成 React 组件）；TTS（VoxCPM2 推理虽然也是模型，但输入 → 输出固定）、字幕、渲染、拼接都是确定性流程，不依赖任何 LLM 判断。
 2. **单一数据源**。`script.json` 是贯穿全部 stage 的 IR；每个 stage 是 `script.json → script.json` 的纯变换。
-3. **每个 stage 独立可重跑**。改一句话不需要重跑全流程；改一个动画不需要重新 TTS。
+3. **每个 stage 独立可重跑、每个块独立可重渲**。改一句话不需要重跑全流程；改一个动画不需要重新 TTS；render 阶段每块产出独立的 `partials/B**.mp4`，最后 ffmpeg concat 拼成 `final.mp4`，单块修改的端到端时间 ≈ 单块渲染时间 + 几秒 concat。
 4. **错误显式不降级**。失败就报错让用户处理，不偷偷切换 provider 或静默丢弃。
 5. **本地优先**。除 Claude API 外，所有依赖（VoxCPM TTS、Remotion 渲染、字幕对齐）都在本机；离线可继续渲染已有 artifact。
 6. **可预览可迭代**。Remotion Studio 直接预览单块，所见即所得。
@@ -129,7 +129,7 @@ GPT 本质上就是一个下一个词预测器
 |------|------|------|------|
 | `@enter` | | `fade` | 入场动画预设 |
 | `@exit` | | `fade` | 出场动画预设 |
-| `@duration` | | 自动 | 强制时长（秒）；有旁白时可省略，由 TTS 时长决定 |
+| `@duration` | | 自动 | 强制时长，仅接受 `<数字>s` 格式（如 `8s`、`1.5s`）；不支持纯数字、毫秒单位、复合（`1m20s`）。有旁白时可省略，由 TTS 时长决定 |
 
 块不再有类型之分，所有视觉内容统一由 `--- visual ---` 描述、LLM 生成组件渲染。
 
@@ -162,7 +162,7 @@ GPT 本质上就是一个下一个词预测器
 
 --- narration ---
 要训练神经网络，必须有 **自动求导**
-karpathy 用一个 [[Value]] 类实现了它
+karpathy 用一个 **Value** 类实现了它
 ```
 
 ```markdown
@@ -178,7 +178,8 @@ karpathy 用一个 [[Value]] 类实现了它
 
 **`--- visual ---` 写作规范**：
 - 用自然语言描述视觉效果；时间线用 `Xs:` 前缀标注关键帧（可选）
-- 引用本地图片时直接写相对路径，如 `显示图片 ./assets/diagram.png`；compile 阶段自动复制到 `public/assets/` 并替换为 `/assets/diagram.png`，LLM 生成的组件用 `<Img src={staticFile("assets/diagram.png")} />` 加载
+- 引用本地图片时直接写相对路径（必须以 `./` 或 `../` 开头），如 `显示图片 ./assets/diagram.png`；compile 阶段按文件内容 hash 复制到 `public/assets/{hash}.png`，描述中的路径替换为 `assets/{hash}.png`（不带前导 `/`），LLM 生成的组件用 `<Img src={staticFile("assets/{hash}.png")} />` 加载；不同目录下同名文件、图片内容变更均会得到不同 hash
+- 引用本地源代码片段时（如 `microgpt.py 第 30-50 行`），compile 阶段同样按文件内容 hash 复制到 `public/assets/{hash}.py`，并将文件内容**直接内联**到该块的 `visual.description` 中（包裹在代码块标记内），让 LLM 看到要展示的具体代码而不仅仅是文件路径；同时保留 `assets/{hash}.py` 引用以备组件需要按行号高亮
 - 描述越具体，生成效果越准确；主题色、字号等无需指定，由 `theme` 统一控制
 
 ### 3.7 旁白语法
@@ -186,13 +187,15 @@ karpathy 用一个 [[Value]] 类实现了它
 - **每个非空行 = 一条字幕**，TTS 合成后该行音频结尾自动附加 **200ms 静音**。
 - 空行忽略（不产生额外停顿）。
 - **`**word**`** 在字幕中高亮显示（不影响 TTS）。
-- **`[[word]]`** 标记朗读重音（ttsText 中去掉括号保留词语；VoxCPM2 依赖模型自然理解，不影响字幕样式）。
+- VoxCPM2 不支持 SSML 或重音控制符，因此不提供朗读重音语法；如需强调，请通过断句、感叹号等自然方式表达。
 
 ### 3.8 动画预设（`@enter` / `@exit`）
 
 `fade` / `fade-up` / `fade-down` / `slide-left` / `slide-right` / `zoom-in` / `zoom-out` / `none`
 
 入场和出场动画由系统统一执行（包裹在组件外层），不进入 LLM 生成的组件内部。
+
+**预设时长**：所有预设统一使用 `render.defaultEnterSec`（默认 0.5s）和 `render.defaultExitSec`（默认 0.3s）；不同预设只改运动曲线（fade 用 opacity、slide 用 transform 等），不改时长。`none` 预设时长为 0。如需为单块覆盖时长，未来可通过 `@enter: fade-up 0.8s` 语法扩展（当前版本不支持）。
 
 ---
 
@@ -229,7 +232,6 @@ interface Block {
   visual: {
     description: string;        // --- visual --- 原文，喂给 LLM
     componentPath?: string;     // Stage 3 填写（生成的 .tsx 路径）
-    degraded?: boolean;         // 3 轮生成仍失败时标记，渲染时降级为纯色背景
   };
 
   narration: {
@@ -240,26 +242,33 @@ interface Block {
   // Stage 2 填写
   audio?: {
     wavPath: string;
-    durationSec: number;
-    wordTimings: { word: string; startMs: number; endMs: number }[];
+    durationSec: number;             // 合并后 WAV 实际时长，含每行尾部 200ms 静音
     lineTimings: { lineIndex: number; startMs: number; endMs: number }[];
-    // lineIndex 对应 narration.lines[lineIndex]；由 tts stage 在 whisper alignment 后计算
+    // lineIndex 对应 narration.lines[lineIndex]
+    // startMs/endMs 以块音频原点（0ms）为参考；每行 endMs 后跟 200ms 静音再到下一行 startMs
+    // 由 tts stage 从各行单独 TTS 输出的音频时长累加计算
   };
 
-  // Stage 4 填写
+  // Stage 4 填写（每块自包含；不需要全局 startFrame，因为每块独立渲染为 partial mp4）
   timing?: {
     enterSec: number;
     holdSec: number;
     exitSec: number;
     totalSec: number;
     frames: number;
-    startFrame: number;         // 在最终视频中的起始帧
+    enterFrames: number;        // = round(enterSec * fps)，给 SubtitleOverlay 和 Audio offset 用
+  };
+
+  // Stage 4 填写（partial mp4 缓存命中信息，便于 doctor / dry-run 显示）
+  render?: {
+    partialPath: string;        // 例如 "output/partials/B03.mp4"
+    cacheHit: boolean;
   };
 }
 
 interface NarrationLine {
-  text: string;                 // 原文（含 ** 和 [[]] 标记）
-  ttsText: string;              // 喂给 VoxCPM2 的文本（[[]] 标记去掉，** 去掉，保留纯文字）
+  text: string;                 // 原文（含 ** 标记）
+  ttsText: string;              // 喂给 VoxCPM2 的纯文本（** 已去掉）
   highlights: { start: number; end: number }[];  // ** 范围（用于字幕渲染）
 }
 
@@ -286,6 +295,26 @@ export default function Component(props: AnimationProps): JSX.Element;
 
 JSON Schema 在 `schemas/script.schema.json` 维护。每个 stage 必须先验证再处理。
 
+**Stage-specific readiness**：单一宽松 schema 无法严格校验各阶段前置条件，因此在 TypeScript 层额外定义：
+- `CompiledScript`：compile 输出；无 audio / componentPath / timing
+- `AudioReadyScript`：tts 输出；所有块含 `audio`
+- `VisualReadyScript`：visuals 输出；所有块含 `visual.componentPath`
+- `RenderInputScript`：render 入口前提；所有块含 audio + componentPath，但 **timing 尚未计算**（render stage 第 1 步会算并写回）
+- `RenderedScript`：render 完成后；所有块含 audio + componentPath + timing + render.partialPath
+
+每个 stage 入口接收对应的 readiness type，TypeScript 静态保证前置条件。
+
+**Assets manifest**：`script.json` 顶层维护 `assets` 字段，记录所有本地资产的解析后绝对路径 → 构建路径映射：
+
+```typescript
+interface Script {
+  // ...
+  assets: Record<string, string>;
+  // key: 原始相对路径解析为绝对路径后的字符串（避免不同 .md 文件中同名相对路径冲突）
+  // value: "assets/{hash}.ext"（不带前导 /；Remotion 渲染时由 staticFile() 拼接 URL）
+}
+```
+
 ---
 
 ## 5. 架构
@@ -301,7 +330,7 @@ JSON Schema 在 `schemas/script.schema.json` 维护。每个 stage 必须先验�
 │  │ compile  │ → │   tts    │ → │ visuals  │ → │  render  │      │
 │  │          │   │          │ ⇣ │          │   │          │      │
 │  │  parser  │   │  voxcpm  │   │  Claude  │   │ Remotion │      │
-│  │          │   │  whisper │   │   API    │   │  ffmpeg  │      │
+│  │          │   │          │   │   API    │   │  ffmpeg  │      │
 │  └──────────┘   └──────────┘   └──────────┘   └──────────┘      │
 │       │              │              │              │            │
 │       └──────────────┴──────┬───────┴──────────────┘            │
@@ -310,11 +339,16 @@ JSON Schema 在 `schemas/script.schema.json` 维护。每个 stage 必须先验�
 │                      (canonical IR)                              │
 │                             │                                    │
 │                             ▼                                    │
-│                {cache-dir}/  (audio, components)                  │
+│           {cache-dir}/  (audio, components, partials)             │
 └─────────────────────────────────────────────────────────────────┘
                              │
                              ▼
-                      output/final.mp4
+              output/partials/B01.mp4  ┐
+              output/partials/B02.mp4  ├─ ffmpeg concat → final.mp4
+              output/partials/B03.mp4  ┘
+                             │
+                             ▼
+                  ffmpeg loudnorm → final_normalized.mp4
 ```
 
 四个 stage **顺序依赖、各自可单独运行**。`tts` 和 `visuals` 都只读 `script.json` 的不同字段，理论可并行（Stage 3 不依赖 Stage 2 输出），但默认串行执行简化日志。
@@ -336,9 +370,9 @@ JSON Schema 在 `schemas/script.schema.json` 维护。每个 stage 必须先验�
 3. 按 `blocks` 列表顺序依次读取各内容文件，合并所有 `>>>` 块
 4. 校验块 ID 全局唯一；省略 ID 的块按合并后出现顺序自动编号
 5. 对每个块解析 directive、`--- visual ---`、`--- narration ---`；两段均必须存在，缺失则报错
-6. 旁白预处理：拆行（忽略空行）→ 解析 `**` `[[]]` → 生成 `NarrationLine[]`
-7. 解析 `aspect` → 计算 `width/height`；按分辨率计算 `subtitleSafeBottom`（默认为 height × 0.15）
-8. 扫描每个块 `--- visual ---` 描述中的本地文件路径引用（形如 `./xxx` 或 `../xxx`），将引用的文件复制到构建目录 `public/assets/`，并将描述中的路径替换为 `/assets/filename`（供 LLM 生成的组件通过 Remotion `staticFile()` 加载）
+6. 旁白预处理：拆行（忽略空行）→ 解析 `**` 高亮 → 生成 `NarrationLine[]`
+7. 解析 `aspect` → 计算 `width/height`；按分辨率计算 `subtitleSafeBottom`（默认 `height × 0.15`），该高度由 `theme.subtitle` 中的字号、字体、行高、最大行宽推导，并随主题变化；字幕样式 token 包含：`fontFamily`（默认 `"Noto Sans SC, Noto Sans, sans-serif"`，覆盖 CJK + emoji fallback）、`fontSize`（按 height 比例）、`lineHeight`、`maxWidthPct`、`backgroundColor`、`paddingPx`
+8. 扫描每个块 `--- visual ---` 描述中的本地文件路径引用（形如 `./xxx` 或 `../xxx`，必须以 `./` 或 `../` 开头，不匹配裸词），按所在 `.md` 文件目录解析为绝对路径，将文件内容 hash（MD5 前 8 位）+ 原始扩展名作为目标文件名复制到 `public/assets/{hash}.ext`，并将描述中的路径替换为 `assets/{hash}.ext`（不带前导 `/`，由组件 `staticFile("assets/{hash}.ext")` 拼接 URL）；在 `script.json.assets` 中以**解析后的绝对路径**为 key 维护 manifest，避免不同 .md 文件中同名相对路径冲突。同名不同目录文件、图片内容更新均通过此机制自动区分。
 9. JSON Schema 验证后写出 `script.json`
 
 **实现**：纯函数；无外部服务调用；可在毫秒级完成。
@@ -346,47 +380,57 @@ JSON Schema 在 `schemas/script.schema.json` 维护。每个 stage 必须先验�
 ### 6.2 Stage 2 — `tts`：旁白 → 音频 + 字幕时序
 
 **输入**：`script.json`（已 compile，含 `meta.voiceRef` 绝对路径）
-**输出**：每块 `audio/B**.wav` + word-level 及 line-level 时序，写回 `script.json.blocks[].audio`
+**输出**：每块 `audio/B**.wav` + line-level 时序（`lineTimings`），写回 `script.json.blocks[].audio`
 
 #### 6.2.1 VoxCPM2 服务
 
-VoxCPM2 是 zero-shot 语音克隆引擎，没有内置预设音色。音色完全由调用时传入的**参考音频**决定。
+VoxCPM2 是 zero-shot 语音克隆引擎，没有内置预设音色。音色完全由调用时传入的**参考音频**决定。  
+`/v1/voices` 和 `/v1/speech` 是本项目 `tts-server/server.py` 自建的 FastAPI wrapper 接口约定，不是 VoxCPM2 官方原生 REST API。底层调用 `VoxCPM.generate(reference_wav_path, ...)`。
 
 - stage 启动前检测 voxcpm2-api HTTP 服务（默认 `http://127.0.0.1:8000`）是否可达
 - 不可达时尝试自动启动（`uvicorn server:app`），仍失败则报错，提示用户运行 `autovideo doctor`
 
 #### 6.2.2 参考音频
 
-`meta.voiceRef` 是整部视频**唯一**的音色来源，**必须由用户预先提供**（10–30 秒清晰人声 WAV，默认为 `B00.wav`）。系统在每次 TTS 调用时都将此文件 base64 编码后传入；base64 编码在 tts stage 启动时一次性计算并复用，不重复读盘。
+`meta.voiceRef` 是整部视频**唯一**的音色来源，**必须由用户预先提供**（10–30 秒清晰人声 WAV，默认为 `B00.wav`）。  
+tts stage 启动时调用一次 `POST /v1/voices` 注册该 WAV，server 端把文件挂载在临时目录并返回 `voice_id`；后续每行 TTS 只传 `voice_id`，避免每次 base64 上传 ~2MB 的开销。`voice_id` 在 stage 内复用，不持久化到 manifest。
 
 #### 6.2.3 TTS 调用流程
 
 对每个块的 `narration.lines` 逐行处理：
 
-1. 检查缓存（key：`MD5(ttsText + voiceRefHash)`），命中直接复制，跳过 API 调用
+1. 检查缓存（key：`MD5(ttsText + voiceRefHash + cfgValue + inferenceTimesteps + denoise + modelVersion)`），命中直接复制，跳过 API 调用
 2. Cache miss → 调用 voxcpm2-api：
 
 ```http
+POST /v1/voices
+Content-Type: application/json
+
+{ "wav_base64": "<one-time at stage start>" }
+→ { "voice_id": "v_abc123" }
+
 POST /v1/speech
 Content-Type: application/json
 
 {
   "text": "<narration line>",
-  "reference_audio_base64": "<base64 of voiceRef WAV>",
-  "cfg_value": 2.0
+  "voice_id": "v_abc123",
+  "cfg_value": 2.0,
+  "inference_timesteps": 10,
+  "denoise": false,
+  "retry_badcase": true
 }
 ```
 
-响应为 WAV 二进制（48kHz）。
+响应为 WAV 二进制（48kHz）。`cfg_value`、`inference_timesteps`、`denoise`、`retry_badcase` 均从 `autovideo.config.json` 的 `voxcpm` 段读取，对应 `VoxCPM.generate()` 同名参数。
 
 3. 将每行音频末尾附加 **200ms 静音**，按行顺序拼接，合并为 `audio/B**.wav`
-4. 对合并后的 WAV 调用 `whisper-timestamped` 做 forced alignment，获得 word-level 时间戳
-5. 根据 word-level 时间戳与 `narration.lines` 的文本对齐，计算每行的起止时间，生成 `lineTimings`；写入 `audio` 字段
+4. 从各行音频时长累加计算 `lineTimings`：`startMs[i] = Σ(行[0..i-1]时长 + 200ms)`，`endMs[i] = startMs[i] + 行[i]时长`；写入 `audio` 字段
 
 #### 6.2.4 约束
 
-- 单块 TTS 失败时重试 3 次（间隔 5s），仍失败 → 此块标记错误，stage 末尾汇总报告
-- 多块并发数默认 4（`voxcpm.concurrency`），可配置
+- 单行 TTS 失败时重试 3 次（间隔 5s），仍失败 → 此块标记错误，stage 立即终止；同时取消所有 in-flight HTTP 请求并等清理完成后退出（避免占用 GPU 推理资源）
+- 多行并发数默认 4（`voxcpm.concurrency`），可配置
 
 ### 6.3 Stage 3 — `visuals`：所有块 → React 组件
 
@@ -395,50 +439,107 @@ Content-Type: application/json
 
 **职责**：
 1. 处理**所有**块；逐块检查缓存，命中则直接复制组件文件，跳过 API 调用
-2. 缓存 key：`MD5(visual.description + theme + width + height + promptVersion)`
+2. 缓存 key：`MD5(visual.description + theme + width + height + promptVersion + assetHashesJson + claudeModel)`
    - `promptVersion`：系统 prompt 文件（组件模板 + AnimationProps 接口）的内容 hash 前 8 位；prompt 变更时自动失效旧缓存
+   - `assetHashesJson`：本块描述中引用的所有本地资产文件内容 hash 的排序 JSON 字符串；图片路径不变但内容变更时自动失效
+   - `claudeModel`：`anthropic.model` 配置值；模型切换时旧缓存失效
 3. Cache miss → Claude API 调用：
    - 默认 `claude-sonnet-4-6`（可配置）
-   - 使用 prompt caching：系统 prompt 包含组件模板、theme tokens、AnimationProps 接口定义（长期不变部分）
+   - 使用 prompt caching：系统 prompt 包含组件模板、theme tokens、AnimationProps 接口定义（长期不变部分），按 Anthropic SDK `cache_control: ephemeral` 标记，目标命中率 > 90%
    - 工具调用要求返回 `{ tsx: string }` JSON
    - 生成的组件必须全屏渲染（`width × height`），重要内容避开底部 `subtitleSafeBottom` 像素
+   - 完整 system prompt 草稿和组件骨架示例维护在 `docs/ARCHITECTURE.md` 的 "Visuals prompt" 一节，PRD 不锁定具体内容
 4. 生成后做两轮验证：
-   - **静态**：`tsc --noEmit` 通过
-   - **动态**：`remotion render` 单帧（中间帧）非纯黑、非纯白
+   - **静态**：`tsc --noEmit -p tsconfig.visuals.json` 通过
+   - **动态**：`remotion render` 单帧非纯黑、非纯白
+     - **临时时长**：visuals 跑在 render 之前，`block.timing` 尚未计算；用 fallback `tempDurationSec = audio?.durationSec ?? 5`，验证帧固定取 `floor(tempDurationSec * fps / 2)`（中间帧）
+     - 此 fallback 仅用于验证；最终渲染时 `durationInFrames` 按 render stage 的真实计算结果
 5. 任一验证失败 → 将错误信息回喂给模型，最多 3 轮重试
-6. 3 轮仍失败 → 标记 `visual.degraded: true`，渲染时降级为纯色背景 + 旁白文字，不阻塞后续块
+   - **回喂内容**：`tsc` 取 stderr 前 50 行 + 报错行号对应的源码片段（前后各 5 行）；`remotion render` 取 stderr 前 50 行 + 当前组件完整源码
+   - 每轮重试都把上一轮组件源码、错误、修复指令一并放进 user message，system prompt 不变（保持 prompt cache 命中）
+6. 3 轮仍失败 → 此块标记错误，stage 立即终止；输出失败块列表及恢复命令（`autovideo visuals --block <id> --force`）；不降级、不继续后续块
 
-**并发**：默认同时处理 4 个块（`anthropic.concurrency`）；Claude API 限速时自动退避。
+**安全边界**：生成的组件在 Remotion / tsc 环境中编译执行，等同于运行模型生成的代码。必须满足：
+- 只允许 import `remotion`、`react`、以及 system prompt 中明确声明的 whitelist 包（主题 token、工具函数）
+- 禁止 import `fs`、`path`、`child_process`、`http`/`https` 及任何 Node 内置模块
+- 组件文件不得包含顶层副作用（`fetch`、文件写入、进程调用）
+- 单独 `tsconfig.visuals.json`：`compilerOptions.types: ["react", "remotion"]`、`lib: ["ES2022", "DOM"]`、`noEmit: true`；编译入口仅指向当前块组件 + 一个最小 shim（暴露 `AnimationProps`、`Theme` 类型别名），不引入项目其他源码
+- AST 静态扫描禁止的 import / `require()` / `eval` / `Function` 构造调用
+- 单帧渲染超时 30s；超时视为验证失败，触发重试
+- **运行时隔离**：单帧验证、最终 `remotion render` 都在受限子进程中执行——
+  - **环境变量白名单**（仅这些会传给子进程）：`PATH`、`HOME`、`LANG`、`TMPDIR`、`DISPLAY`（如需）、`NODE_OPTIONS`（如需）；其他全部剥除（含 `ANTHROPIC_API_KEY` 及任何未来引入的 token）
+  - 设置 CPU/内存上限（用 `prlimit` 或 systemd-run 包裹）
+  - 验证子进程关闭网络（`unshare -n`）；最终 render 子进程允许网络（部分主题字体 CDN 加载需要）
+  - 仅支持 Linux（Ubuntu 22.04+）；不为其他平台保留兼容层
+
+**并发**：默认同时处理 4 个块（`anthropic.concurrency`）；Claude API 限速时自动退避。  
+**失败时取消语义**：任一块 3 轮重试仍失败时，立即取消所有 in-flight Claude 请求（`AbortController`），等取消完成后退出 stage，避免在已确定失败的 build 上继续累积 API 费用。
 
 ### 6.4 Stage 4 — `render`：IR + 资产 → MP4
 
 **输入**：`script.json`（带 audio + componentPath） + `audio/` + `src/blocks/`
-**输出**：`output/final.mp4`、`output/final_normalized.mp4`
+**输出**：每块 `output/partials/B**.mp4` + 最终 `output/final.mp4` + `output/final_normalized.mp4`
+
+**核心思路**：每个块作为独立的 Remotion Composition 单独渲染产出 `partials/B**.mp4`，最后用 `ffmpeg concat` 无损拼接为 `final.mp4`。修改单块只重渲该块 + 重 concat（concat 是流复制，秒级完成），不触动其他块。
 
 **职责**：
-1. 计算每块时序：`hold = max(audio?.durationSec ?? 0, narration.explicitDurationSec ?? 0, MIN_HOLD)`，`total = enter + hold + exit`，写回 `timing`（`@duration` 与 TTS 时长取较长者，TTS 不会被截断）
-2. 生成 `public/script.json`（Remotion 静态读取）
-3. 写一个 `Root.tsx` 注册**单一** Composition：
+
+1. **计算每块时序**（仍是块自包含的）：`hold = max(audio?.durationSec ?? 0, narration.explicitDurationSec ?? 0, MIN_HOLD)`，`total = enter + hold + exit`，写回 `timing`；不再需要 `startFrame`（每块独立渲染时无全局帧号意义，仅在拼接顺序上保留 `blocks[]` 数组次序）
+
+2. **生成 `public/script.json`**（Remotion 静态读取，包含全部块以便单块 render 也能拿到完整 theme/assets manifest）
+
+3. **写一个 `Root.tsx` 注册一个参数化 Composition**：
    ```tsx
-   <Composition id="Video" durationInFrames={totalFrames} fps={fps} ...>
-     <VideoComposition />
-   </Composition>
+   <Composition
+     id="Block"
+     component={BlockComposition}
+     durationInFrames={1}   // 占位，实际由 inputProps 决定
+     fps={fps} width={width} height={height}
+     calculateMetadata={({ inputProps }) => {
+       const block = script.blocks.find(b => b.id === inputProps.blockId);
+       return { durationInFrames: block.timing.frames };
+     }}
+   />
    ```
-   `VideoComposition` 内用 `<Sequence>` 串起所有块；每个块的渲染结构：
-   ```
-   <BlockFrame enter exit>           ← 系统处理入场/出场动画
-     <DynamicComponent />            ← LLM 生成的全屏组件
-     <SubtitleOverlay                ← 字幕层，叠加在底部，带半透明背景条
-       lines={narration.lines}       ← 字幕文本（含高亮标记）
-       lineTimings={audio.lineTimings} ← 每行起止时间（ms），由 tts stage 算好
-       frame={frame} fps={fps} />    ← 当前帧，组件据此决定显示哪行
+   `BlockComposition` 渲染结构：
+   ```tsx
+   <BlockFrame enter={block.enter} exit={block.exit}>
+     <DynamicComponent {...animationProps} />     // LLM 生成的全屏组件
+     <SubtitleOverlay
+       lines={block.narration.lines}
+       lineTimings={block.audio.lineTimings}
+       audioOffsetMs={enterSec*1000}              // 入场期间不显示字幕
+       frame={frame} fps={fps} />
+     <Audio src={staticFile(`audio/${block.id}.wav`)} startFrom={enterFrames} />
    </BlockFrame>
    ```
-4. `npx remotion render` 一次输出 `output/final.mp4`
-5. ffmpeg `loudnorm` 标准化 → `output/final_normalized.mp4`
-6. 质量校验：分辨率、时长、5 个抽样帧非黑
 
-**优势**：单 composition 可在 Remotion Studio 完整 scrub、跨块过渡、按时间范围重渲。
+4. **逐块独立渲染**：对每个块检查 partial 缓存；命中则直接复制到 `output/partials/B**.mp4`，未命中则
+   ```bash
+   npx remotion render Block output/partials/B**.mp4 \
+     --props='{"blockId":"B**"}' --concurrency=...
+   ```
+   多块并行（`render.concurrency`，默认 4）；任一块渲染失败立即取消其他 in-flight 子进程并退出 stage。
+
+5. **partial 缓存**：缓存 key 见 §11.2，包含组件内容、音频内容、theme、尺寸、enter/exit 预设、fps、Remotion 版本。命中时直接 `cp` 到 `output/partials/`。
+
+6. **ffmpeg concat 拼接**：
+   ```bash
+   # 生成 concat list
+   echo "file 'partials/B01.mp4'" > concat.txt
+   echo "file 'partials/B02.mp4'" >> concat.txt
+   ...
+   ffmpeg -f concat -safe 0 -i concat.txt -c copy output/final.mp4
+   ```
+   `-c copy` 是流复制，无重编码，秒级完成。要求所有 partial 的编码参数（codec、分辨率、fps、像素格式、SAR、profile/level）严格一致——Remotion 已统一这些参数，但 stage 启动前用 `ffprobe` 抽样校验，不一致则报错（防止编码漂移）。
+
+7. **响度标准化**：ffmpeg `loudnorm` two-pass（默认 `I=-16 TP=-1.5 LRA=11`，参数从 `render.loudnorm` 读取）→ `output/final_normalized.mp4`
+
+8. **质量校验**：分辨率、总时长（partial 时长之和 ± 1 帧）、5 个抽样帧非黑
+
+**`--block B03` / `--block B03,B07` 语义**：仅重渲指定块的 partial（强制 cache miss），然后**自动重新 concat** 生成新的 `final.mp4`（其他块的 partial 复用磁盘上已有文件）。这是该架构的核心优势：单块修改的端到端时间 ≈ 单块 Remotion 渲染时间 + 几秒 concat。
+
+**移除原 `--range` 语义**：CSV 形式的 `--block` 已经覆盖"重渲多块"，不再需要单独的 `--range`；从 CLI 中删除。
 
 ### 6.5 Stage 5 — `preview`：本地交互预览
 
@@ -446,11 +547,18 @@ Content-Type: application/json
 **输出**：浏览器打开 Remotion Studio
 
 ```bash
-autovideo preview script.json                # 打开 Studio，预览全片
-autovideo preview script.json --block B03    # 仅显示该块
+autovideo preview script.json                # 打开 Studio，所有块作为 Composition 列表
+autovideo preview script.json --block B03    # 直接定位到 B03
 ```
 
-实现：写一个临时 `Root.tsx`（含或不含 `--block` 过滤），调 `npx remotion studio`。
+实现：写一个临时 `Root.tsx` 把每个块注册为独立 Composition（`id="B01"`, `"B02"`, ...），调 `npx remotion studio`。Studio 左侧列表显示所有块，点击单块进入 scrub。这与 render stage 的渲染单元一致——所见即所得，预览的就是 partial 内容。
+
+**`--block` 时序处理**：
+- 若该块已有 `audio.durationSec`（tts 已跑过），用真实 TTS 时长作为 `holdSec`
+- 若没有 audio（用户尚未跑 tts），用 `narration.explicitDurationSec ?? render.minHoldSec` 作为占位 hold；预览中字幕按行均匀分配（无 lineTimings），仅供视觉布局检查
+- preview 不会触发 tts 或 visuals 自动重跑；缺失 componentPath 时显示占位提示
+
+**全片预览**：preview 不再支持"跨块连续 scrub"（每块是独立 Composition）；如需查看完整成片，运行 `autovideo render` 后用任意播放器打开 `output/final.mp4`。
 
 ### 6.6 Stage 6 — `build`：一键全流程
 
@@ -472,21 +580,22 @@ autovideo build <project.json> [--out DIR] [--config FILE] [--meta key=value]...
 autovideo compile <project.json>         [--out DIR]
 autovideo tts     <script.json>          [--block B03] [--force]
 autovideo visuals <script.json>          [--block B03] [--force]
-autovideo render  <script.json>          [--range B03-B05]
+autovideo render  <script.json>          [--block B03[,B07...]] [--force]
 
 # 预览
 autovideo preview <script.json>          [--block B03]
 
 # 工具
 autovideo cache    stats | clean [--type audio|component]
-autovideo doctor                          # 检查 VoxCPM2 服务、Claude API、ffmpeg、whisper-timestamped、字体
-autovideo init     <dir>                  # 生成模板项目（含示例 project.json + meta.md + script.md）
+autovideo doctor                          # 检查 VoxCPM2 服务、Claude API、ffmpeg、字体
+autovideo init     <dir>                  # 生成模板项目（含示例 project.json + meta.md + script.md + README.md）
+                                          # 生成的 README.md 说明：在 meta.md 同目录放置 B00.wav（10–30s 清晰人声 WAV）后才能 build
 ```
 
 通用 flag：
 
 - `--force`：忽略缓存，强制重做
-- `--block <id>`：仅处理指定块
+- `--block <id[,id...]>`：仅处理指定块，支持单个 ID 或逗号分隔的多个 ID（如 `--block B03` 或 `--block B03,B07`）
 - `--out <dir>`：输出目录（默认 `./build/{title}/`）
 - `--cache-dir <dir>`：覆盖缓存目录（优先于 config 和默认值）
 - `--verbose`：详细日志
@@ -529,8 +638,8 @@ autovideo/
 │   ├── tts/
 │   │   ├── voxcpm-client.ts      # voxcpm2-api HTTP client（POST /v1/speech）
 │   │   ├── voxcpm-server.ts      # 服务启停管理（autoStart）
-│   │   ├── audio.ts              # ffmpeg helpers（拼接静音、格式转换）
-│   │   └── align.ts              # whisper-timestamped forced alignment wrapper
+│   │   ├── audio.ts              # ffmpeg helpers（拼接静音、格式转换、时长读取）
+│   │   └── timings.ts            # lineTimings 累加计算（从各行音频时长推导）
 │   │
 │   ├── ai/
 │   │   ├── component-gen.ts      # Claude SDK 调用
@@ -554,9 +663,8 @@ autovideo/
 │       ├── animations.ts         # enter/exit 包裹实现
 │       └── block-frame.tsx       # 通用块外壳（动画 + 字幕叠加）
 │
-├── tts-server/                   # VoxCPM2 Python 服务（voxcpm2-api）
-│   ├── server.py                 # FastAPI，POST /v1/speech + POST /v1/transcribe
-│   ├── align.py                  # whisper-timestamped forced alignment
+├── tts-server/                   # VoxCPM2 Python 服务（voxcpm2-api；自建 FastAPI wrapper）
+│   ├── server.py                 # FastAPI，POST /v1/speech（返回 WAV 二进制）
 │   └── requirements.txt
 │
 ├── schemas/
@@ -566,7 +674,11 @@ autovideo/
 │   └── starter/                  # autovideo init 复制此模板
 │       ├── project.json
 │       ├── meta.md
-│       └── script.md
+│       ├── script.md
+│       ├── autovideo.config.json # 可选项目级配置示例
+│       └── README.md             # 提示用户放置 B00.wav
+│
+├── install.sh                    # 一次性安装系统依赖（apt + pip + npm）
 │
 ├── tests/
 │   ├── parser.test.ts
@@ -597,20 +709,29 @@ autovideo/
 ./build/microgpt/
 ├── script.json                   # canonical IR
 ├── audio/
-│   ├── B01.wav
+│   ├── B01.wav                   # block-level 合并 WAV（含尾部 200ms 静音）
 │   └── ...
 ├── src/
 │   └── blocks/
 │       ├── B01/Component.tsx     # LLM 生成的组件（每块一个）
 │       └── ...
 ├── public/
-│   └── script.json               # Remotion 静态读取
+│   ├── script.json               # Remotion 静态读取
+│   └── assets/                   # compile 阶段按内容 hash 复制的本地资产
+│       ├── 7b8c9d10.png
+│       └── ...
 ├── logs/
 │   ├── tts-2026-05-01.log
 │   └── visuals-2026-05-01.log
+├── tsconfig.visuals.json         # visuals 验证用最小 tsconfig
 └── output/
-    ├── final.mp4
-    └── final_normalized.mp4
+    ├── partials/                 # 每块独立渲染产物（render stage 总是生成）
+    │   ├── B01.mp4
+    │   ├── B02.mp4
+    │   └── ...
+    ├── concat.txt                # ffmpeg concat list（每次 render 重写）
+    ├── final.mp4                 # ffmpeg concat 拼接结果
+    └── final_normalized.mp4      # loudnorm 后输出
 ```
 
 ---
@@ -626,7 +747,10 @@ autovideo/
     "modelDir": "~/.cache/voxcpm/VoxCPM2", // 模型权重目录（供 autoStart 使用）
     "autoStart": true,                      // 服务不可达时自动启动
     "cfgValue": 2.0,                        // 分类器自由引导强度，越高越像参考音色
-    "concurrency": 4                        // 并发 TTS 块数
+    "inferenceTimesteps": 10,               // diffusion 推理步数（默认 10）
+    "denoise": false,                       // 是否对参考音频做降噪
+    "retryBadcase": true,                   // VoxCPM 内部 badcase 重试
+    "concurrency": 4                        // 并发 TTS 行数
   },
   "anthropic": {
     "apiKeyEnv": "ANTHROPIC_API_KEY",
@@ -637,10 +761,16 @@ autovideo/
   },
   "render": {
     "concurrency": 4,
-    "browser": "/usr/bin/chromium-browser",
+    "browser": null,                       // null = Remotion 自动检测/下载 Chromium；用户可显式指定路径覆盖
     "minHoldSec": 1.5,
     "defaultEnterSec": 0.5,
-    "defaultExitSec": 0.3
+    "defaultExitSec": 0.3,
+    "loudnorm": {
+      "i": -16,                            // integrated loudness target（流媒体常用 -16 LUFS）
+      "tp": -1.5,                          // true peak ceiling
+      "lra": 11,                           // loudness range
+      "twoPass": true                      // 启用两遍 loudnorm（更准确）
+    }
   },
   "cache": {
     "dir": "~/.autovideo/cache"    // 支持绝对路径或 ~ 路径；CLI --cache-dir 优先级更高
@@ -659,10 +789,12 @@ autovideo/
 | Schema 验证失败 | 立即失败，输出 JSON path 与原因 |
 | `voiceRef` 文件不存在或不可读 | `compile` 阶段立即失败，输出解析后的绝对路径和建议（默认 B00.wav 或 meta.md 中指定的路径） |
 | VoxCPM2 服务无法启动 | `tts` 立即失败；提示用户运行 `autovideo doctor` |
-| 单块 TTS 失败 | 重试 3 次（间隔 5s）；仍失败 → 此块标记错误；本 stage 末尾汇总报告，让用户决定 |
+| 单块 TTS 失败 | 重试 3 次（间隔 5s）；仍失败 → stage 立即失败，输出失败块列表及恢复命令 |
 | Claude API 失败 | 重试 3 次（指数退避） |
-| 生成的组件验证失败 | 错误回喂模型，最多 3 轮；仍失败 → 此块标记 `degraded`，渲染时降级为纯色背景+旁白文字，不阻塞流程 |
-| 渲染失败 | 立即失败，保留所有 artifact 便于调试 |
+| 生成的组件验证失败 | 错误回喂模型，最多 3 轮；仍失败 → stage 立即失败，输出失败块列表及恢复命令；无降级 |
+| 生成组件包含禁止 import | `tsc` 静态检查阶段拦截，视为验证失败触发重试 |
+| 单块 partial 渲染失败 | 重试 1 次；仍失败 → 立即取消所有 in-flight 渲染子进程，输出失败块列表 + 恢复命令（`autovideo render --block <id> --force`），保留已生成的 partial 便于调试 |
+| ffmpeg concat 编码参数不一致 | concat 前 ffprobe 抽样校验 codec/分辨率/fps/像素格式/SAR；不一致立即报错并提示运行 `autovideo cache clean --type partial` 后重渲（通常因升级 Remotion 后旧 partial 残留导致）|
 | 磁盘 < 5GB | 任何 stage 启动前预检，不足拒绝 |
 
 **所有错误都有结构化日志**：`build/logs/{stage}-{date}.log`，每条带 stage / block-id / 时间戳 / 错误堆栈。
@@ -676,11 +808,8 @@ Failed blocks:
   B03: VoxCPM timeout after 3 retries
   B07: VoxCPM connection refused
 
-Resume:
+Resume after fixing the issue:
   autovideo tts ./build/microgpt/script.json --block B03,B07 --force
-
-Or skip these blocks (use placeholder audio):
-  autovideo tts ./build/microgpt/script.json --block B03,B07 --skip
 ```
 
 ---
@@ -697,11 +826,18 @@ Or skip these blocks (use placeholder audio):
 {cache-dir}/
 ├── manifest.json
 ├── audio/
-│   ├── {hash}.wav
-│   └── {hash}.timings.json
-└── components/
-    └── {hash}.tsx
+│   └── {hash}.wav             # line-level 单行 TTS 输出（不含尾部 200ms 静音）
+├── components/
+│   └── {hash}.tsx
+└── partials/
+    └── {hash}.mp4             # block-level 渲染产物
 ```
+
+**缓存粒度**：
+- `audio/` 是 **line-level** WAV：每行 narration 一个 cache 条目，key 为 `MD5(ttsText + voiceRefHash + cfgValue + inferenceTimesteps + denoise + voxcpmModelVersion)`；不包含尾部 200ms 静音（拼接时由 ffmpeg 统一追加）
+- block-level 合并 WAV（`build/{title}/audio/Bxx.wav`）和 `lineTimings` 是 **build artifact**，由 tts stage 在 cache 命中或 miss 后计算得到，**不进入全局缓存**
+- `components/` 是 block-level 单文件 .tsx 组件，key 见 11.2
+- `partials/` 是 **block-level** 渲染产物（独立 mp4），key 见 11.2；命中时 `cp` 到 `output/partials/`，避免重新调用 Remotion
 
 `voiceRef` WAV 文件由用户自己管理，存放在项目目录中；缓存通过 `voiceRefHash` 感知音色变更，无需在缓存目录内存储参考音频副本。
 
@@ -709,11 +845,18 @@ Or skip these blocks (use placeholder audio):
 
 | 类型 | 缓存键组成 |
 |------|-----------|
-| audio | `MD5(ttsText + voiceRefHash)` |
-| component | `MD5(visual.description + theme + width + height + promptVersion)` |
+| audio | `MD5(ttsText + voiceRefHash + cfgValue + inferenceTimesteps + denoise + voxcpmModelVersion)` |
+| component | `MD5(visual.description + theme + width + height + promptVersion + assetHashesJson + claudeModel)` |
+| partial | `MD5(componentHash + audioHash + theme + width + height + fps + enter + exit + remotionVersion)` |
 
 - `voiceRefHash`：`voiceRef` WAV 文件内容的 MD5，保证参考音频变更时缓存自动失效
+- `cfgValue` / `inferenceTimesteps` / `denoise`：影响 TTS 输出的所有 VoxCPM 推理参数；任一变更都会让旧音频缓存失效
+- `voxcpmModelVersion`：VoxCPM 模型权重目录（`voxcpm.modelDir`）下 `config.json` 或权重文件的 hash；换模型权重时缓存自动失效
 - `promptVersion`：`src/ai/prompts/component.md` 文件内容的 MD5 前 8 位；系统 prompt 变动时所有旧 component 缓存自动失效
+- `assetHashesJson`：描述中引用的所有本地资产文件内容 hash 的排序 JSON 字符串；图片路径不变但内容变更时组件缓存自动失效
+- `claudeModel`：`anthropic.model` 配置值（如 `claude-sonnet-4-6`）；切换模型时旧组件缓存失效
+- `componentHash` / `audioHash`：本块组件 .tsx 内容 MD5、合并后 block WAV 内容 MD5；组件或音频任一变化 partial 重渲
+- `remotionVersion`：`@remotion/renderer` 包版本字符串；升级 Remotion 时所有 partial 自动失效（防止编码参数漂移）
 
 ### 11.3 manifest 条目格式
 
@@ -727,7 +870,9 @@ Or skip these blocks (use placeholder audio):
       "theme": "dark-code",
       "width": 1920,
       "height": 1080,
-      "promptVersion": "a3f9c12e"
+      "promptVersion": "a3f9c12e",
+      "assetHashesJson": "[\"7b8c9d10\",\"a1b2c3d4\"]",
+      "claudeModel": "claude-sonnet-4-6"
     },
     "createdAt": "2026-05-01T10:00:00Z",
     "lastHitAt": "2026-05-01T11:00:00Z",
@@ -735,11 +880,36 @@ Or skip these blocks (use placeholder audio):
   },
   "audio:d4e5f6a7...": {
     "type": "audio",
-    "files": { "wav": "audio/d4e5f6a7.wav", "timings": "audio/d4e5f6a7.timings.json" },
-    "key": { "ttsText": "...", "voiceRefHash": "ab12cd34..." },
+    "file": "audio/d4e5f6a7.wav",
+    "key": {
+      "ttsText": "...",
+      "voiceRefHash": "ab12cd34...",
+      "cfgValue": 2.0,
+      "inferenceTimesteps": 10,
+      "denoise": false,
+      "voxcpmModelVersion": "e7f2a019"
+    },
     "createdAt": "2026-05-01T10:00:00Z",
     "lastHitAt": "2026-05-01T11:00:00Z",
     "hitCount": 7
+  },
+  "partial:9c8b7a65...": {
+    "type": "partial",
+    "file": "partials/9c8b7a65.mp4",
+    "key": {
+      "componentHash": "f3a1b2c4...",
+      "audioHash": "5e4d3c2b...",
+      "theme": "dark-code",
+      "width": 1920,
+      "height": 1080,
+      "fps": 30,
+      "enter": "fade-up",
+      "exit": "fade",
+      "remotionVersion": "4.0.230"
+    },
+    "createdAt": "2026-05-01T10:30:00Z",
+    "lastHitAt": "2026-05-01T11:00:00Z",
+    "hitCount": 2
   }
 }
 ```
@@ -749,12 +919,13 @@ Or skip these blocks (use placeholder audio):
 ### 11.4 CLI
 
 ```bash
-autovideo cache stats                        # 显示总条目数、磁盘占用、命中率（分 audio/component）
+autovideo cache stats                        # 显示总条目数、磁盘占用、命中率（分 audio/component/partial）
 autovideo cache clean                        # 清空全部
 autovideo cache clean --type audio           # 仅清音频缓存
 autovideo cache clean --type component       # 仅清组件缓存
-autovideo cache clean --older-than 30d
-autovideo cache clean --stale                # 仅清 promptVersion 已过期的 component 条目
+autovideo cache clean --type partial         # 仅清块渲染产物缓存
+autovideo cache clean --older-than 30d        # ms 库格式：30d、12h、1w、90m；不接受 ISO 8601
+autovideo cache clean --stale                # 仅清 promptVersion / remotionVersion 已过期的条目
 ```
 
 ---
@@ -765,9 +936,11 @@ autovideo cache clean --stale                # 仅清 promptVersion 已过期的
 |------|------|------|
 | 单元 | parser、cache（含 promptVersion 失效逻辑）、ffmpeg helpers、narration 处理 | vitest |
 | 快照 | `compile` 输入 .md → `script.json` 输出（含 subtitleSafeBottom、图片路径替换） | vitest snapshot |
-| 单元 | tts lineTimings 计算（word timings → line timings 映射逻辑） | vitest |
-| 集成 | tts 缓存命中（voiceRefHash 变更时失效）、voiceRef 文件校验 | vitest + mock voxcpm2-api |
-| 集成 | visuals 缓存命中；validate 失败后错误回喂重试流程 | vitest + mock Claude API |
+| 单元 | tts lineTimings 计算（各行音频时长累加 + 200ms 静音推导） | vitest |
+| 集成 | tts 缓存命中（voiceRefHash / cfgValue 变更时失效）、voiceRef 文件校验 | vitest + mock voxcpm2-api |
+| 集成 | visuals 缓存命中（assetHashesJson 变更时失效）；validate 失败后错误回喂重试；3 轮失败 stage 终止 | vitest + mock Claude API |
+| 单元 | compile 阶段资产 hash 复制（同名不同目录、内容变更测试） | vitest |
+| 集成 | 缓存 lockfile 并发竞争（多进程同时 build 不同项目共用缓存目录） | vitest（spawn 多 worker） |
 | E2E | 最小 2 块脚本（各含 visual + narration）跑完整 build | vitest（需 ffmpeg + Chromium） |
 
 **不测试**：Claude 实际生成的组件内容（不可重现）；但要测 validate 流程（喂错误能恢复）。
@@ -810,18 +983,17 @@ uvicorn[standard]
 soundfile
 numpy
 torch
-
-# forced alignment（独立进程）
-whisper-timestamped
 ```
+
+lineTimings 由 tts stage 从各行音频时长直接累加得出，无需 forced alignment，`whisper-timestamped` 已从依赖中移除。
 
 ### 13.3 系统依赖（一次性 install 脚本）
 
 - Node 20+
 - Python 3.10+ + venv
 - ffmpeg
-- chromium-browser（Remotion 渲染）
-- CJK 字体（`fonts-noto-cjk`）
+- chromium-browser（Remotion 渲染；也可由 `@remotion/renderer` 自动下载）
+- CJK 字体：通过 `@remotion/google-fonts/NotoSansSC` 在 `Root.tsx` 顶部 `loadFont()` 显式加载，避免依赖 Chromium headless 系统字体 fallback；emoji 字体走 `Noto Color Emoji`（同样 google-fonts 加载）。系统包 `fonts-noto-cjk` 仍建议安装作为 doctor 兜底
 
 提供 `install.sh` 脚本一次性装齐；不在 `autovideo build` 内部检查 / 安装。
 
@@ -831,35 +1003,12 @@ whisper-timestamped
 
 | 标准 | 衡量方式 |
 |------|---------|
-| 单命令出片 | `autovideo build project.json` 一次跑完，产出可播 MP4 |
+| 单命令出片 | 用户提供 `voiceRef` WAV 后，`autovideo build project.json` 一次跑完，产出可播 MP4 |
 | 音色一致 | 全片所有块共用同一 `voiceRef` WAV，无论重跑多少次音色不变；换 WAV 文件才会变 |
 | 行间停顿可感 | 每行末尾固定 200ms 静音，字幕切换自然不跳帧 |
-| 增量重做高效 | 改 1 句话仅重跑 TTS 1 块 + render；改 1 个动画仅重跑 visuals 1 块 + render |
+| 增量重做高效 | 改 1 句话 → 该块 line-level audio cache miss 1 行 + 重渲该块 partial + ffmpeg concat（秒级）；改 1 个动画 → 重生成该块组件 + 重渲该块 partial + concat；其他块的组件/音频/partial 全部缓存命中，磁盘上原文件不变 |
+| 块增删/重排无副作用 | 删除或重排块只改变 `concat.txt` 顺序与 `final.mp4`；audio/component/partial 三级缓存按内容 hash 全部命中，无任何块需要重渲 |
 | 单块预览 | `autovideo preview --block B03` 5 秒内打开 Studio 显示该块 |
 | 失败可恢复 | 任何 stage 失败后，`autovideo {stage} --block` 可单独续跑 |
-| 代码体量 | 总 TS 代码 ≤ 4000 行；Python TTS 服务 ≤ 200 行 |
+| 代码体量 | TS 实现（src/ + remotion/ + bin/）≤ 5000 行，含 tests ≤ 8000 行；Python TTS 服务 ≤ 300 行 |
 
----
-
-## 15. 范围之外（v1 不做）
-
-- 多语言 TTS（仅中文 / 中英混读）
-- Web UI / 桌面 app（保持 CLI）
-- 实时 / 流式合成
-- 多人协作（单机工具）
-- Cloud rendering
-- 现有视频自动剪辑（另一个工具）
-- BGM / 多音轨
-- 转场特效以外的镜头语言（推拉摇移）
-
----
-
-## 16. 里程碑
-
-| 里程碑 | 内容 | 验收 |
-|--------|------|------|
-| **M1 — Compile + Render 基线** | parser（project.json + meta + blocks）、`script.json` 数据模型、Remotion 框架（BlockFrame + SubtitleOverlay）、单 composition 输出 MP4（用占位组件，不含音频） | 手写 `script.json` + 占位 Component.tsx，渲染出无声 MP4，字幕层正确显示 |
-| **M2 — TTS 全链路** | VoxCPM2 服务（autoStart）、voiceRef 校验、逐行合成+静音拼接、whisper forced alignment、音频缓存 | E2E 跑 2 块脚本，出带配音字幕 MP4；换 voiceRef 后缓存自动失效重新合成 |
-| **M3 — Visuals 全链路** | Claude SDK 集成（所有块）、promptVersion 失效机制、validate + 重试、降级、component 缓存、可配置缓存目录 | 跑含 2 块真实描述的脚本，成功出片；改描述后仅重生成该块 |
-| **M4 — Iter 工作流** | preview、`--block --force`、cache CLI、doctor、init | 改单块重跑 < 30 秒 |
-| **M5 — 打磨** | 完整文档、错误信息打磨、E2E 测试套件 | README 起手 5 分钟出第一个 demo |
