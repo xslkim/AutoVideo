@@ -10,12 +10,14 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true
+    "declaration": true,
+    "jsx": "react-jsx"
   },
   "include": [
     "bin/**/*.ts",
     "src/**/*.ts",
-    "remotion/**/*.ts"
+    "remotion/**/*.ts",
+    "remotion/**/*.tsx"
   ],
   "exclude": [
     "node_modules",

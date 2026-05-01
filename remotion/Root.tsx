@@ -1,7 +1,9 @@
 /**
- * AutoVideo — Remotion Root (test / preview)
+ * AutoVideo — Remotion Root (test / preview / render)
  *
- * Registers test compositions for SubtitleOverlay acceptance testing.
+ * Registers test compositions for SubtitleOverlay acceptance testing,
+ * and a parameterized BlockComposition for block rendering.
+ *
  * Run with:  npx remotion studio remotion/Root.tsx
  */
 
@@ -13,8 +15,10 @@ import {
   useVideoConfig,
   AbsoluteFill,
 } from "remotion";
-import { SubtitleOverlay } from "./components/SubtitleOverlay.js";
-import { getTheme } from "./engine/theme.js";
+import { SubtitleOverlay } from "./components/SubtitleOverlay";
+import { BlockComposition } from "./VideoComposition";
+import type { BlockCompositionProps } from "./VideoComposition";
+import { getTheme } from "./engine/theme";
 
 // ---------------------------------------------------------------------------
 // Test data — mimics a block with multiple narration lines and highlights
@@ -58,13 +62,10 @@ const SubtitleTestComp: React.FC = () => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
-  return React.createElement(
-    AbsoluteFill,
-    { style: { backgroundColor: theme.colors.bg } },
-    React.createElement(
-      "div",
-      {
-        style: {
+  return (
+    <AbsoluteFill style={{ backgroundColor: theme.colors.bg }}>
+      <div
+        style={{
           display: "flex",
           justifyContent: "center",
           alignItems: "center",
@@ -72,37 +73,84 @@ const SubtitleTestComp: React.FC = () => {
           color: theme.colors.muted,
           fontSize: 48,
           fontFamily: theme.fonts.sans,
-        },
-      },
-      `SubtitleOverlay Test — frame ${frame}`,
-    ),
-    React.createElement(SubtitleOverlay, {
-      lines: TEST_LINES,
-      lineTimings: TEST_LINE_TIMINGS,
-      audioStartFrame: 15, // 0.5s enter at 30fps
-      frame,
-      fps,
-      theme,
-    }),
+        }}
+      >
+        Subtitle Test — watch below
+      </div>
+      <SubtitleOverlay
+        lines={TEST_LINES}
+        lineTimings={TEST_LINE_TIMINGS}
+        audioStartFrame={0}
+        frame={frame}
+        fps={fps}
+        theme={theme}
+      />
+    </AbsoluteFill>
   );
 };
 
 // ---------------------------------------------------------------------------
-// Root
+// Root — register all compositions
 // ---------------------------------------------------------------------------
 
+// Remotion Composition requires component to accept Record<string, unknown>,
+// but our BlockComposition requires { blockId: string }.
+// Cast through unknown to satisfy TypeScript.
+const BlockComp = BlockComposition as unknown as React.FC<
+  Record<string, unknown>
+>;
+
 const Root: React.FC = () => {
-  return React.createElement(
-    React.Fragment,
-    null,
-    React.createElement(Composition, {
-      id: "SubtitleOverlayTest",
-      component: SubtitleTestComp,
-      durationInFrames: 210, // 7 seconds at 30fps
-      fps: 30,
-      width: 1920,
-      height: 1080,
-    }),
+  return (
+    <>
+      {/* SubtitleOverlay test composition (existing) */}
+      <Composition
+        id="SubtitleTest"
+        component={SubtitleTestComp}
+        durationInFrames={300}
+        fps={30}
+        width={1920}
+        height={1080}
+      />
+
+      {/* BlockComposition — parameterized by blockId */}
+      <Composition
+        id="Block"
+        component={BlockComp}
+        durationInFrames={1} // placeholder; calculateMetadata overrides
+        fps={30}
+        width={1920}
+        height={1080}
+        defaultProps={{ blockId: "B01" }}
+        calculateMetadata={async ({ props }) => {
+          const blockId = (props as unknown as BlockCompositionProps).blockId;
+          // Fetch script.json to get block timing
+          try {
+            const resp = await fetch(
+              `${window.remotion_staticBase ?? ""}/script.json`,
+            );
+            const script = await resp.json();
+            const block = script.blocks?.find((b: any) => b.id === blockId);
+            if (block?.timing?.frames) {
+              return {
+                durationInFrames: block.timing.frames,
+                fps: script.meta?.fps ?? 30,
+                width: script.meta?.width ?? 1920,
+                height: script.meta?.height ?? 1080,
+              };
+            }
+          } catch {
+            // Fallback — use defaults
+          }
+          return {
+            durationInFrames: 150, // 5s at 30fps fallback
+            fps: 30,
+            width: 1920,
+            height: 1080,
+          };
+        }}
+      />
+    </>
   );
 };
 
