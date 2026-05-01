@@ -6,7 +6,7 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T4.4`
+- **active_task**: `T4.5`
 - **last_updated**: `2026-05-01T07:36:56Z`
 - **next_action**: `implement T4.5`
 - **completed**: `19 / 40`
@@ -48,4 +48,4 @@
 | T4.2 | Claude SDK 调用 + prompt cache | done | — | 2026-05-01T07:16:29Z | 4daad42 | — |
 | T4.3 | 子进程隔离工具 | done | — | 2026-05-01T07:18:09Z | a2d5243 | — |
 | T4.4 | 验证（tsc + render smoke） | done | — | 2026-05-01T07:36:56Z | 48a7566 | — |
-| T4.5 | visuals 命令组装 | pending | — | — |
+| T4.5 | visuals 命令组装 | in_progress | 2026-05-01T07:36:56Z | — | — | — |
