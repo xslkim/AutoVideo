@@ -7,7 +7,7 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T2.2`
-- **last_updated**: `2026-05-01T06:00:17Z`
+- **last_updated**: `2026-05-01T13:55:00Z`
 - **next_action**: `implement T2.2`
 - **completed**: `9 / 40`
 - **blockers**: `0`
@@ -38,7 +38,7 @@
 | T1.4 | 资产 hash 复制 | done | — | 2026-05-01T05:10:20Z | 709d16c | — |
 | T1.5 | compile 命令组装 | done | — | 2026-05-01T05:47:24Z | 6a8df59 | — |
 | T2.1 | 缓存 store | done | — | 2026-05-01T06:00:17Z | cc79062 | — |
-| T2.2 | cache CLI | in_progress | 2026-05-01T06:00:17Z | — | — | — |
+| T2.2 | cache CLI | pending | — | — | — | — |
 | T3.1 | VoxCPM FastAPI wrapper | pending | — | — | — | — |
 | T3.2 | voxcpm-client + autoStart | pending | — | — | — | — |
 | T3.3 | ffmpeg helpers | pending | — | — | — | — |
