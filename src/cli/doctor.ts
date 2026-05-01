@@ -16,7 +16,8 @@ import { existsSync, accessSync, constants, mkdirSync, readdirSync, statfsSync }
 import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import * as http from "node:http";
-import { loadConfig, type AutoVideoConfig } from "../config/load.js";
+import { loadConfig } from "../config/load.js";
+import type { AutoVideoConfig } from "../config/defaults.js";
 
 // ---------------------------------------------------------------------------
 // Types

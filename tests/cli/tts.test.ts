@@ -421,7 +421,7 @@ describe("TTS command", () => {
     };
     const scriptPath = writeScript(emptyScript);
 
-    await expect(tts(makeOpts(scriptPath))).rejects.toThrow(/No blocks to process/);
+    await expect(tts(makeOpts(scriptPath))).rejects.toThrow(/blocks array is empty/);
   });
 
   // ── Retry test ────────────────────────────────────────────────────

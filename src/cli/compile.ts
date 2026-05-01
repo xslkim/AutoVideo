@@ -15,10 +15,11 @@ import {
   copyFileSync,
 } from "node:fs";
 import { resolve, dirname } from "node:path";
-import Ajv from "ajv";
+import AjvModule from "ajv";
+const Ajv = AjvModule.default ?? AjvModule;
 
 import { readProject, type ResolvedProject } from "../parser/project.js";
-import { readMetaWithDimensions, type ResolvedMeta } from "../parser/meta.js";
+import { readMetaWithDimensions, type ResolvedMeta, type MetaOverrides } from "../parser/meta.js";
 import { parseAndMergeBlocks, type RawBlock } from "../parser/blocks.js";
 import {
   processAssets,
@@ -88,6 +89,25 @@ export interface CompileOptions {
 export interface CompileResult {
   script: Script;
   outDir: string;
+  scriptPath: string;
+}
+
+// ---------------------------------------------------------------------------
+// Meta args parser
+// ---------------------------------------------------------------------------
+
+function parseMetaArgs(args?: string[]): MetaOverrides | undefined {
+  if (!args || args.length === 0) return undefined;
+  const overrides: MetaOverrides = {};
+  for (const arg of args) {
+    const eq = arg.indexOf("=");
+    if (eq < 0) continue;
+    const key = arg.slice(0, eq);
+    const val = arg.slice(eq + 1);
+    const num = Number(val);
+    overrides[key] = isNaN(num) ? val : num;
+  }
+  return overrides;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +142,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
 
   // ── Step 2: Parse meta.md (with --meta overrides) ──────────────────────
   if (verbose) console.log("[compile] Parsing meta:", project.metaPath);
-  const meta: ResolvedMeta = readMetaWithDimensions(project.metaPath, metaArgs);
+  const meta: ResolvedMeta = readMetaWithDimensions(project.metaPath, parseMetaArgs(metaArgs));
 
   // Validate voiceRef exists
   if (!existsSync(meta.voiceRef)) {
@@ -215,7 +235,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   // ── Step 8: Validate with JSON Schema (Ajv) ────────────────────────────
   if (verbose) console.log("[compile] Validating script against JSON schema");
   const schemaObj = loadSchema();
-  const ajv = new Ajv({ allErrors: true, formats: true });
+  const ajv = new Ajv({ allErrors: true });
   // Add date-time format support
   ajv.addFormat("date-time", {
     type: "string",
@@ -242,7 +262,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
     console.log(
       `Would compile:\n  Project: ${project.projectPath}\n  Meta: ${project.metaPath}\n  Blocks: ${project.blockPaths.length} file(s)\n  Title: ${meta.title}\n  Aspect: ${meta.aspect} (${meta.width}×${meta.height})\n  FPS: ${meta.fps}\n  Theme: ${meta.theme}\n  subtitleSafeBottom: ${subtitleSafeBottom}\n  Output: ${outDir}`
     );
-    return { script, outDir };
+    return { script, outDir, scriptPath: resolve(outDir, "script.json") };
   }
 
   // Create output directories
@@ -280,5 +300,5 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
 
   if (verbose) console.log("[compile] Done. Output:", outDir);
 
-  return { script, outDir };
+  return { script, outDir, scriptPath };
 }

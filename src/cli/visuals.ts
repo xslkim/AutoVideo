@@ -163,7 +163,16 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
   // Read and validate script.json
   const scriptRaw = fs.readFileSync(resolvedScriptPath, "utf-8");
   const script: Script = JSON.parse(scriptRaw);
-  assertCompiledScript(script);
+
+  // Validate basic structure (allow componentPath/audio from prior runs)
+  if (!script.meta || !script.blocks || script.blocks.length === 0) {
+    throw new VisualsError("Script must have meta and at least one block");
+  }
+  for (const block of script.blocks) {
+    if (!block.id || !block.visual?.description || !block.narration?.lines) {
+      throw new VisualsError(`Block ${block.id ?? "?"} is missing required fields`);
+    }
+  }
 
   // Filter blocks if --block specified
   let targetBlocks = script.blocks;

@@ -377,5 +377,16 @@ export function assertCompiledScript(data: unknown): asserts data is CompiledScr
     if (!Array.isArray(narration.lines)) {
       throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing narration.lines`);
     }
+
+    if (block.audio !== undefined) {
+      throw new Error(`Block ${i} (${block.id}): audio should not be set at compile stage`);
+    }
+    if (visual.componentPath !== undefined) {
+      throw new Error(`Block ${i} (${block.id}): componentPath should not be set at compile stage`);
+    }
+  }
+
+  if (typeof s.artifacts !== "object" || s.artifacts === null || !(s.artifacts as Record<string, unknown>).compiledAt) {
+    throw new Error("Missing artifacts.compiledAt");
   }
 }

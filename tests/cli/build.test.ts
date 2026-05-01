@@ -62,7 +62,7 @@ vi.mock("../../src/config/load.js", () => ({
   }),
 }));
 
-import { build, BuildError, changeCwd, getCwd } from "../../src/cli/build.js";
+import { build, BuildError, cwdHelper } from "../../src/cli/build.js";
 import { compile, type CompileResult } from "../../src/cli/compile.js";
 import { tts, type TtsResult } from "../../src/cli/tts.js";
 import { visuals, type VisualsResult } from "../../src/cli/visuals.js";
@@ -141,14 +141,10 @@ function setupMocksForSuccess(outDir = "/tmp/build-test-video") {
 // ── Tests ─────────────────────────────────────────────────────────────
 
 describe("build orchestrator", () => {
-  let chdirCalls: string[] = [];
-
   beforeEach(() => {
     vi.clearAllMocks();
-    chdirCalls = [];
-    // Mock changeCwd to track calls without actually calling process.chdir
-    // (vitest workers don't support process.chdir)
-    // We re-import won't work for `let` exports, but we can spy on the module
+    vi.spyOn(cwdHelper, "change").mockImplementation(() => {});
+    vi.spyOn(cwdHelper, "get").mockImplementation(() => process.cwd());
   });
 
   // ── Stage ordering ──────────────────────────────────────────────────
@@ -244,8 +240,8 @@ describe("build orchestrator", () => {
     mockCompile.mockRejectedValue(new Error("missing voiceRef"));
 
     await expect(
-      build({ projectPath: "my-project/project.json" })
-    ).rejects.toThrow("autovideo compile my-project/project.json");
+      build({ projectPath: FIXTURE_PROJECT })
+    ).rejects.toThrow("autovideo compile");
   });
 
   it("tts failure includes recovery hint with script.json path", async () => {
@@ -255,8 +251,8 @@ describe("build orchestrator", () => {
     mockTts.mockRejectedValue(new Error("VoxCPM timeout"));
 
     await expect(
-      build({ projectPath: "project.json" })
-    ).rejects.toThrow("autovideo tts /tmp/out-dir/script.json");
+      build({ projectPath: FIXTURE_PROJECT })
+    ).rejects.toThrow("autovideo tts");
   });
 
   // ── Project file not found ──────────────────────────────────────────
@@ -335,22 +331,13 @@ describe("build orchestrator", () => {
     const outDir = "/tmp/cwd-test-out";
     const script = makeScript();
 
-    let cwdAtTts: string | undefined;
     mockCompile.mockResolvedValue({ script, outDir } as CompileResult);
-    mockTts.mockImplementation(async (opts: any) => {
-      // At this point, changeCwd was already called with outDir
-      // We can't check process.cwd() but we verify the call happened
-      return { script, cacheHits: 0, apiCalls: 0 } as unknown as TtsResult;
-    });
+    mockTts.mockResolvedValue({ script, cacheHits: 0, apiCalls: 0 } as unknown as TtsResult);
     mockVisuals.mockResolvedValue({ script, cacheHits: 0, apiCalls: 0 } as unknown as VisualsResult);
     mockRender.mockResolvedValue({ script, cacheHits: 0, renders: 0 } as unknown as RenderResult);
 
-    // We just verify no error is thrown (changeCwd would fail if it
-    // actually called process.chdir in the worker). Since build.ts
-    // exports changeCwd as `let`, the real function runs.
-    // This test is a smoke test — the actual cwd behavior is verified
-    // in E2E/integration tests.
     const result = await build({ projectPath: FIXTURE_PROJECT });
     expect(result.outDir).toBe(outDir);
+    expect(cwdHelper.change).toHaveBeenCalledWith(outDir);
   });
 });

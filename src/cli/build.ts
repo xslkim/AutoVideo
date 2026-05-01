@@ -13,6 +13,7 @@
 
 import { resolve, join } from "node:path";
 import { existsSync } from "node:fs";
+import type { Script } from "../types/script.js";
 import { compile, type CompileOptions, type CompileResult } from "./compile.js";
 import { tts, type TtsOptions, type TtsResult } from "./tts.js";
 import { visuals, type VisualsOptions, type VisualsResult } from "./visuals.js";
@@ -51,7 +52,7 @@ export interface BuildOptions {
 
 export interface BuildResult {
   /** Final script after all stages */
-  script: ReturnType<CompileResult["script"]> & {};
+  script: Script;
   /** Build output directory */
   outDir: string;
 }
@@ -61,17 +62,17 @@ export interface BuildResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Change working directory. Extracted so tests can mock it.
- * In production this is `process.chdir(dir)`.
+ * Cwd helper object. Tests can replace the methods to avoid process.chdir
+ * in vitest workers.
  */
-export let changeCwd = (dir: string): void => {
-  process.chdir(dir);
+export const cwdHelper = {
+  change(dir: string): void {
+    process.chdir(dir);
+  },
+  get(): string {
+    return process.cwd();
+  },
 };
-
-/**
- * Get current working directory. Extracted so tests can mock it.
- */
-export let getCwd = (): string => process.cwd();
 
 // ---------------------------------------------------------------------------
 // build()
@@ -81,7 +82,7 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   const { projectPath, verbose = false, dryRun = false } = options;
 
   // Resolve project.json path
-  const resolvedProject = resolve(getCwd(), projectPath);
+  const resolvedProject = resolve(cwdHelper.get(), projectPath);
 
   if (!existsSync(resolvedProject)) {
     throw new BuildError(`Project file not found: ${resolvedProject}`);
@@ -122,7 +123,7 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   console.log(`${stagePrefix("compile")} Done → ${scriptPath}`);
 
   // ── Switch cwd to build out dir (PRD §10) ───────────────────────────
-  changeCwd(outDir);
+  cwdHelper.change(outDir);
 
   // ── Stage 2: tts ────────────────────────────────────────────────────
 
@@ -196,4 +197,38 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     script: renderResult.script,
     outDir,
   };
+}
+
+// ---------------------------------------------------------------------------
+// CLI command wrapper
+// ---------------------------------------------------------------------------
+
+export async function buildCommand(
+  projectPath: string,
+  opts: {
+    out?: string;
+    config?: string;
+    cacheDir?: string;
+    verbose?: boolean;
+    dryRun?: boolean;
+    meta?: string[];
+  },
+): Promise<void> {
+  try {
+    const result = await build({
+      projectPath,
+      outDir: opts.out,
+      configPath: opts.config,
+      verbose: opts.verbose,
+      dryRun: opts.dryRun,
+      metaArgs: opts.meta,
+    });
+    console.log(`\nBuild complete: ${result.outDir}`);
+  } catch (err: any) {
+    if (err instanceof BuildError) {
+      console.error(`\n✗ ${err.message}`);
+      process.exit(1);
+    }
+    throw err;
+  }
 }

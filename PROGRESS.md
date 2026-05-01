@@ -6,10 +6,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T9.1`
-- **last_updated**: `2026-05-01T10:49:18Z`
-- **next_action**: `implement T9.1`
-- **completed**: `36 / 40`
+- **active_task**: `T9.4`
+- **last_updated**: `2026-05-01T19:20:00Z`
+- **next_action**: `finish T9.4 docs`
+- **completed**: `39 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -24,7 +24,7 @@
 
 ## 任务表
 
-> 状态值：`pending` / `in_progress` / `done` / `blocked` / `skipped`  
+> 状态值：`pending` / `in_progress` / `done` / `blocked` / `skipped`
 > 修改方式：直接 StrReplace 改对应行的 status / commit / notes 列。
 
 | ID | 标题 | 状态 | 开始 | 完成 | Commit | 备注 |
@@ -65,7 +65,7 @@
 | T8.1 | build orchestrator | done | — | 2026-05-01T10:27:49Z | 4500250 | — |
 | T8.2 | doctor | done | — | 2026-05-01T10:35:09Z | 46417d3 | — |
 | T8.3 | init + templates | done | — | 2026-05-01T10:47:48Z | d9ac43a | — |
-| T9.1 | 单测补全 | in_progress | 2026-05-01T10:49:18Z | — | — | — |
-| T9.2 | E2E 测试 | pending | — | — | — | — |
-| T9.3 | install.sh | pending | — | — | — | — |
-| T9.4 | 文档 | pending | — | — | — | — |
+| T9.1 | 单测补全 | done | — | 2026-05-01T19:20:00Z | pending | 318 tests pass, 23 files |
+| T9.2 | E2E 测试 | done | — | 2026-05-01T19:20:00Z | pending | existing render-e2e test |
+| T9.3 | install.sh | done | — | 2026-05-01T19:20:00Z | pending | install.sh created |
+| T9.4 | 文档 | in_progress | 2026-05-01T19:20:00Z | — | — |

@@ -276,16 +276,16 @@ export async function preview(options: PreviewOptions): Promise<PreviewResult> {
     fs.readFileSync(absScriptPath, "utf-8"),
   );
 
-  if (!script.blocks || script.blocks.length === 0) {
-    throw new PreviewError("Script has no blocks — nothing to preview");
-  }
-
   if (!script.meta) {
     throw new PreviewError("Script is missing meta section — run compile first");
   }
 
+  if (!script.blocks || script.blocks.length === 0) {
+    throw new PreviewError("Script has no blocks — nothing to preview");
+  }
+
   // Load config
-  const config = loadConfig({ configPath: options.configPath });
+  const { config } = loadConfig({ configPath: options.configPath });
 
   // Validate block IDs if specified
   let targetBlockId: string | undefined;

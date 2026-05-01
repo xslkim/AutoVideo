@@ -31,10 +31,38 @@ import { pinyin } from "pinyin-pro";
  */
 export function slugify(title: string): string {
   // Step 1: Convert CJK characters to pinyin (no tone marks)
-  const pinyinStr: string = pinyin(title, { toneType: "none" });
+  // pinyin-pro splits Latin chars into individual characters, so we
+  // process CJK and non-CJK segments separately.
+  const chars = [...title];
+  const segments: string[] = [];
+  let cjkBuffer = "";
 
-  // Step 2: Replace non-alphanumeric (non-ASCII) characters with `-`
-  let result: string = pinyinStr.replace(/[^a-zA-Z0-9]/g, "-");
+  for (const ch of chars) {
+    // CJK Unified Ideographs ranges + CJK Extension ranges
+    const code = ch.codePointAt(0)!;
+    const isCJK =
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0x3400 && code <= 0x4dbf) ||
+      (code >= 0x20000 && code <= 0x2a6df);
+
+    if (isCJK) {
+      cjkBuffer += ch;
+    } else {
+      if (cjkBuffer) {
+        segments.push(pinyin(cjkBuffer, { toneType: "none" }).replace(/\s+/g, "-"));
+        cjkBuffer = "";
+      }
+      segments.push(ch);
+    }
+  }
+  if (cjkBuffer) {
+    segments.push(pinyin(cjkBuffer, { toneType: "none" }).replace(/\s+/g, "-"));
+  }
+
+  const combined = segments.join("");
+
+  // Step 2: Replace non-alphanumeric characters with `-`
+  let result: string = combined.replace(/[^a-zA-Z0-9]/g, "-");
 
   // Step 3: Collapse multiple `-` into single
   result = result.replace(/-+/g, "-");

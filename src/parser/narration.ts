@@ -15,6 +15,7 @@
  */
 
 import type { NarrationLine } from "../types/script.js";
+export type { NarrationLine };
 
 // ---------------------------------------------------------------------------
 // Types

@@ -204,9 +204,9 @@ export async function generateComponent(
 
   // ---- Build usage info ------------------------------------------------
   const cacheReadInputTokens =
-    response.usage?.cache_read_input_tokens ?? 0;
+    (response.usage as any)?.cache_read_input_tokens ?? 0;
   const cacheCreationInputTokens =
-    response.usage?.cache_creation_input_tokens ?? 0;
+    (response.usage as any)?.cache_creation_input_tokens ?? 0;
 
   return {
     tsx,
