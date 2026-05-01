@@ -6,8 +6,8 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T5.4`
-- **last_updated**: `2026-05-01T08:46:37Z`
+- **active_task**: `T6.1`
+- **last_updated**: `2026-05-01T08:46:46Z`
 - **next_action**: `implement T6.1`
 - **completed**: `24 / 40`
 - **blockers**: `0`
@@ -53,7 +53,7 @@
 | T5.2 | SubtitleOverlay | done | — | 2026-05-01T08:30:00Z | fecacf0 | — |
 | T5.3 | BlockFrame + animations | done | — | 2026-05-01T08:32:43Z | 494f90c | — |
 | T5.4 | BlockComposition（render 用） | done | — | 2026-05-01T08:46:37Z | 5be0da3 | — |
-| T6.1 | Root.tsx 生成器（render 模式） | pending | — | — | — | — |
+| T6.1 | Root.tsx 生成器（render 模式） | in_progress | 2026-05-01T08:46:46Z | — | — | — |
 | T6.2 | timing 计算 | pending | — | — | — | — |
 | T6.3 | partial 渲染（程序化 bundle + renderMedia） | pending | — | — | — | — |
 | T6.4 | ffmpeg concat | pending | — | — | — | — |
