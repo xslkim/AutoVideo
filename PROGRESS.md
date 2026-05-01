@@ -6,8 +6,8 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T8.3`
-- **last_updated**: `2026-05-01T10:47:48Z`
+- **active_task**: `T9.1`
+- **last_updated**: `2026-05-01T10:49:18Z`
 - **next_action**: `implement T9.1`
 - **completed**: `36 / 40`
 - **blockers**: `0`
@@ -65,7 +65,7 @@
 | T8.1 | build orchestrator | done | — | 2026-05-01T10:27:49Z | 4500250 | — |
 | T8.2 | doctor | done | — | 2026-05-01T10:35:09Z | 46417d3 | — |
 | T8.3 | init + templates | done | — | 2026-05-01T10:47:48Z | d9ac43a | — |
-| T9.1 | 单测补全 | pending | — | — | — | — |
+| T9.1 | 单测补全 | in_progress | 2026-05-01T10:49:18Z | — | — | — |
 | T9.2 | E2E 测试 | pending | — | — | — | — |
 | T9.3 | install.sh | pending | — | — | — | — |
 | T9.4 | 文档 | pending | — | — | — | — |
