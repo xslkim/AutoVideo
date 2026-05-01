@@ -1,0 +1,409 @@
+/**
+ * AutoVideo — visuals command (Stage 3)
+ *
+ * PRD §6.3 — Generate React components from visual descriptions via Claude.
+ *
+ * Flow:
+ *   1. Validate script.json is CompiledScript readiness (no audio required)
+ *   2. Compute promptVersion / assetHashesJson / claudeModel
+ *   3. p-limit(anthropic.concurrency) for block-level concurrency
+ *   4. Per block: cache lookup → miss → generate → validate (static + smoke)
+ *      → failure: retry up to 3 rounds with error feedback → put cache → write file
+ *   5. Failure: 3 rounds exhausted → AbortController cancels in-flight → exit + recovery command
+ */
+
+import fs from "node:fs";
+import path from "node:path";
+import crypto from "node:crypto";
+import pLimit from "p-limit";
+import { CacheStore, type ComponentKey } from "../cache/store.js";
+import {
+  generateComponent,
+  type AnthropicConfig,
+  type ComponentGenInput,
+  type ComponentGenResult,
+} from "../ai/component-gen.js";
+import {
+  validateComponent,
+  type ValidateComponentOptions,
+} from "../ai/validate.js";
+import {
+  assertCompiledScript,
+  type Script,
+  type Block,
+} from "../types/script.js";
+import type { AutoVideoConfig } from "../config/defaults.js";
+
+// ── Error class ───────────────────────────────────────────────────────
+
+export class VisualsError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VisualsError";
+  }
+}
+
+// ── Options ───────────────────────────────────────────────────────────
+
+export interface VisualsOptions {
+  /** Path to script.json */
+  scriptPath: string;
+  /** Fully merged configuration */
+  config: AutoVideoConfig;
+  /** Only process these block IDs */
+  blockIds?: string[];
+  /** Force cache miss for all/specified blocks */
+  force?: boolean;
+  /** Verbose logging */
+  verbose?: boolean;
+  /** Dry run — show plan but don't execute */
+  dryRun?: boolean;
+}
+
+export interface VisualsResult {
+  /** The updated script with componentPath fields populated */
+  script: Script;
+  /** Number of cache hits */
+  cacheHits: number;
+  /** Number of Claude API calls made */
+  apiCalls: number;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+const MAX_RETRIES = 3;
+
+/**
+ * Compute promptVersion: MD5 first 8 chars of system prompt content.
+ * Falls back to a default if the prompt file does not exist.
+ */
+function computePromptVersion(): string {
+  try {
+    const promptPath = path.resolve(
+      new URL(".", import.meta.url).pathname,
+      "../ai/prompts/component.md"
+    );
+    const content = fs.readFileSync(promptPath, "utf-8");
+    return crypto.createHash("md5").update(content).digest("hex").slice(0, 8);
+  } catch {
+    return "default1";
+  }
+}
+
+/**
+ * Get asset hashes referenced in a block's visual description.
+ */
+function getAssetHashesForBlock(block: Block, script: Script): string[] {
+  const hashes: string[] = [];
+  for (const [, buildPath] of Object.entries(script.assets ?? {})) {
+    if (block.visual.description.includes(buildPath)) {
+      const match = buildPath.match(/^assets\/([a-f0-9]+)\./);
+      if (match) {
+        hashes.push(match[1]);
+      }
+    }
+  }
+  return hashes.sort();
+}
+
+/**
+ * Build the ComponentKey used for cache lookup.
+ */
+function buildComponentKey(opts: {
+  description: string;
+  theme: string;
+  width: number;
+  height: number;
+  promptVersion: string;
+  assetHashes: string[];
+  claudeModel: string;
+}): ComponentKey {
+  return {
+    descriptionHash: crypto
+      .createHash("md5")
+      .update(opts.description)
+      .digest("hex"),
+    theme: opts.theme,
+    width: opts.width,
+    height: opts.height,
+    promptVersion: opts.promptVersion,
+    assetHashesJson: JSON.stringify(opts.assetHashes),
+    claudeModel: opts.claudeModel,
+  };
+}
+
+/**
+ * Build a default system prompt for component generation.
+ * In production this would come from src/ai/prompts/component.md.
+ */
+function buildDefaultSystemPrompt(): string {
+  return `You are a React component generator for educational video slides.
+
+Generate a single React component that renders a full-screen visual based on the user's description.
+
+Requirements:
+- Export a default function component
+- Accept AnimationProps: { frame, durationInFrames, width, height, subtitleSafeBottom, theme, fps }
+- Only import from "react" and "remotion"
+- Do NOT import fs, path, child_process, http, https, or any Node built-in
+- Do NOT use eval, Function constructor, or require()
+- Render full-screen content within width × height
+- Keep important content above the bottom subtitleSafeBottom pixels
+- Use theme.colors for consistent styling
+- Return the component source as TSX code`;
+}
+
+// ── Main visuals function ─────────────────────────────────────────────
+
+export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
+  const { scriptPath, config, blockIds, force, verbose, dryRun } = options;
+  const resolvedScriptPath = path.resolve(scriptPath);
+  const buildOutDir = path.dirname(resolvedScriptPath);
+
+  // Read and validate script.json
+  const scriptRaw = fs.readFileSync(resolvedScriptPath, "utf-8");
+  const script: Script = JSON.parse(scriptRaw);
+  assertCompiledScript(script);
+
+  // Filter blocks if --block specified
+  let targetBlocks = script.blocks;
+  if (blockIds && blockIds.length > 0) {
+    targetBlocks = script.blocks.filter((b) => blockIds.includes(b.id));
+    if (targetBlocks.length === 0) {
+      throw new VisualsError(`No blocks found matching: ${blockIds.join(",")}`);
+    }
+  }
+
+  // Setup directories
+  const blocksDir = path.join(buildOutDir, "src", "blocks");
+  fs.mkdirSync(blocksDir, { recursive: true });
+
+  // Compute promptVersion and model
+  const promptVersion = computePromptVersion();
+  const claudeModel = config.anthropic.model;
+  const systemPrompt = buildDefaultSystemPrompt();
+
+  // Setup cache
+  const cacheStore = new CacheStore({
+    cacheDir: config.cache.dir,
+    maxSizeGB: config.cache.maxSizeGB,
+    evictTrigger: config.cache.evictTrigger,
+  });
+
+  // Anthropic config for generateComponent
+  const anthropicConfig: AnthropicConfig = {
+    apiKeyEnv: config.anthropic.apiKeyEnv,
+    model: config.anthropic.model,
+    promptCaching: config.anthropic.promptCaching,
+    maxRetries: config.anthropic.maxRetries,
+  };
+
+  if (dryRun) {
+    console.log(
+      `[dry-run] Would process ${targetBlocks.length} block(s): ${targetBlocks.map((b) => b.id).join(", ")}`
+    );
+    return { script, cacheHits: 0, apiCalls: 0 };
+  }
+
+  // AbortController for cancellation on failure
+  const abortController = new AbortController();
+  let hasFailed = false;
+  const failedBlocks: { id: string; error: string }[] = [];
+  let cacheHits = 0;
+  let apiCalls = 0;
+
+  const concurrency = config.anthropic.concurrency;
+  const limit = pLimit(concurrency);
+
+  // Process each block concurrently
+  const tasks = targetBlocks.map((block) =>
+    limit(async () => {
+      if (hasFailed || abortController.signal.aborted) return;
+
+      const blockLabel = block.id;
+      console.log(`Processing block ${blockLabel}...`);
+
+      const componentDir = path.join(blocksDir, block.id);
+      const componentFile = path.join(componentDir, "Component.tsx");
+      const relativeComponentPath = `src/blocks/${block.id}/Component.tsx`;
+
+      // Compute cache key
+      const assetHashes = getAssetHashesForBlock(block, script);
+      const componentKey = buildComponentKey({
+        description: block.visual.description,
+        theme: script.meta.theme,
+        width: script.meta.width,
+        height: script.meta.height,
+        promptVersion,
+        assetHashes,
+        claudeModel,
+      });
+
+      // Check cache (unless --force for this block)
+      let cacheHit = false;
+      if (!force) {
+        const cachedPath = await cacheStore.get("component", componentKey);
+        if (cachedPath) {
+          if (verbose) {
+            console.log(`  Block ${blockLabel}: cache hit`);
+          }
+          // Copy from cache to component file
+          fs.mkdirSync(componentDir, { recursive: true });
+          fs.copyFileSync(cachedPath, componentFile);
+          cacheHit = true;
+          cacheHits++;
+        }
+      }
+
+      if (!cacheHit) {
+        // Cache miss → generate with Claude
+        let componentSource = "";
+        let previousSource: string | null = null;
+        let previousError: string | null = null;
+        let succeeded = false;
+
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+          if (hasFailed || abortController.signal.aborted) return;
+
+          try {
+            if (verbose) {
+              console.log(
+                `  Block ${blockLabel}: generating component (attempt ${attempt + 1})...`
+              );
+            }
+
+            // Build input for generation
+            const input: ComponentGenInput = {
+              visualDescription: block.visual.description,
+              systemPrompt,
+            };
+
+            // On retry, feed back previous source + error
+            if (attempt > 0 && previousSource !== null) {
+              input.retryContext = {
+                previousTsx: previousSource,
+                errorMessage: previousError ?? "",
+              };
+            }
+
+            const result: ComponentGenResult = await generateComponent(
+              input,
+              anthropicConfig
+            );
+            componentSource = result.tsx;
+            apiCalls++;
+
+            // Write component to disk for validation
+            fs.mkdirSync(componentDir, { recursive: true });
+            fs.writeFileSync(componentFile, componentSource, "utf-8");
+
+            // Validate: AST scan + tsc type-check + optional render smoke
+            const validateOpts: ValidateComponentOptions = {
+              buildOutDir,
+              fps: script.meta.fps,
+              width: script.meta.width,
+              height: script.meta.height,
+              // Disable render smoke (requires full Remotion setup)
+              runRenderSmoke: false,
+            };
+
+            const validation = await validateComponent(
+              componentFile,
+              validateOpts
+            );
+
+            if (!validation.pass) {
+              throw new VisualsError(
+                `Validation failed:\n${validation.errors.join("\n")}`
+              );
+            }
+
+            // Validation passed!
+            succeeded = true;
+            if (verbose) {
+              console.log(
+                `  Block ${blockLabel}: validation passed on attempt ${attempt + 1}`
+              );
+            }
+            break;
+          } catch (err: any) {
+            const errMsg = err?.message ?? String(err);
+            previousSource = componentSource;
+            previousError = errMsg;
+
+            if (verbose) {
+              console.error(
+                `  Block ${blockLabel}: attempt ${attempt + 1} failed: ${errMsg.slice(0, 200)}`
+              );
+            }
+
+            if (attempt === MAX_RETRIES - 1) {
+              // 3 attempts exhausted → fail
+              console.error(
+                `✗ Block ${blockLabel}: failed after ${MAX_RETRIES} attempts`
+              );
+              failedBlocks.push({ id: block.id, error: errMsg });
+              hasFailed = true;
+              abortController.abort();
+              return;
+            }
+            // Otherwise continue to next attempt (error feedback)
+          }
+        }
+
+        if (!succeeded) {
+          // Should not reach here, but guard
+          failedBlocks.push({
+            id: block.id,
+            error: previousError ?? "No component generated",
+          });
+          hasFailed = true;
+          abortController.abort();
+          return;
+        }
+
+        // Put component in cache
+        await cacheStore.put("component", componentKey, componentFile, {
+          ...componentKey,
+        });
+      }
+
+      // Update script: set componentPath
+      const blockInScript = script.blocks.find((b) => b.id === block.id);
+      if (blockInScript) {
+        blockInScript.visual.componentPath = relativeComponentPath;
+      }
+
+      console.log(`  Block ${blockLabel}: done`);
+    })
+  );
+
+  await Promise.all(tasks);
+
+  // Write updated script.json
+  script.artifacts = script.artifacts || {};
+  if (failedBlocks.length === 0) {
+    script.artifacts.visualsGeneratedAt = new Date().toISOString();
+  }
+  fs.writeFileSync(resolvedScriptPath, JSON.stringify(script, null, 2));
+
+  // If any blocks failed, throw error with recovery instructions
+  if (failedBlocks.length > 0) {
+    const msg = [
+      `Visuals failed (${failedBlocks.length} block(s) failed)`,
+      "",
+      "Failed blocks:",
+      ...failedBlocks.map((fb) => `  ${fb.id}: ${fb.error.split("\n")[0]}`),
+      "",
+      "Resume after fixing the issue:",
+      `  autovideo visuals ${scriptPath} --block ${failedBlocks.map((b) => b.id).join(",")} --force`,
+    ].join("\n");
+    throw new VisualsError(msg);
+  }
+
+  console.log(
+    `\n✓ Visuals complete: ${targetBlocks.length} block(s) processed (${cacheHits} cache hits, ${apiCalls} API calls)`
+  );
+
+  return { script, cacheHits, apiCalls };
+}

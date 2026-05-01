@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { registerCacheCommand } from "../src/cli/cache.js";
 import { tts } from "../src/cli/tts.js";
+import { visuals } from "../src/cli/visuals.js";
 import { loadConfig } from "../src/config/load.js";
 
 const notImplemented = (cmdName: string) => {
@@ -82,7 +83,36 @@ program
   .option("--block <ids>", "only process specified blocks (comma-separated)")
   .option("--force", "ignore cache, force regeneration")
   .option("--config <file>", "path to config file")
-  .action(() => notImplemented("visuals"));
+  .option("--cache-dir <dir>", "override cache directory")
+  .option("--verbose", "verbose logging")
+  .option("--dry-run", "show plan without executing")
+  .action(async (opts, cmd) => {
+    const scriptPath = cmd.args[0];
+    const { config } = loadConfig({
+      configPath: opts.config,
+      cacheDir: opts.cacheDir,
+    });
+    try {
+      const result = await visuals({
+        scriptPath,
+        config,
+        blockIds: parseBlockIds(opts.block),
+        force: opts.force ?? false,
+        verbose: opts.verbose ?? false,
+        dryRun: opts.dryRun ?? false,
+      });
+      console.log(
+        `✓ Visuals complete: ${result.apiCalls} API calls, ${result.cacheHits} cache hits`
+      );
+    } catch (err) {
+      if (err instanceof Error) {
+        console.error(`✗ Visuals failed: ${err.message}`);
+      } else {
+        console.error(`✗ Visuals failed: ${err}`);
+      }
+      process.exit(1);
+    }
+  });
 
 program
   .command("render")
