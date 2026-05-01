@@ -9,26 +9,47 @@
 
 import {
   writeFileSync,
+  readFileSync,
   mkdirSync,
   existsSync,
-  rmSync,
+  copyFileSync,
 } from "node:fs";
-import { resolve, dirname, isAbsolute } from "node:path";
+import { resolve, dirname } from "node:path";
 import Ajv from "ajv";
-import schema from "../../schemas/script.schema.json" with { type: "json" };
 
 import { readProject, type ResolvedProject } from "../parser/project.js";
 import { readMetaWithDimensions, type ResolvedMeta } from "../parser/meta.js";
 import { parseAndMergeBlocks, type RawBlock } from "../parser/blocks.js";
-import { processAssets, type AssetProcessResult } from "../parser/assets.js";
-import { resolveOutDir, slugify } from "../utils/slugify.js";
-import { loadConfig, type MetaOverrides } from "../config/load.js";
+import {
+  processAssets,
+  type BlockForAssets,
+  type AssetProcessResult,
+} from "../parser/assets.js";
+import { resolveOutDir } from "../utils/slugify.js";
 
 import type {
   Script,
   Block,
-  CompiledScript,
+  AnimationPreset,
+  AspectRatio,
 } from "../types/script.js";
+
+// ---------------------------------------------------------------------------
+// JSON Schema loading
+// ---------------------------------------------------------------------------
+
+let _schema: object | undefined;
+
+function loadSchema(): object {
+  if (!_schema) {
+    const schemaPath = resolve(
+      new URL(".", import.meta.url).pathname,
+      "../../schemas/script.schema.json"
+    );
+    _schema = JSON.parse(readFileSync(schemaPath, "utf-8"));
+  }
+  return _schema!;
+}
 
 // ---------------------------------------------------------------------------
 // Error
@@ -65,129 +86,114 @@ export interface CompileOptions {
 // ---------------------------------------------------------------------------
 
 export interface CompileResult {
-  /** Absolute path to the output directory */
+  script: Script;
   outDir: string;
-  /** Absolute path to the generated script.json */
-  scriptPath: string;
-  /** The compiled script object */
-  script: CompiledScript;
 }
 
 // ---------------------------------------------------------------------------
-// JSON Schema validation
-// ---------------------------------------------------------------------------
-
-const ajv = new Ajv({ strict: false });
-const validate = ajv.compile(schema);
-
-// ---------------------------------------------------------------------------
-// Main compile function
+// Main compile pipeline
 // ---------------------------------------------------------------------------
 
 /**
- * Run the compile pipeline: project → meta → blocks → narration → assets → script.json
+ * Run the compile pipeline:
+ *   1. Read project.json → resolve paths
+ *   2. Parse meta.md → meta fields + dimensions + voiceRef validation
+ *   3. Parse & merge all block files → RawBlock[]
+ *   4. Process assets (hash, copy, rewrite paths)
+ *   5. Assemble Script object with computed subtitleSafeBottom
+ *   6. Validate against JSON Schema (Ajv)
+ *   7. Write script.json + public/script.json + asset files
  *
- * Steps per PRD §6.1:
- * 1. Read project.json, resolve paths
- * 2. Parse meta.md with CLI overrides
- * 3. Read and merge content .md files
- * 4. Parse directives, visual/narration sections, narration lines
- * 5. Compute subtitleSafeBottom
- * 6. Process assets (hash, copy, path replacement)
- * 7. Validate with JSON Schema
- * 8. Write script.json + public/script.json
+ * @returns The compiled Script and the output directory path
  */
 export async function compile(options: CompileOptions): Promise<CompileResult> {
-  const { projectPath, outDir: explicitOut, configPath, metaArgs, dryRun, verbose } = options;
-
-  // Load config (for meta overrides parsing)
-  const { metaOverrides } = loadConfig({
+  const {
+    projectPath,
+    outDir: outFlag,
     configPath,
     metaArgs,
-    projectRoot: dirname(resolve(projectPath)),
-  });
+    dryRun,
+    verbose,
+  } = options;
 
-  const log = verbose ? (msg: string) => console.error(`[compile] ${msg}`) : () => {};
+  // ── Step 1: Read project.json ──────────────────────────────────────────
+  if (verbose) console.log("[compile] Reading project:", projectPath);
+  const project: ResolvedProject = readProject(projectPath);
 
-  // Step 1: Read project.json
-  log(`Reading project: ${projectPath}`);
-  const project = readProject(projectPath);
+  // ── Step 2: Parse meta.md (with --meta overrides) ──────────────────────
+  if (verbose) console.log("[compile] Parsing meta:", project.metaPath);
+  const meta: ResolvedMeta = readMetaWithDimensions(project.metaPath, metaArgs);
 
-  // Step 2: Parse meta.md with CLI overrides
-  log(`Reading meta: ${project.metaPath}`);
-  const meta = readMetaWithDimensions(project.metaPath, metaOverrides);
-
-  // Compute subtitleSafeBottom = floor(height * 0.15) per PRD §6.1 step 7
-  const subtitleSafeBottom = Math.floor(meta.height * 0.15);
-
-  // Resolve output directory
-  const outDir = resolveOutDir(explicitOut, meta.title, meta.slug);
-  const absOutDir = isAbsolute(outDir) ? outDir : resolve(process.cwd(), outDir);
-
-  log(`Output directory: ${absOutDir}`);
-
-  if (dryRun) {
-    console.log("Would compile:");
-    console.log(`  Project: ${project.projectPath}`);
-    console.log(`  Meta: ${project.metaPath}`);
-    console.log(`  Blocks: ${project.blockPaths.length} file(s)`);
-    console.log(`  Title: ${meta.title}`);
-    console.log(`  Aspect: ${meta.aspect} (${meta.width}×${meta.height})`);
-    console.log(`  FPS: ${meta.fps}`);
-    console.log(`  Theme: ${meta.theme}`);
-    console.log(`  subtitleSafeBottom: ${subtitleSafeBottom}`);
-    console.log(`  Output: ${absOutDir}`);
-    return {
-      outDir: absOutDir,
-      scriptPath: resolve(absOutDir, "script.json"),
-      script: {} as CompiledScript, // No actual compilation in dry-run
-    };
+  // Validate voiceRef exists
+  if (!existsSync(meta.voiceRef)) {
+    throw new CompileError(
+      `voiceRef file not found: ${meta.voiceRef}\n` +
+        `Please provide a 10-30s clear voice WAV file at this path.`
+    );
   }
 
-  // Step 3-4: Parse and merge blocks from content files
-  log(`Parsing ${project.blockPaths.length} block file(s)`);
-  const rawBlocks = parseAndMergeBlocks(project.blockPaths);
+  // ── Step 3: Parse & merge blocks ───────────────────────────────────────
+  if (verbose)
+    console.log(
+      "[compile] Parsing blocks from",
+      project.blockPaths.length,
+      "files"
+    );
+  const rawBlocks: RawBlock[] = parseAndMergeBlocks(project.blockPaths);
 
-  log(`Found ${rawBlocks.length} block(s): ${rawBlocks.map((b) => b.id).join(", ")}`);
+  // ── Step 4: Determine output directory ─────────────────────────────────
+  const outDir = resolveOutDir(meta.title, outFlag, meta.slug);
+  if (verbose) console.log("[compile] Output directory:", outDir);
 
-  // Step 6: Process assets
-  log("Processing assets");
-  const assetResult = processAssets(
-    rawBlocks.map((b) => ({
-      id: b.id,
-      visualDescription: b.visualDescription,
-      sourceFilePath: b.sourceFilePath,
-    })),
-    project.projectDir,
-    absOutDir,
-  );
-
-  // Build the updated visual descriptions map
-  const updatedDescriptions = new Map<string, string>();
-  for (const b of assetResult.blocks) {
-    updatedDescriptions.set(b.id, b.visualDescription);
-  }
-
-  // Step 5: Assemble Script object
-  const blocks: Block[] = rawBlocks.map((raw) => ({
-    id: raw.id,
-    title: raw.title,
-    enter: raw.enter,
-    exit: raw.exit,
-    visual: {
-      description: updatedDescriptions.get(raw.id) ?? raw.visualDescription,
-    },
-    narration: {
-      lines: raw.narrationLines,
-      ...(raw.explicitDurationSec !== undefined
-        ? { explicitDurationSec: raw.explicitDurationSec }
-        : {}),
-    },
+  // ── Step 5: Process assets ─────────────────────────────────────────────
+  // Build BlockForAssets[] from RawBlock[]
+  const blocksForAssets: BlockForAssets[] = rawBlocks.map((b) => ({
+    id: b.id,
+    visualDescription: b.visualDescription,
+    sourceFilePath: b.sourceFilePath,
   }));
 
-  const compiledAt = new Date().toISOString();
+  if (verbose)
+    console.log(
+      "[compile] Processing assets for",
+      blocksForAssets.length,
+      "blocks"
+    );
+  const assetResult: AssetProcessResult = processAssets(
+    blocksForAssets,
+    project.projectDir,
+    outDir
+  );
 
-  const script: CompiledScript = {
+  // ── Step 6: Compute subtitleSafeBottom ─────────────────────────────────
+  const subtitleSafeBottom = Math.floor(meta.height * 0.15);
+
+  // ── Step 7: Assemble Script ────────────────────────────────────────────
+  // Merge processed visual descriptions back into blocks
+  const scriptBlocks: Block[] = rawBlocks.map((raw, idx) => {
+    // Find the matching processed block (same index)
+    const processedBlock = assetResult.blocks[idx];
+
+    return {
+      id: raw.id,
+      title: raw.title,
+      enter: raw.enter,
+      exit: raw.exit,
+      visual: {
+        description: processedBlock
+          ? processedBlock.visualDescription
+          : raw.visualDescription,
+      },
+      narration: {
+        lines: raw.narrationLines,
+        ...(raw.explicitDurationSec !== undefined && {
+          explicitDurationSec: raw.explicitDurationSec,
+        }),
+      },
+    };
+  });
+
+  const script: Script = {
     meta: {
       schemaVersion: "1.0",
       title: meta.title,
@@ -199,41 +205,80 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       theme: meta.theme,
       subtitleSafeBottom,
     },
-    blocks,
-    assets: assetResult.assets,
+    blocks: scriptBlocks,
     artifacts: {
-      compiledAt,
+      compiledAt: new Date().toISOString(),
     },
-  } as CompiledScript;
+    assets: assetResult.assets,
+  };
 
-  // Step 7: JSON Schema validation
+  // ── Step 8: Validate with JSON Schema (Ajv) ────────────────────────────
+  if (verbose) console.log("[compile] Validating script against JSON schema");
+  const schemaObj = loadSchema();
+  const ajv = new Ajv({ allErrors: true, formats: true });
+  // Add date-time format support
+  ajv.addFormat("date-time", {
+    type: "string",
+    validate: (data: string) =>
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(
+        data
+      ),
+  });
+  const validate = ajv.compile(schemaObj);
   const valid = validate(script);
   if (!valid) {
-    const errors = validate.errors?.map((e) => `${e.instancePath} ${e.message}`).join("; ");
-    throw new CompileError(
-      `Compiled script.json failed schema validation: ${errors}`,
-    );
+    const errors = validate
+      .errors!.map((e: { instancePath: string; message?: string }) => {
+        const path = e.instancePath || "/";
+        const msg = e.message || "unknown error";
+        return `  ${path} ${msg}`;
+      })
+      .join("\n");
+    throw new CompileError(`Script schema validation failed:\n${errors}`);
   }
 
-  // Step 8: Write output files
-  // Ensure output directory exists
-  mkdirSync(absOutDir, { recursive: true });
-  mkdirSync(resolve(absOutDir, "public"), { recursive: true });
+  // ── Step 9: Write output ───────────────────────────────────────────────
+  if (dryRun) {
+    console.log(
+      `Would compile:\n  Project: ${project.projectPath}\n  Meta: ${project.metaPath}\n  Blocks: ${project.blockPaths.length} file(s)\n  Title: ${meta.title}\n  Aspect: ${meta.aspect} (${meta.width}×${meta.height})\n  FPS: ${meta.fps}\n  Theme: ${meta.theme}\n  subtitleSafeBottom: ${subtitleSafeBottom}\n  Output: ${outDir}`
+    );
+    return { script, outDir };
+  }
 
+  // Create output directories
+  mkdirSync(outDir, { recursive: true });
+  const publicDir = resolve(outDir, "public");
+  mkdirSync(publicDir, { recursive: true });
+  const assetsDir = resolve(publicDir, "assets");
+  mkdirSync(assetsDir, { recursive: true });
+
+  // Serialize script
   const scriptJson = JSON.stringify(script, null, 2);
-  const scriptPath = resolve(absOutDir, "script.json");
-  const publicScriptPath = resolve(absOutDir, "public", "script.json");
 
+  // Write <out>/script.json
+  const scriptPath = resolve(outDir, "script.json");
   writeFileSync(scriptPath, scriptJson, "utf-8");
+  if (verbose) console.log("[compile] Wrote", scriptPath);
+
+  // Write <out>/public/script.json (same content, for Remotion staticFile())
+  const publicScriptPath = resolve(publicDir, "script.json");
   writeFileSync(publicScriptPath, scriptJson, "utf-8");
+  if (verbose) console.log("[compile] Wrote", publicScriptPath);
 
-  log(`Wrote ${scriptPath}`);
-  log(`Wrote ${publicScriptPath}`);
-  log(`Compilation complete: ${blocks.length} block(s)`);
+  // Copy asset files to public/assets/
+  for (const [relPath, buildPath] of Object.entries(assetResult.assets)) {
+    const srcAbs = resolve(project.projectDir, relPath);
+    const destAbs = resolve(publicDir, buildPath);
 
-  return {
-    outDir: absOutDir,
-    scriptPath,
-    script,
-  };
+    if (existsSync(srcAbs)) {
+      mkdirSync(dirname(destAbs), { recursive: true });
+      copyFileSync(srcAbs, destAbs);
+      if (verbose)
+        console.log("[compile] Copied asset:", srcAbs, "→", destAbs);
+    }
+  }
+
+  if (verbose) console.log("[compile] Done. Output:", outDir);
+
+  return { script, outDir };
 }

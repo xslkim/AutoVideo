@@ -1,0 +1,72 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`compile > should produce stable script.json snapshot for 2-block fixture with image 1`] = `
+{
+  "artifacts": {
+    "compiledAt": "<TIMESTAMP>",
+  },
+  "assets": {
+    "assets/diagram.png": "assets/90c144a4.png",
+  },
+  "blocks": [
+    {
+      "enter": "fade-up",
+      "exit": "fade",
+      "id": "B01",
+      "narration": {
+        "explicitDurationSec": 8,
+        "lines": [
+          {
+            "highlights": [],
+            "text": "这是一个测试视频的介绍",
+            "ttsText": "这是一个测试视频的介绍",
+          },
+          {
+            "highlights": [],
+            "text": "欢迎来到 AutoVideo 的世界",
+            "ttsText": "欢迎来到 AutoVideo 的世界",
+          },
+        ],
+      },
+      "title": "Introduction",
+      "visual": {
+        "description": "屏幕中央显示大标题 "Hello World"，白色大字，渐显",
+      },
+    },
+    {
+      "enter": "slide-left",
+      "exit": "zoom-out",
+      "id": "B02",
+      "narration": {
+        "lines": [
+          {
+            "highlights": [],
+            "text": "整体架构分为三层",
+            "ttsText": "整体架构分为三层",
+          },
+          {
+            "highlights": [],
+            "text": "从下到上依次是输入层、处理层、输出层",
+            "ttsText": "从下到上依次是输入层、处理层、输出层",
+          },
+        ],
+      },
+      "title": "Architecture",
+      "visual": {
+        "description": "显示图片 assets/90c144a4.png，居中展示，清晰可读",
+      },
+    },
+  ],
+  "meta": {
+    "aspect": "16:9",
+    "fps": 30,
+    "height": 1080,
+    "schemaVersion": "1.0",
+    "subtitleSafeBottom": 162,
+    "theme": "dark-code",
+    "title": "Test Video",
+    "voiceRef": "/home/ubuntu/AutoVideo/tests/fixtures/compile-test/B00.wav",
+    "width": 1920,
+  },
+}
+`;

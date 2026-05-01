@@ -1,0 +1,7 @@
+{
+  "meta": "./meta.md",
+  "blocks": [
+    "./block1.md",
+    "./block2.md"
+  ]
+}

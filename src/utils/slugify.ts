@@ -1,153 +1,82 @@
 /**
  * AutoVideo — Slugify utility
  *
- * Converts a title string to a URL-safe directory name per PRD §7:
- * - CJK characters → pinyin transliteration
- * - Non-ASCII safe characters → removed
- * - Spaces, /, emoji etc. → hyphens
- * - All lowercase
+ * Converts a title string to a filesystem-safe directory name.
  *
- * Since adding a pinyin library (like pinyin-pro) is heavy, we use a
- * simple approach: transliterate CJK to approximate romanization,
- * strip remaining non-ASCII, normalize separators.
+ * Rules (per PRD §7):
+ * 1. CJK characters → pinyin (tone marks stripped)
+ * 2. Remove non-ASCII-safe characters
+ * 3. Spaces / `/` / emoji etc → `-`
+ * 4. All lowercase
+ * 5. Collapse multiple `-` into single `-`
+ * 6. Strip leading/trailing `-`
  *
- * PRD references: §7 (--out), §6.1 (slug)
+ * Also provides `resolveOutDir` to compute the build output directory
+ * from a title and optional CLI/config overrides.
  */
 
+import { resolve } from "node:path";
+import { pinyin } from "pinyin-pro";
+
 // ---------------------------------------------------------------------------
-// Simple CJK → pinyin mapping for common characters
-// This covers the most common cases; unknown CJK chars fall back to removal
+// slugify
 // ---------------------------------------------------------------------------
 
 /**
- * Slugify a string for use as a directory name.
+ * Convert a title string to a filesystem-safe slug.
  *
- * Rules:
- * 1. Convert CJK characters to ASCII equivalents (pinyin for Chinese)
- * 2. Convert to lowercase
- * 3. Replace spaces, underscores, slashes with hyphens
- * 4. Remove characters that aren't alphanumeric or hyphens
- * 5. Collapse multiple consecutive hyphens
- * 6. Strip leading/trailing hyphens
- * 7. Empty result falls back to "untitled"
+ * CJK characters are converted to pinyin (without tones),
+ * then all non-alphanumeric characters are replaced with `-`,
+ * collapsed, and lowercased.
  */
-export function slugify(text: string): string {
-  let result = text;
+export function slugify(title: string): string {
+  // Step 1: Convert CJK characters to pinyin (no tone marks)
+  const pinyinStr: string = pinyin(title, { toneType: "none" });
 
-  // Normalize whitespace
-  result = result.trim();
+  // Step 2: Replace non-alphanumeric (non-ASCII) characters with `-`
+  let result: string = pinyinStr.replace(/[^a-zA-Z0-9]/g, "-");
 
-  // Convert to lowercase
-  result = result.toLowerCase();
-
-  // Replace common separators with hyphens
-  result = result.replace(/[\s_/\\]+/g, "-");
-
-  // Try to transliterate using Intl.Segmenter if available (Node 20+)
-  // For CJK, we use a simple approach: strip non-ASCII and hope for the best
-  // A more complete solution would use a pinyin library
-  result = transliterateCjk(result);
-
-  // Remove all non-alphanumeric, non-hyphen characters
-  result = result.replace(/[^a-z0-9-]/g, "");
-
-  // Collapse multiple hyphens
+  // Step 3: Collapse multiple `-` into single
   result = result.replace(/-+/g, "-");
 
-  // Strip leading/trailing hyphens
+  // Step 4: Strip leading/trailing `-`
   result = result.replace(/^-+|-+$/g, "");
 
-  // Fallback for empty results
-  if (result === "") {
+  // Step 5: Lowercase
+  result = result.toLowerCase();
+
+  // Fallback
+  if (!result) {
     result = "untitled";
   }
 
   return result;
 }
 
-/**
- * Transliterate CJK characters to ASCII equivalents.
- *
- * Uses a simple approach:
- * - Node 20+ has Intl.Segmenter but it doesn't transliterate
- * - We use String.prototype.normalize + manual replacement for common chars
- * - Unknown CJK characters are simply removed
- *
- * For a production system, consider adding `pinyin-pro` as a dependency.
- */
-function transliterateCjk(text: string): string {
-  // Common Chinese title words → pinyin mappings
-  // This is intentionally limited to keep the dependency footprint small
-  // The slug doesn't need to be perfect pinyin, just a valid directory name
-  const result: string[] = [];
-
-  for (const char of text) {
-    const code = char.codePointAt(0)!;
-
-    // ASCII pass-through
-    if (code < 128) {
-      result.push(char);
-      continue;
-    }
-
-    // CJK Unified Ideographs range: U+4E00 to U+9FFF
-    // CJK Extension A: U+3400 to U+4DBF
-    // CJK Compatibility: U+F900 to U+FAFF
-    // For these, we just drop them (they produce no latin output)
-    // A real pinyin library would convert them
-    if (
-      (code >= 0x4e00 && code <= 0x9fff) ||
-      (code >= 0x3400 && code <= 0x4dbf) ||
-      (code >= 0xf900 && code <= 0xfaff)
-    ) {
-      // Skip CJK characters — they'll be removed
-      // We could add a separator if needed
-      continue;
-    }
-
-    // Katakana/Hiragana — skip
-    if (
-      (code >= 0x3040 && code <= 0x309f) ||
-      (code >= 0x30a0 && code <= 0x30ff)
-    ) {
-      continue;
-    }
-
-    // Hangul — skip
-    if (code >= 0xac00 && code <= 0xd7af) {
-      continue;
-    }
-
-    // Emoji and other non-ASCII — skip
-    // Already handled by the final regex in slugify()
-    continue;
-  }
-
-  return result.join("");
-}
+// ---------------------------------------------------------------------------
+// resolveOutDir
+// ---------------------------------------------------------------------------
 
 /**
- * Resolve the output directory for a project.
+ * Compute the build output directory.
  *
  * Priority:
- * 1. Explicit --out DIR from CLI
+ * 1. Explicit --out flag (absolute or relative to cwd)
  * 2. meta.md `slug:` field override → `./build/{slug}/`
- * 3. Auto-generated from title → `./build/{slugify(title)}/`
+ * 3. Auto slug from title → `./build/{slug(title)}/`
  *
- * @param explicitOut - CLI --out value (if provided)
- * @param title - Project title from meta.md
- * @param metaSlug - Optional slug from meta.md
- * @returns Absolute path to the build output directory
+ * @param title - Video title from meta
+ * @param outFlag - Explicit --out flag value (if provided)
+ * @param slugOverride - slug field from meta.md (if provided)
  */
 export function resolveOutDir(
-  explicitOut: string | undefined,
   title: string,
-  metaSlug?: string,
+  outFlag?: string,
+  slugOverride?: string
 ): string {
-  if (explicitOut) {
-    return explicitOut;
+  if (outFlag) {
+    return resolve(outFlag);
   }
-
-  const slug = metaSlug || slugify(title);
-  return `./build/${slug}/`;
+  const slug = slugOverride ? slugify(slugOverride) : slugify(title);
+  return resolve("build", slug);
 }
