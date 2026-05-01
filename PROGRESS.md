@@ -7,9 +7,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T2.1`
-- **last_updated**: `2026-05-01T05:48:47Z`
-- **next_action**: `implement T2.1`
-- **completed**: `8 / 40`
+- **last_updated**: `2026-05-01T06:00:17Z`
+- **next_action**: `implement T2.2`
+- **completed**: `9 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -37,7 +37,7 @@
 | T1.3 | 旁白预处理 | done | — | 2026-05-01T05:02:26Z | ebf6311 | — |
 | T1.4 | 资产 hash 复制 | done | — | 2026-05-01T05:10:20Z | 709d16c | — |
 | T1.5 | compile 命令组装 | done | — | 2026-05-01T05:47:24Z | 6a8df59 | — |
-| T2.1 | 缓存 store | in_progress | 2026-05-01T05:48:47Z | — | — | — |
+| T2.1 | 缓存 store | done | — | 2026-05-01T06:00:17Z | cc79062 | — |
 | T2.2 | cache CLI | pending | — | — | — | — |
 | T3.1 | VoxCPM FastAPI wrapper | pending | — | — | — | — |
 | T3.2 | voxcpm-client + autoStart | pending | — | — | — | — |
@@ -155,6 +155,11 @@
 
 
 ### T1.5 — T1.5 @ 6a8df59
+- acceptance: passed by agent
+- artifacts: see git diff
+
+
+### T2.1 — T2.1 @ cc79062
 - acceptance: passed by agent
 - artifacts: see git diff
 
