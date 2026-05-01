@@ -184,6 +184,14 @@ def _trunc(s: str) -> str:
 
 
 def exec_tool(name: str, inp: dict) -> dict[str, Any]:
+    """Execute a tool call with error handling."""
+    try:
+        return _exec_tool_impl(name, inp)
+    except Exception as e:
+        return {"ok": False, "error": f"Tool error ({name}): {type(e).__name__}: {e}"}
+
+
+def _exec_tool_impl(name: str, inp: dict) -> dict[str, Any]:
     if name == "create_file":
         p = REPO / inp["path"]
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -485,8 +493,10 @@ You are an autonomous coding agent implementing the AutoVideo project.
 
                     res = exec_tool(b.name, b.input)
 
-                    if self.verbose and not res.get("ok"):
-                        print(f"    !! {res}")
+                    if not res.get("ok"):
+                        print(f"    !! {b.name} error: {res.get('error', 'unknown')[:200]}")
+                    elif self.verbose:
+                        print(f"    -> {b.name} OK")
 
                     tool_results.append({
                         "type": "tool_result",
