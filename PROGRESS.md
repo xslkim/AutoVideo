@@ -6,10 +6,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T1.4`
-- **last_updated**: `2026-05-01T05:02:26Z`
-- **next_action**: `implement T1.4`
-- **completed**: `6 / 40`
+- **active_task**: `T1.5`
+- **last_updated**: `2026-05-01T13:09:00Z`
+- **next_action**: `implement T1.5`
+- **completed**: `7 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -35,7 +35,7 @@
 | T1.1 | 项目文件 + meta 解析 | done | — | 2026-05-01T04:57:56Z | 0b7c3c2 | — |
 | T1.2 | 块解析 + directive | done | — | 2026-05-01T05:00:14Z | 6bddc2f | — |
 | T1.3 | 旁白预处理 | done | — | 2026-05-01T05:02:26Z | ebf6311 | — |
-| T1.4 | 资产 hash 复制 | in_progress | 2026-05-01T05:02:26Z | — | — | — |
+| T1.4 | 资产 hash 复制 | done | — | 2026-05-01T13:09:00Z | — | — |
 | T1.5 | compile 命令组装 | pending | — | — | — | — |
 | T2.1 | 缓存 store | pending | — | — | — | — |
 | T2.2 | cache CLI | pending | — | — | — | — |
@@ -137,6 +137,16 @@
 ### T1.3 — T1.3 @ ebf6311
 - acceptance: passed by agent
 - artifacts: see git diff
+
+### T1.4 — 资产 hash 复制 @ HEAD
+- acceptance:
+  - 同名不同目录 → 不同 hash key → ✓ (two files named diagram.png in intro/ vs part1/ produce different manifest keys and different hashes)
+  - 同文件被多块引用 → assets 去重 → ✓ (3 blocks reference same file → 1 manifest entry, 1 copy on disk)
+  - 缺失"第 X-Y 行"标注的代码引用 → 不内联，仅 hash 复制 → ✓ (description without line range has no ```py fence)
+  - 代码引用带行号范围 → 内联 ±5 行上下文 → ✓ (第 30-35 行 produces lines 25-40)
+  - tsc --noEmit 零错误 → ✓
+  - vitest run 全部 137 测试通过 → ✓
+- artifacts: `src/parser/assets.ts`, `tests/parser/assets.test.ts`
 
 （开发中由 agent 追加）
 
