@@ -7,9 +7,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T0.3`
-- **last_updated**: `2026-05-01T04:08:26Z`
-- **next_action**: `implement T0.3`
-- **completed**: `2 / 40`
+- **last_updated**: `2026-05-01T04:13:04Z`
+- **next_action**: `implement T1.1`
+- **completed**: `3 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -31,7 +31,7 @@
 |----|------|------|------|------|--------|------|
 | T0.1 | 仓库骨架 | done | — | 2026-05-01T04:03:26Z | 4bc6ac3 | — |
 | T0.2 | 类型定义 + Schema | done | — | 2026-05-01T04:08:26Z | ebdce66 | — |
-| T0.3 | 配置 loader | in_progress | 2026-05-01T04:08:26Z | — | — | — |
+| T0.3 | 配置 loader | done | — | 2026-05-01T04:13:04Z | 75364b0 | — |
 | T1.1 | 项目文件 + meta 解析 | pending | — | — | — | — |
 | T1.2 | 块解析 + directive | pending | — | — | — | — |
 | T1.3 | 旁白预处理 | pending | — | — | — | — |
@@ -88,6 +88,23 @@
 
 
 ### T0.2 — T0.2 @ ebdce66
+- acceptance: passed by agent
+- artifacts: see git diff
+
+### T0.3 — 配置 loader @ HEAD
+- acceptance:
+  - 单测 `--meta dotted.key=val` 报错 → ✓ (parseMetaArgs throws on dot notation)
+  - 单测 `--meta title=foo` 类型推断 → ✓ (string type inferred)
+  - 单测 `--meta fps=60` 类型推断 → ✓ (number type inferred)
+  - 单测 `--meta title=true` / `--meta title=false` → ✓ (boolean inferred)
+  - 单测 配置合并优先级 → ✓ (defaults < root config < --config < --cache-dir)
+  - 单测 路径展开 ~ → homedir → ✓
+  - `tsc --noEmit` 零错误 → ✓
+  - `vitest run` 全部 53 测试通过 → ✓
+- artifacts: `src/config/defaults.ts`, `src/config/load.ts`, `tests/config/load.test.ts`
+
+
+### T0.3 — T0.3 @ 75364b0
 - acceptance: passed by agent
 - artifacts: see git diff
 
