@@ -443,7 +443,9 @@ You are an autonomous coding agent implementing the AutoVideo project.
 - If stuck, respond with: TASK FAILED: <reason>
 """
 
-        messages: list[dict] = []
+        messages: list[dict] = [
+            {"role": "user", "content": f"Begin implementing task {task_id} — {task['title']}. Start by reading existing files to understand the codebase state, then implement the requirements and run acceptance tests."}
+        ]
 
         for i in range(max_iters):
             resp = self.cli.messages.create(
