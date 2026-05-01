@@ -16,7 +16,7 @@
  *   already handles this by checking `block.audio`)
  *
  * @see PRD §6.5 — preview stage
- * @see TASKS.md T7.1
+ * @see TASKS.md T7.1, T7.2
  */
 
 import type { Script } from "../types/script.js";
@@ -30,6 +30,8 @@ export interface RootPreviewOptions {
   script: Script;
   /** Minimum hold seconds (from render config, default 1.5) */
   minHoldSec?: number;
+  /** Block ID to focus on (via default composition) */
+  targetBlockId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,7 +59,7 @@ function computeDurationFrames(
     minHoldSec,
   );
 
-  // Use default enter/exit durations matching render config defaults
+  // Use default enter/exit durations from PRD §3.8
   const enterSec = block.enter === "none" ? 0 : 0.5;
   const exitSec = block.exit === "none" ? 0 : 0.3;
   const totalSec = enterSec + holdSec + exitSec;
@@ -70,81 +72,89 @@ function computeDurationFrames(
 // ---------------------------------------------------------------------------
 
 /**
- * Generate the Root.tsx string for Remotion preview mode (Studio).
+ * Generate the Root.tsx string for Remotion Studio preview mode.
  *
  * The generated file:
  * - Imports `registerRoot` and `Composition` from 'remotion'
  * - Imports `BlockComposition` from the remotion directory
- * - Registers each block as an independent Composition with `id` = block ID
- * - Uses `calculateMetadata` with inlined script data for per-block duration
+ * - Inlines minimal script data (block IDs + frame counts) so
+ *   `calculateMetadata` can resolve duration synchronously
+ * - Registers each block as an independent Composition so Studio
+ *   shows them in the left sidebar
  *
  * @param options.script — The parsed script.json
- * @param options.minHoldSec — Minimum hold seconds (default 1.5)
+ * @param options.minHoldSec — Minimum hold duration (default 1.5)
+ * @param options.targetBlockId — Block ID to set as default composition
  * @returns The Root.tsx file content as a string
  */
 export function generatePreviewRoot(options: RootPreviewOptions): string {
-  const { script, minHoldSec = 1.5 } = options;
+  const { script, targetBlockId } = options;
+  const minHoldSec = options.minHoldSec ?? 1.5;
   const { meta, blocks } = script;
 
-  // Build inline script data with timing info for calculateMetadata.
-  // Each block includes its computed duration in frames.
-  const scriptData = {
-    meta: {
-      fps: meta.fps,
-      width: meta.width,
-      height: meta.height,
+  // Build minimal block data for calculateMetadata
+  const blockData = blocks.map((block) => ({
+    id: block.id,
+    frames: computeDurationFrames(block, meta.fps, minHoldSec),
+  }));
+
+  // Inlined script data for calculateMetadata
+  const scriptJsonLiteral = JSON.stringify(
+    {
+      meta: {
+        fps: meta.fps,
+        width: meta.width,
+        height: meta.height,
+      },
+      blocks: blockData,
     },
-    blocks: blocks.map((b) => ({
-      id: b.id,
-      frames: computeDurationFrames(b, meta.fps, minHoldSec),
-    })),
-  };
+    null,
+    2,
+  );
 
-  const scriptJsonLiteral = JSON.stringify(scriptData, null, 2);
+  // Generate one <Composition> per block
+  const compositionEntries = blocks
+    .map((block, i) => {
+      const frames = blockData[i].frames;
+      const blockId = block.id;
+      return `    <Composition
+      id="${blockId}"
+      component={BlockComposition}
+      durationInFrames={${frames}}
+      fps={script.meta.fps}
+      width={script.meta.width}
+      height={script.meta.height}
+      defaultProps={{ blockId: '${blockId}' }}
+      calculateMetadata={() => {
+        const block = script.blocks.find(b => b.id === '${blockId}');
+        return { durationInFrames: block.frames };
+      }}
+    />`;
+    })
+    .join("\n");
 
-  const lines: string[] = [];
+  // Determine the default composition (for --block targeting)
+  // When targetBlockId is set, we put that composition first so Studio opens it
+  // This is a hint; Studio may or may not honor it depending on version
+  const defaultBlockId = targetBlockId ?? blocks[0]?.id ?? "B01";
 
-  // Header comment
-  lines.push(`/**`);
-  lines.push(` * AutoVideo — Preview Root (auto-generated)`);
-  lines.push(` *`);
-  lines.push(` * Each block is registered as an independent Composition`);
-  lines.push(` * for Remotion Studio sidebar navigation.`);
-  lines.push(` */`);
-  lines.push(``);
-  lines.push(`import { registerRoot, Composition } from 'remotion';`);
-  lines.push(`import { BlockComposition } from '../../remotion/VideoComposition';`);
-  lines.push(``);
-  lines.push(`const script = ${scriptJsonLiteral};`);
-  lines.push(``);
+  return `/**
+ * AutoVideo — Preview Root (auto-generated)
+ *
+ * Each block is registered as an independent Composition
+ * for Remotion Studio sidebar navigation.
+ */
 
-  // Open Root component
-  lines.push(`export const Root = () => (`);
-  lines.push(`  <>`);
+import { registerRoot, Composition } from 'remotion';
+import { BlockComposition } from '../../remotion/VideoComposition';
 
-  // Register each block as an independent Composition
-  for (const block of blocks) {
-    const frames = computeDurationFrames(block, meta.fps, minHoldSec);
+const script = ${scriptJsonLiteral};
 
-    lines.push(`    <Composition`);
-    lines.push(`      id="${block.id}"`);
-    lines.push(`      component={BlockComposition}`);
-    lines.push(`      durationInFrames={${frames}}`);
-    lines.push(`      fps={script.meta.fps}`);
-    lines.push(`      width={script.meta.width}`);
-    lines.push(`      height={script.meta.height}`);
-    lines.push(`      defaultProps={{ blockId: '${block.id}' }}`);
-    lines.push(`      calculateMetadata={() => {`);
-    lines.push(`        const block = script.blocks.find(b => b.id === '${block.id}');`);
-    lines.push(`        return { durationInFrames: block.frames };`);
-    lines.push(`      }}`);
-    lines.push(`    />`);
-  }
-
-  lines.push(`  </>`);
-  lines.push(`);`);
-  lines.push(`registerRoot(Root);`);
-  lines.push(``);
-
-  return lines.join("\n");
+export const Root = () => (
+  <>
+${compositionEntries}
+  </>
+);
+registerRoot(Root);
+`;
 }

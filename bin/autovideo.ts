@@ -4,6 +4,7 @@ import { registerCacheCommand } from "../src/cli/cache.js";
 import { tts } from "../src/cli/tts.js";
 import { visuals } from "../src/cli/visuals.js";
 import { render } from "../src/cli/render.js";
+import { preview } from "../src/cli/preview.js";
 import { loadConfig } from "../src/config/load.js";
 
 const notImplemented = (cmdName: string) => {
@@ -60,26 +61,20 @@ program
         scriptPath,
         config,
         blockIds: parseBlockIds(opts.block),
-        force: opts.force ?? false,
-        verbose: opts.verbose ?? false,
-        dryRun: opts.dryRun ?? false,
+        force: opts.force,
+        verbose: opts.verbose,
+        dryRun: opts.dryRun,
       });
-      console.log(
-        `✓ TTS complete: ${result.apiCalls} API calls, ${result.cacheHits} cache hits`
-      );
-    } catch (err) {
-      if (err instanceof Error) {
-        console.error(`✗ TTS failed: ${err.message}`);
-      } else {
-        console.error(`✗ TTS failed: ${err}`);
-      }
+      console.log("TTS complete:", result);
+    } catch (err: any) {
+      console.error(`tts failed: ${err.message}`);
       process.exit(1);
     }
   });
 
 program
   .command("visuals")
-  .description("Generate React components from visual descriptions via Claude")
+  .description("Generate React components from visual descriptions")
   .argument("<script>", "path to script.json")
   .option("--block <ids>", "only process specified blocks (comma-separated)")
   .option("--force", "ignore cache, force regeneration")
@@ -98,26 +93,20 @@ program
         scriptPath,
         config,
         blockIds: parseBlockIds(opts.block),
-        force: opts.force ?? false,
-        verbose: opts.verbose ?? false,
-        dryRun: opts.dryRun ?? false,
+        force: opts.force,
+        verbose: opts.verbose,
+        dryRun: opts.dryRun,
       });
-      console.log(
-        `✓ Visuals complete: ${result.apiCalls} API calls, ${result.cacheHits} cache hits`
-      );
-    } catch (err) {
-      if (err instanceof Error) {
-        console.error(`✗ Visuals failed: ${err.message}`);
-      } else {
-        console.error(`✗ Visuals failed: ${err}`);
-      }
+      console.log("Visuals complete:", result);
+    } catch (err: any) {
+      console.error(`visuals failed: ${err.message}`);
       process.exit(1);
     }
   });
 
 program
   .command("render")
-  .description("Render blocks to MP4 via Remotion + ffmpeg concat")
+  .description("Render blocks to MP4 partials and concatenate")
   .argument("<script>", "path to script.json")
   .option("--block <ids>", "only render specified blocks (comma-separated)")
   .option("--force", "ignore cache, force re-render")
@@ -136,43 +125,43 @@ program
         scriptPath,
         config,
         blockIds: parseBlockIds(opts.block),
-        force: opts.force ?? false,
-        verbose: opts.verbose ?? false,
-        dryRun: opts.dryRun ?? false,
+        force: opts.force,
+        verbose: opts.verbose,
+        dryRun: opts.dryRun,
       });
-      console.log(
-        `✓ Render complete: ${result.renders} renders, ${result.cacheHits} cache hits`
-      );
-    } catch (err) {
-      if (err instanceof Error) {
-        console.error(`✗ Render failed: ${err.message}`);
-      } else {
-        console.error(`✗ Render failed: ${err}`);
+      if (result) {
+        console.log("Render complete:", result);
       }
+    } catch (err: any) {
+      console.error(`render failed: ${err.message}`);
       process.exit(1);
     }
   });
 
 program
   .command("preview")
-  .description("Open Remotion Studio for interactive preview")
+  .description("Open Remotion Studio for interactive block preview")
   .argument("<script>", "path to script.json")
-  .option("--block <id>", "preview a specific block")
+  .option("--block <ids>", "focus on specified block (first ID becomes default)")
+  .option("--port <port>", "port for Remotion Studio", parseInt)
   .option("--config <file>", "path to config file")
-  .action(() => notImplemented("preview"));
+  .option("--verbose", "verbose logging")
+  .action(async (opts, cmd) => {
+    const scriptPath = cmd.args[0];
+    try {
+      await preview({
+        scriptPath,
+        blockIds: parseBlockIds(opts.block),
+        port: opts.port,
+        configPath: opts.config,
+        verbose: opts.verbose,
+      });
+    } catch (err: any) {
+      console.error(`preview failed: ${err.message}`);
+      process.exit(1);
+    }
+  });
 
-// ── cache (implemented) ────────────────────────────────────────────────
 registerCacheCommand(program);
-
-program
-  .command("doctor")
-  .description("Check environment and dependencies")
-  .action(() => notImplemented("doctor"));
-
-program
-  .command("init")
-  .description("Generate a starter project template")
-  .argument("<dir>", "target directory")
-  .action(() => notImplemented("init"));
 
 program.parse();
