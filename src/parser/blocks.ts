@@ -122,9 +122,12 @@ function extractSection(
     const trimmed = bodyLines[i].trim();
     if (trimmed === openingMarker && startIdx === -1) {
       startIdx = i;
-    } else if (startIdx !== -1 && trimmed === "---" && endIdx === -1) {
-      endIdx = i;
-      break;
+    } else if (startIdx !== -1 && endIdx === -1) {
+      // End on bare --- or any --- <name> --- section marker
+      if (trimmed === "---" || /^--- \w+ ---$/.test(trimmed)) {
+        endIdx = i;
+        break;
+      }
     }
   }
 
@@ -136,8 +139,6 @@ function extractSection(
   }
 
   if (endIdx === -1) {
-    // No closing --- found; take everything after the opening marker
-    // This is more lenient but matches common usage
     endIdx = bodyLines.length;
   }
 

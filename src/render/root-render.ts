@@ -85,8 +85,9 @@ export function generateRenderRoot(options: RootRenderOptions): string {
   lines.push(`    height={script.meta.height}`);
   lines.push(`    defaultProps={{ blockId: '${firstBlockId}' }}`);
   lines.push(`    calculateMetadata={({ inputProps }) => {`);
-  lines.push(`      const block = script.blocks.find(b => b.id === inputProps.blockId);`);
-  lines.push(`      return { durationInFrames: block.timing.frames };`);
+  lines.push(`      const props = inputProps ?? { blockId: '${firstBlockId}' };`);
+  lines.push(`      const block = script.blocks.find(b => b.id === props.blockId);`);
+  lines.push(`      return { durationInFrames: block?.timing?.frames ?? 1, props };`);
   lines.push(`    }}`);
   lines.push(`  />`);
   lines.push(`);`);
