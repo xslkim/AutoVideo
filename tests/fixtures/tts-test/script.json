@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "schemaVersion": "1.0",
+    "title": "TTS Test",
+    "voiceRef": "PLACEHOLDER_VOICEREF",
+    "aspect": "16:9",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "theme": "dark-code",
+    "subtitleSafeBottom": 162
+  },
+  "blocks": [
+    {
+      "id": "B01",
+      "title": "Block One",
+      "enter": "fade",
+      "exit": "fade",
+      "visual": { "description": "Test visual B01" },
+      "narration": {
+        "lines": [
+          { "text": "第一行内容", "ttsText": "第一行内容", "highlights": [] },
+          { "text": "第二行内容", "ttsText": "第二行内容", "highlights": [] },
+          { "text": "第三行内容", "ttsText": "第三行内容", "highlights": [] },
+          { "text": "第四行内容", "ttsText": "第四行内容", "highlights": [] },
+          { "text": "第五行内容", "ttsText": "第五行内容", "highlights": [] }
+        ]
+      }
+    },
+    {
+      "id": "B02",
+      "title": "Block Two",
+      "enter": "fade",
+      "exit": "fade",
+      "visual": { "description": "Test visual B02" },
+      "narration": {
+        "lines": [
+          { "text": "第二块第一行", "ttsText": "第二块第一行", "highlights": [] },
+          { "text": "第二块第二行", "ttsText": "第二块第二行", "highlights": [] },
+          { "text": "第二块第三行", "ttsText": "第二块第三行", "highlights": [] },
+          { "text": "第二块第四行", "ttsText": "第二块第四行", "highlights": [] },
+          { "text": "第二块第五行", "ttsText": "第二块第五行", "highlights": [] }
+        ]
+      }
+    }
+  ],
+  "assets": {},
+  "artifacts": {
+    "compiledAt": "2026-01-01T00:00:00Z"
+  }
+}

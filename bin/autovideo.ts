@@ -1,11 +1,18 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { registerCacheCommand } from "../src/cli/cache.js";
+import { tts } from "../src/cli/tts.js";
+import { loadConfig } from "../src/config/load.js";
 
 const notImplemented = (cmdName: string) => {
   console.error(`${cmdName}: not implemented`);
   process.exit(1);
 };
+
+function parseBlockIds(val: string | undefined): string[] | undefined {
+  if (!val) return undefined;
+  return val.split(",").map((s) => s.trim()).filter(Boolean);
+}
 
 const program = new Command();
 
@@ -37,7 +44,36 @@ program
   .option("--block <ids>", "only process specified blocks (comma-separated)")
   .option("--force", "ignore cache, force regeneration")
   .option("--config <file>", "path to config file")
-  .action(() => notImplemented("tts"));
+  .option("--cache-dir <dir>", "override cache directory")
+  .option("--verbose", "verbose logging")
+  .option("--dry-run", "show plan without executing")
+  .action(async (opts, cmd) => {
+    const scriptPath = cmd.args[0];
+    const { config } = loadConfig({
+      configPath: opts.config,
+      cacheDir: opts.cacheDir,
+    });
+    try {
+      const result = await tts({
+        scriptPath,
+        config,
+        blockIds: parseBlockIds(opts.block),
+        force: opts.force ?? false,
+        verbose: opts.verbose ?? false,
+        dryRun: opts.dryRun ?? false,
+      });
+      console.log(
+        `✓ TTS complete: ${result.apiCalls} API calls, ${result.cacheHits} cache hits`
+      );
+    } catch (err) {
+      if (err instanceof Error) {
+        console.error(`✗ TTS failed: ${err.message}`);
+      } else {
+        console.error(`✗ TTS failed: ${err}`);
+      }
+      process.exit(1);
+    }
+  });
 
 program
   .command("visuals")

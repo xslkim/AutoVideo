@@ -7,9 +7,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T3.5`
-- **last_updated**: `2026-05-01T06:25:13Z`
-- **next_action**: `implement T3.5`
-- **completed**: `14 / 40`
+- **last_updated**: `2026-05-01T07:00:57Z`
+- **next_action**: `implement T4.1`
+- **completed**: `15 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -43,7 +43,7 @@
 | T3.2 | voxcpm-client + autoStart | done | — | 2026-05-01T06:22:34Z | 3e83d98 | — |
 | T3.3 | ffmpeg helpers | done | — | 2026-05-01T06:24:11Z | fb3408d | — |
 | T3.4 | lineTimings 计算 | done | — | 2026-05-01T06:25:13Z | 255e089 | — |
-| T3.5 | tts 命令组装 | in_progress | 2026-05-01T06:25:13Z | — | — | — |
+| T3.5 | tts 命令组装 | done | — | 2026-05-01T07:00:57Z | 8283f7f | — |
 | T4.1 | prompt + 组件骨架 | pending | — | — | — | — |
 | T4.2 | Claude SDK 调用 + prompt cache | pending | — | — | — | — |
 | T4.3 | 子进程隔离工具 | pending | — | — | — | — |
