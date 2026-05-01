@@ -149,8 +149,10 @@ Requirements:
 - Do NOT use eval, Function constructor, or require()
 - Render full-screen content within width × height
 - Keep important content above the bottom subtitleSafeBottom pixels
-- Use theme.colors for consistent styling
-- Return the component source as TSX code`;
+- Use theme.colors for consistent styling — the theme object has EXACTLY this shape:
+  { colors: { bg, fg, accent, muted, code: { bg, fg, keyword, string, comment } }, fonts: { sans, mono }, spacing: { unit }, subtitle: { fontFamily, fontSizePct, lineHeight, maxWidthPct, backgroundColor, paddingPx } }
+  IMPORTANT: Use theme.colors.bg (NOT background), theme.colors.fg (NOT text), theme.colors.accent, theme.colors.muted (NOT secondary).
+- Return ONLY the component source as TSX code, no markdown fences`;
 }
 
 // ── Main visuals function ─────────────────────────────────────────────
