@@ -6,10 +6,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T5.1`
-- **last_updated**: `2026-05-01T08:08:35Z`
-- **next_action**: `implement T5.1`
-- **completed**: `20 / 40`
+- **active_task**: `T5.2`
+- **last_updated**: `2026-05-01T08:10:00Z`
+- **next_action**: `implement T5.2`
+- **completed**: `21 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -49,3 +49,23 @@
 | T4.3 | 子进程隔离工具 | done | — | 2026-05-01T07:18:09Z | a2d5243 | — |
 | T4.4 | 验证（tsc + render smoke） | done | — | 2026-05-01T07:36:56Z | 48a7566 | — |
 | T4.5 | visuals 命令组装 | done | — | 2026-05-01T08:01:06Z | f445982 | — |
+| T5.1 | theme + 字体加载 | done | — | 2026-05-01T08:08:35Z | 3ddfd09 | — |
+| T5.2 | SubtitleOverlay | pending | — | — | — | — |
+| T5.3 | BlockFrame + animations | pending | — | — | — | — |
+| T5.4 | BlockComposition（render 用） | pending | — | — | — | — |
+| T6.1 | Root.tsx 生成器（render 模式） | pending | — | — | — | — |
+| T6.2 | timing 计算 | pending | — | — | — | — |
+| T6.3 | partial 渲染（程序化 bundle + renderMedia） | pending | — | — | — | — |
+| T6.4 | ffmpeg concat | pending | — | — | — | — |
+| T6.5 | loudnorm two-pass | pending | — | — | — | — |
+| T6.6 | 质量校验 | pending | — | — | — | — |
+| T6.7 | render 命令组装 | pending | — | — | — | — |
+| T7.1 | Root.tsx 生成器（preview 模式） | pending | — | — | — | — |
+| T7.2 | preview 命令 | pending | — | — | — | — |
+| T8.1 | build orchestrator | pending | — | — | — | — |
+| T8.2 | doctor | pending | — | — | — | — |
+| T8.3 | init + templates | pending | — | — | — | — |
+| T9.1 | 单测补全 | pending | — | — | — | — |
+| T9.2 | E2E 测试 | pending | — | — | — | — |
+| T9.3 | install.sh | pending | — | — | — | — |
+| T9.4 | 文档 | pending | — | — | — | — |
