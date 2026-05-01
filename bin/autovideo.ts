@@ -62,73 +62,57 @@ program
   });
 
 program
-  .command("compile")
-  .description("Compile Markdown DSL into script.json IR")
-  .argument("<project>", "path to project.json")
-  .option("--out <dir>", "output directory")
-  .option("--config <file>", "path to config file")
-  .action(() => notImplemented("compile"));
-
-program
   .command("tts")
   .description("Generate audio + subtitle timings from narration")
   .argument("<script>", "path to script.json")
-  .option("--block <ids>", "only process specified blocks (comma-separated)")
-  .option("--force", "ignore cache, force regeneration")
+  .option("--block <ids>", "comma-separated block IDs to process")
+  .option("--force", "ignore cache")
   .option("--config <file>", "path to config file")
   .option("--cache-dir <dir>", "override cache directory")
   .option("--verbose", "verbose logging")
   .option("--dry-run", "show plan without executing")
-  .action(async (opts, cmd) => {
-    const scriptPath = cmd.args[0];
-    const { config } = loadConfig({
-      configPath: opts.config,
-      cacheDir: opts.cacheDir,
-    });
+  .action(async (scriptPath: string, opts) => {
     try {
-      const result = await tts({
+      const blockIds = parseBlockIds(opts.block);
+      await tts({
         scriptPath,
-        config,
-        blockIds: parseBlockIds(opts.block),
+        blockIds,
         force: opts.force,
+        configPath: opts.config,
+        cacheDir: opts.cacheDir,
         verbose: opts.verbose,
         dryRun: opts.dryRun,
       });
-      console.log("TTS complete:", result);
     } catch (err: any) {
-      console.error(`tts failed: ${err.message}`);
+      console.error(err.message);
       process.exit(1);
     }
   });
 
 program
   .command("visuals")
-  .description("Generate React components from visual descriptions")
+  .description("Generate React components from visual descriptions via Claude")
   .argument("<script>", "path to script.json")
-  .option("--block <ids>", "only process specified blocks (comma-separated)")
-  .option("--force", "ignore cache, force regeneration")
+  .option("--block <ids>", "comma-separated block IDs to process")
+  .option("--force", "ignore cache")
   .option("--config <file>", "path to config file")
   .option("--cache-dir <dir>", "override cache directory")
   .option("--verbose", "verbose logging")
   .option("--dry-run", "show plan without executing")
-  .action(async (opts, cmd) => {
-    const scriptPath = cmd.args[0];
-    const { config } = loadConfig({
-      configPath: opts.config,
-      cacheDir: opts.cacheDir,
-    });
+  .action(async (scriptPath: string, opts) => {
     try {
-      const result = await visuals({
+      const blockIds = parseBlockIds(opts.block);
+      await visuals({
         scriptPath,
-        config,
-        blockIds: parseBlockIds(opts.block),
+        blockIds,
         force: opts.force,
+        configPath: opts.config,
+        cacheDir: opts.cacheDir,
         verbose: opts.verbose,
         dryRun: opts.dryRun,
       });
-      console.log("Visuals complete:", result);
     } catch (err: any) {
-      console.error(`visuals failed: ${err.message}`);
+      console.error(err.message);
       process.exit(1);
     }
   });
@@ -137,60 +121,70 @@ program
   .command("render")
   .description("Render blocks to MP4 partials and concatenate")
   .argument("<script>", "path to script.json")
-  .option("--block <ids>", "only render specified blocks (comma-separated)")
-  .option("--force", "ignore cache, force re-render")
+  .option("--block <ids>", "comma-separated block IDs to re-render")
+  .option("--force", "ignore cache")
   .option("--config <file>", "path to config file")
   .option("--cache-dir <dir>", "override cache directory")
   .option("--verbose", "verbose logging")
   .option("--dry-run", "show plan without executing")
-  .action(async (opts, cmd) => {
-    const scriptPath = cmd.args[0];
-    const { config } = loadConfig({
-      configPath: opts.config,
-      cacheDir: opts.cacheDir,
-    });
+  .action(async (scriptPath: string, opts) => {
     try {
-      const result = await render({
+      const blockIds = parseBlockIds(opts.block);
+      await render({
         scriptPath,
-        config,
-        blockIds: parseBlockIds(opts.block),
+        blockIds,
         force: opts.force,
+        configPath: opts.config,
+        cacheDir: opts.cacheDir,
         verbose: opts.verbose,
         dryRun: opts.dryRun,
       });
-      if (result) {
-        console.log("Render complete:", result);
-      }
     } catch (err: any) {
-      console.error(`render failed: ${err.message}`);
+      console.error(err.message);
       process.exit(1);
     }
   });
 
 program
   .command("preview")
-  .description("Open Remotion Studio for interactive block preview")
+  .description("Open Remotion Studio for interactive preview")
   .argument("<script>", "path to script.json")
-  .option("--block <ids>", "focus on specified block (first ID becomes default)")
-  .option("--port <port>", "port for Remotion Studio", parseInt)
+  .option("--block <id>", "specific block to preview")
   .option("--config <file>", "path to config file")
+  .option("--cache-dir <dir>", "override cache directory")
   .option("--verbose", "verbose logging")
-  .action(async (opts, cmd) => {
-    const scriptPath = cmd.args[0];
+  .action(async (scriptPath: string, opts) => {
     try {
       await preview({
         scriptPath,
-        blockIds: parseBlockIds(opts.block),
-        port: opts.port,
+        blockId: opts.block,
         configPath: opts.config,
+        cacheDir: opts.cacheDir,
         verbose: opts.verbose,
       });
     } catch (err: any) {
-      console.error(`preview failed: ${err.message}`);
+      console.error(err.message);
       process.exit(1);
     }
   });
 
-registerCacheCommand(program);
+// cache command — delegates to registerCacheCommand which adds subcommands
+registerCacheCommand(program as Command);
+
+program
+  .command("doctor")
+  .description("Check environment and dependencies")
+  .action(async () => {
+    const { doctorCommand } = await import("../src/cli/doctor.js");
+    await doctorCommand();
+  });
+
+program
+  .command("init")
+  .description("Generate a template project")
+  .argument("<dir>", "target directory")
+  .action(async (_dir: string, _opts) => {
+    notImplemented("init");
+  });
 
 program.parse();
