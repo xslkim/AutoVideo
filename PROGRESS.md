@@ -6,10 +6,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T9.4`
-- **last_updated**: `2026-05-01T19:20:00Z`
-- **next_action**: `finish T9.4 docs`
-- **completed**: `39 / 40`
+- **active_task**: `—`
+- **last_updated**: `2026-05-01T19:25:00Z`
+- **next_action**: `all tasks complete`
+- **completed**: `40 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -68,4 +68,4 @@
 | T9.1 | 单测补全 | done | — | 2026-05-01T19:20:00Z | pending | 318 tests pass, 23 files |
 | T9.2 | E2E 测试 | done | — | 2026-05-01T19:20:00Z | pending | existing render-e2e test |
 | T9.3 | install.sh | done | — | 2026-05-01T19:20:00Z | pending | install.sh created |
-| T9.4 | 文档 | in_progress | 2026-05-01T19:20:00Z | — | — |
+| T9.4 | 文档 | done | 2026-05-01T19:20:00Z | 2026-05-01T19:25:00Z | 6cfc8cf | — |
