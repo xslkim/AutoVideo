@@ -216,7 +216,10 @@ def _exec_tool_impl(name: str, inp: dict) -> dict[str, Any]:
         p = REPO / inp["path"]
         if not p.exists():
             return {"ok": False, "error": f"Not found: {inp['path']}"}
-        return {"ok": True, "content": _trunc(p.read_text(encoding="utf-8"))}
+        try:
+            return {"ok": True, "content": _trunc(p.read_text(encoding="utf-8"))}
+        except UnicodeDecodeError:
+            return {"ok": False, "error": f"Binary file: {inp['path']}"}
 
     if name == "run_command":
         try:
@@ -413,9 +416,6 @@ class Agent:
         self.verbose = verbose
         self.in_tok = 0
         self.out_tok = 0
-        print(f"  API base_url={base_url or 'https://api.anthropic.com'}")
-        print(f"  API key={'*' * 8 + api_key[-4:] if api_key else '(none)'}")
-        print(f"  Model={model}")
 
     def run(
         self,
@@ -425,7 +425,7 @@ class Agent:
         tree: str,
         max_iters: int = 50,
     ) -> dict:
-        """Run one task. Returns {ok, msg}."""
+        """Run one task using text-based XML actions (no tool use API)."""
 
         system = f"""\
 You are an autonomous coding agent implementing the AutoVideo project.
@@ -443,12 +443,38 @@ You are an autonomous coding agent implementing the AutoVideo project.
 ## Rules
 - All paths are relative to repo root ({REPO}).
 - Follow the PRD exactly — do not invent features or skip requirements.
-- Create directories before files (create_file does this automatically).
 - After modifying package.json, always run `npm install`.
 - After writing TypeScript, verify with `npx tsc --noEmit` where applicable.
-- Run acceptance tests yourself using run_command.
-- When ALL acceptance criteria pass, respond with: TASK COMPLETE
-- If stuck, respond with: TASK FAILED: <reason>
+- Run acceptance tests yourself.
+- When ALL acceptance criteria pass, output: TASK COMPLETE
+- If stuck, output: TASK FAILED: <reason>
+
+## Action Format — IMPORTANT
+
+Use these XML tags in your response to perform actions. I will execute them and return results.
+
+Read a file:
+<read_file path="relative/path" />
+
+Create or overwrite a file:
+<create_file path="relative/path">
+file content here (can be many lines)
+</create_file>
+
+Run a shell command:
+<run_command>
+command here
+</run_command>
+
+List directory contents:
+<list_dir path="." />
+
+Search files:
+<grep pattern="regex" path="." />
+
+You can output multiple actions per response.
+Plain text outside tags is for your reasoning.
+When done, output TASK COMPLETE on its own line.
 """
 
         messages: list[dict] = [
@@ -456,58 +482,116 @@ You are an autonomous coding agent implementing the AutoVideo project.
         ]
 
         for i in range(max_iters):
-            resp = self.cli.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                system=system,
-                tools=TOOLS,
-                messages=messages,
-            )
+            try:
+                resp = self.cli.messages.create(
+                    model=self.model,
+                    max_tokens=8192,
+                    system=system,
+                    messages=messages,
+                )
+            except Exception as e:
+                print(f"    API error: {e}")
+                time.sleep(2)
+                continue
 
             self.in_tok += resp.usage.input_tokens
             self.out_tok += resp.usage.output_tokens
 
             if self.verbose:
-                stop = resp.stop_reason
-                print(f"    iter {i+1:>3}  {stop}  "
-                      f"in={resp.usage.input_tokens} out={resp.usage.output_tokens}")
+                print(f"    iter {i+1:>3}  in={resp.usage.input_tokens} out={resp.usage.output_tokens}")
 
-            assistant_blocks = resp.content
-            messages.append({"role": "assistant", "content": assistant_blocks})
+            # Get text response
+            text = ""
+            for b in resp.content:
+                if hasattr(b, "text"):
+                    text += b.text
 
-            # check for completion signals in text blocks
-            for b in assistant_blocks:
-                if b.type == "text":
-                    if "TASK COMPLETE" in b.text:
-                        return {"ok": True, "msg": "Agent marked complete"}
-                    if "TASK FAILED" in b.text:
-                        return {"ok": False, "msg": b.text}
+            messages.append({"role": "assistant", "content": text})
 
-            # execute tool calls
-            tool_results: list[dict] = []
-            for b in assistant_blocks:
-                if b.type == "tool_use":
-                    if self.verbose:
-                        inp_short = json.dumps(b.input, ensure_ascii=False)[:200]
-                        print(f"    -> {b.name}({inp_short})")
+            # Check for completion
+            if "TASK COMPLETE" in text:
+                return {"ok": True, "msg": "Agent marked complete"}
+            if "TASK FAILED" in text:
+                return {"ok": False, "msg": text}
 
-                    res = exec_tool(b.name, b.input)
+            # Parse and execute XML actions
+            results = self._execute_actions(text)
 
-                    if not res.get("ok"):
-                        print(f"    !! {b.name} error: {res.get('error', 'unknown')[:200]}")
-                    elif self.verbose:
-                        print(f"    -> {b.name} OK")
+            if not results:
+                messages.append({
+                    "role": "user",
+                    "content": "No actions found in your response. Use XML tags:\n"
+                               '<read_file path="..." />\n'
+                               '<create_file path="...">content</create_file>\n'
+                               '<run_command>cmd</run_command>\n'
+                               "Or respond: TASK COMPLETE / TASK FAILED.",
+                })
+                continue
 
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": b.id,
-                        "content": json.dumps(res, ensure_ascii=False),
-                    })
-
-            if tool_results:
-                messages.append({"role": "user", "content": tool_results})
+            results_text = "## Action Results\n\n" + "\n\n".join(results)
+            messages.append({"role": "user", "content": results_text})
 
         return {"ok": False, "msg": f"Max iterations ({max_iters}) reached"}
+
+    def _execute_actions(self, text: str) -> list[str]:
+        """Parse XML action tags and execute them."""
+        results: list[str] = []
+
+        # read_file (self-closing tag)
+        for m in re.finditer(r'<read_file\s+path="([^"]+)"\s*/>', text):
+            path = m.group(1)
+            res = _exec_tool_impl("read_file", {"path": path})
+            if res.get("ok"):
+                results.append(f"**read_file {path}**:\n```\n{res['content']}\n```")
+            else:
+                results.append(f"**read_file {path}**: ERROR: {res.get('error', 'unknown')}")
+            if self.verbose:
+                print(f"    -> read_file {path}")
+
+        # create_file
+        for m in re.finditer(r'<create_file\s+path="([^"]+)">(.*?)</create_file>', text, re.DOTALL):
+            path = m.group(1)
+            content = m.group(2)
+            if content.startswith('\n'):
+                content = content[1:]
+            if content.endswith('\n'):
+                content = content[:-1]
+            res = _exec_tool_impl("create_file", {"path": path, "content": content})
+            ok = res.get("ok")
+            print(f"    {'ok' if ok else 'FAIL'} create_file {path} ({len(content)} chars)")
+            results.append(f"**create_file {path}**: {'OK' if ok else 'ERROR: ' + res.get('error', 'unknown')}")
+
+        # run_command
+        for m in re.finditer(r'<run_command(?:\s+timeout="(\d+)")?>(.*?)</run_command>', text, re.DOTALL):
+            timeout = int(m.group(1)) if m.group(1) else 120
+            cmd = m.group(2).strip()
+            res = _exec_tool_impl("run_command", {"command": cmd, "timeout": timeout})
+            ok = res.get("ok")
+            print(f"    {'ok' if ok else 'FAIL'} run: {cmd[:80]} (exit={res.get('exit_code', '?')})")
+            results.append(
+                f"**run_command** `{cmd[:80]}`:\n"
+                f"- exit_code: {res.get('exit_code', '?')}\n"
+                f"- stdout:\n```\n{res.get('stdout', '')[:3000]}\n```\n"
+                f"- stderr:\n```\n{res.get('stderr', '')[:3000]}\n```"
+            )
+
+        # list_dir
+        for m in re.finditer(r'<list_dir\s+path="([^"]*)"\s*/>', text):
+            path = m.group(1) or "."
+            res = _exec_tool_impl("list_dir", {"path": path})
+            if res.get("ok"):
+                results.append(f"**list_dir {path}**:\n" + "\n".join(res.get("entries", [])))
+            else:
+                results.append(f"**list_dir {path}**: ERROR: {res.get('error', 'unknown')}")
+
+        # grep
+        for m in re.finditer(r'<grep\s+pattern="([^"]+)"(?:\s+path="([^"]*)")?\s*/>', text):
+            pattern = m.group(1)
+            path = m.group(2) or "."
+            res = _exec_tool_impl("grep", {"pattern": pattern, "path": path})
+            results.append(f"**grep `{pattern}`**:\n```\n{res.get('output', '')[:3000]}\n```")
+
+        return results
 
 
 # ── Runner ───────────────────────────────────────────────────────────────────
