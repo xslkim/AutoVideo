@@ -7,9 +7,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T3.4`
-- **last_updated**: `2026-05-01T06:24:11Z`
-- **next_action**: `implement T3.4`
-- **completed**: `13 / 40`
+- **last_updated**: `2026-05-01T06:25:13Z`
+- **next_action**: `implement T3.5`
+- **completed**: `14 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -42,7 +42,7 @@
 | T3.1 | VoxCPM FastAPI wrapper | done | — | 2026-05-01T06:20:14Z | fa65353 | — |
 | T3.2 | voxcpm-client + autoStart | done | — | 2026-05-01T06:22:34Z | 3e83d98 | — |
 | T3.3 | ffmpeg helpers | done | — | 2026-05-01T06:24:11Z | fb3408d | — |
-| T3.4 | lineTimings 计算 | in_progress | 2026-05-01T06:24:11Z | — | — | — |
+| T3.4 | lineTimings 计算 | done | — | 2026-05-01T06:25:13Z | 255e089 | — |
 | T3.5 | tts 命令组装 | pending | — | — | — | — |
 | T4.1 | prompt + 组件骨架 | pending | — | — | — | — |
 | T4.2 | Claude SDK 调用 + prompt cache | pending | — | — | — | — |
