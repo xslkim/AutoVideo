@@ -6,7 +6,7 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T8.1`
+- **active_task**: `T8.2`
 - **last_updated**: `2026-05-01T10:27:49Z`
 - **next_action**: `implement T8.2`
 - **completed**: `34 / 40`
@@ -63,7 +63,7 @@
 | T7.1 | Root.tsx 生成器（preview 模式） | done | — | 2026-05-01T10:05:25Z | a4abf9b | — |
 | T7.2 | preview 命令 | done | — | 2026-05-01T10:16:15Z | 61b2bf6 | — |
 | T8.1 | build orchestrator | done | — | 2026-05-01T10:27:49Z | 4500250 | — |
-| T8.2 | doctor | pending | — | — | — | — |
+| T8.2 | doctor | in_progress | 2026-05-01T10:27:49Z | — | — | — |
 | T8.3 | init + templates | pending | — | — | — | — |
 | T9.1 | 单测补全 | pending | — | — | — | — |
 | T9.2 | E2E 测试 | pending | — | — | — | — |
