@@ -6,8 +6,8 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T2.2`
-- **last_updated**: `2026-05-01T06:18:18Z`
+- **active_task**: `T3.1`
+- **last_updated**: `2026-05-01T06:18:31Z`
 - **next_action**: `implement T3.1`
 - **completed**: `10 / 40`
 - **blockers**: `0`
@@ -39,7 +39,7 @@
 | T1.5 | compile 命令组装 | done | — | 2026-05-01T05:47:24Z | 6a8df59 | — |
 | T2.1 | 缓存 store | done | — | 2026-05-01T06:00:17Z | cc79062 | — |
 | T2.2 | cache CLI | done | — | 2026-05-01T06:18:18Z | 361b9ae | — |
-| T3.1 | VoxCPM FastAPI wrapper | pending | — | — | — | — |
+| T3.1 | VoxCPM FastAPI wrapper | in_progress | 2026-05-01T06:18:31Z | — | — | — |
 | T3.2 | voxcpm-client + autoStart | pending | — | — | — | — |
 | T3.3 | ffmpeg helpers | pending | — | — | — | — |
 | T3.4 | lineTimings 计算 | pending | — | — | — | — |
