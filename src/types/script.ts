@@ -79,87 +79,67 @@ export interface NarrationLine {
 }
 
 // ---------------------------------------------------------------------------
-// Block — the core unit of a script
+// Block — core unit of content
 // ---------------------------------------------------------------------------
 
 export interface Block {
-  /** Block ID, e.g. "B01" */
-  id: string;
-  /** Human-readable block title */
+  id: string; // "B01"
   title: string;
-  /** Entrance animation preset */
   enter: AnimationPreset;
-  /** Exit animation preset */
   exit: AnimationPreset;
 
   visual: {
-    /** Raw visual description text (fed to LLM) */
-    description: string;
-    /** Path to generated .tsx component (filled in Stage 3 — visuals) */
-    componentPath?: string;
+    description: string; // --- visual --- raw text, fed to LLM
+    componentPath?: string; // Stage 3 fills (generated .tsx path)
   };
 
   narration: {
     lines: NarrationLine[];
-    /** Explicit duration from @duration directive (e.g. 8 means 8 seconds) */
-    explicitDurationSec?: number;
+    explicitDurationSec?: number; // @duration
   };
 
-  /** Stage 2 (tts) fills this */
+  // Stage 2 fills
   audio?: {
-    /** POSIX path relative to build out dir, always "public/audio/{id}.wav" */
-    wavPath: string;
-    /** Total merged WAV duration in seconds (includes trailing 200ms silence per line) */
-    durationSec: number;
-    /** Per-line timing offsets relative to block audio origin (0ms) */
+    wavPath: string; // POSIX path relative to build out dir, "public/audio/{id}.wav"
+    durationSec: number; // merged WAV actual duration including trailing 200ms silence per line
     lineTimings: { lineIndex: number; startMs: number; endMs: number }[];
   };
 
-  /** Stage 4 (render) fills this */
+  // Stage 4 fills
   timing?: {
     enterSec: number;
     holdSec: number;
     exitSec: number;
     totalSec: number;
     frames: number;
-    /** = round(enterSec * fps) — used by SubtitleOverlay and Audio offset */
     enterFrames: number;
   };
 
-  /** Stage 4 (render) fills this — partial mp4 cache info */
+  // Stage 4 fills (partial mp4 cache info)
   render?: {
-    /** POSIX path relative to build out dir, always "output/partials/{id}.mp4" */
-    partialPath: string;
-    /** Whether this render used cached partial (true = cp, false = real render) */
+    partialPath: string; // POSIX path relative to build out dir, "output/partials/{id}.mp4"
     cacheHit: boolean;
   };
 }
 
 // ---------------------------------------------------------------------------
-// Script — the canonical IR
+// Script — top-level IR
 // ---------------------------------------------------------------------------
 
 export interface Script {
   meta: {
     schemaVersion: "1.0";
     title: string;
-    /** Absolute path to reference audio (resolved during compile; default: B00.wav next to meta.md) */
-    voiceRef: string;
-    aspect: AspectRatio;
-    /** Video width in pixels */
+    voiceRef: string; // absolute path to reference audio (resolved at compile)
+    aspect: "16:9" | "9:16" | "1:1";
     width: number;
-    /** Video height in pixels */
     height: number;
-    /** Frames per second */
     fps: number;
-    /** Visual theme name */
     theme: string;
-    /** Bottom pixel height reserved for subtitles, computed from resolution */
     subtitleSafeBottom: number;
   };
   blocks: Block[];
-  /** Local asset manifest: relative POSIX path (relative to project.json dir) → "assets/{hash}.ext" */
-  assets: Record<string, string>;
+  assets: Record<string, string>; // relative POSIX path → "assets/{hash}.ext"
   artifacts: {
     compiledAt?: string;
     audioGeneratedAt?: string;
@@ -169,188 +149,151 @@ export interface Script {
 }
 
 // ---------------------------------------------------------------------------
-// Stage-specific readiness types
+// Stage-specific readiness types (TypeScript branded for static safety)
+// ---------------------------------------------------------------------------
+
+/** compile output; no audio / componentPath / timing */
+export interface CompiledScript extends Script {
+  blocks: Block[]; // blocks have no audio, no componentPath, no timing
+}
+
+/** tts output; all blocks contain `audio` */
+export interface AudioReadyScript extends Script {
+  blocks: (Block & { audio: NonNullable<Block["audio"]> })[];
+}
+
+/** visuals output; all blocks contain `visual.componentPath` */
+export interface VisualReadyScript extends Script {
+  blocks: (Block & { visual: { description: string; componentPath: string } })[];
+}
+
+/** render input prerequisite; all blocks contain audio + componentPath, but timing not yet calculated */
+export interface RenderInputScript extends Script {
+  blocks: (Block & {
+    audio: NonNullable<Block["audio"]>;
+    visual: { description: string; componentPath: string };
+  })[];
+}
+
+/** render complete; all blocks contain audio + componentPath + timing + render */
+export interface RenderedScript extends Script {
+  blocks: (Block & {
+    audio: NonNullable<Block["audio"]>;
+    visual: { description: string; componentPath: string };
+    timing: NonNullable<Block["timing"]>;
+    render: NonNullable<Block["render"]>;
+  })[];
+}
+
+// ---------------------------------------------------------------------------
+// LLM-generated component props interface
+// ---------------------------------------------------------------------------
+
+export interface AnimationProps {
+  frame: number;
+  durationInFrames: number;
+  width: number;
+  height: number;
+  subtitleSafeBottom: number;
+  theme: Theme;
+  fps: number;
+}
+
+// ---------------------------------------------------------------------------
+// System-side rendering shell interfaces
+// ---------------------------------------------------------------------------
+
+export interface BlockFrameProps {
+  enter: AnimationPreset;
+  exit: AnimationPreset;
+  enterFrames: number;
+  exitFrames: number;
+  durationInFrames: number;
+  fps: number;
+  children: unknown;
+}
+
+export interface SubtitleOverlayProps {
+  lines: NarrationLine[];
+  lineTimings: { lineIndex: number; startMs: number; endMs: number }[];
+  audioStartFrame: number;
+  frame: number;
+  fps: number;
+  theme: Theme;
+}
+
+// ---------------------------------------------------------------------------
+// Type guards
 // ---------------------------------------------------------------------------
 
 /**
- * Output of compile stage.
- * No audio, no componentPath, no timing, no render.
+ * Type guard: checks if a Script has been compiled (has meta, blocks with visual/narration).
  */
-export type CompiledScript = Omit<
-  Script,
-  "blocks"
-> & {
-  blocks: Array<
-    Omit<Block, "audio" | "timing" | "render"> & {
-      visual: Omit<Block["visual"], "componentPath">;
-      audio?: undefined;
-      timing?: undefined;
-      render?: undefined;
-    }
-  >;
-  artifacts: Omit<Script["artifacts"], "audioGeneratedAt" | "visualsGeneratedAt" | "renderedAt"> & {
-    compiledAt: string;
-  };
-};
-
-/**
- * Output of tts stage.
- * All blocks have audio populated.
- */
-export type AudioReadyScript = Omit<
-  Script,
-  "blocks"
-> & {
-  blocks: Array<
-    Omit<Block, "audio"> & {
-      audio: NonNullable<Block["audio"]>;
-      timing?: undefined;
-      render?: undefined;
-    }
-  >;
-  artifacts: Omit<Script["artifacts"], "audioGeneratedAt" | "renderedAt"> & {
-    compiledAt: string;
-    audioGeneratedAt: string;
-  };
-};
-
-/**
- * Output of visuals stage.
- * All blocks have visual.componentPath populated.
- */
-export type VisualReadyScript = Omit<
-  Script,
-  "blocks"
-> & {
-  blocks: Array<
-    Omit<Block, "visual" | "audio"> & {
-      visual: Omit<Block["visual"], "componentPath"> & {
-        componentPath: string;
-      };
-      audio?: NonNullable<Block["audio"]>;
-      timing?: undefined;
-      render?: undefined;
-    }
-  >;
-  artifacts: Omit<Script["artifacts"], "visualsGeneratedAt" | "renderedAt"> & {
-    compiledAt: string;
-    visualsGeneratedAt: string;
-    audioGeneratedAt?: string;
-  };
-};
-
-/**
- * Input to render stage.
- * All blocks have audio + componentPath, but timing not yet computed.
- */
-export type RenderInputScript = Omit<
-  Script,
-  "blocks"
-> & {
-  blocks: Array<
-    Omit<Block, "audio" | "visual" | "timing" | "render"> & {
-      visual: Omit<Block["visual"], "componentPath"> & {
-        componentPath: string;
-      };
-      audio: NonNullable<Block["audio"]>;
-      timing?: undefined;
-      render?: undefined;
-    }
-  >;
-  artifacts: Omit<Script["artifacts"], "renderedAt">;
-};
-
-/**
- * Output of render stage.
- * All blocks have audio + componentPath + timing + render.partialPath.
- */
-export type RenderedScript = Omit<
-  Script,
-  "blocks"
-> & {
-  blocks: Array<
-    Omit<Block, "audio" | "visual" | "timing" | "render"> & {
-      visual: Omit<Block["visual"], "componentPath"> & {
-        componentPath: string;
-      };
-      audio: NonNullable<Block["audio"]>;
-      timing: NonNullable<Block["timing"]>;
-      render: NonNullable<Block["render"]>;
-    }
-  >;
-  artifacts: Script["artifacts"] & {
-    compiledAt: string;
-    renderedAt: string;
-  };
-};
-
-// ---------------------------------------------------------------------------
-// Type guards for readiness types
-// ---------------------------------------------------------------------------
-
-/**
- * Asserts that a Script is a valid CompiledScript.
- * Throws on missing required fields.
- */
-export function assertCompiledScript(data: unknown): asserts data is CompiledScript {
-  if (typeof data !== "object" || data === null) {
-    throw new Error("Expected object");
-  }
-  const s = data as Record<string, unknown>;
-
-  if (typeof s.meta !== "object" || s.meta === null) {
-    throw new Error("Missing meta");
-  }
-  const meta = s.meta as Record<string, unknown>;
-  if (meta.schemaVersion !== "1.0") throw new Error("Missing or invalid meta.schemaVersion");
-  if (typeof meta.title !== "string") throw new Error("Missing meta.title");
-  if (typeof meta.voiceRef !== "string") throw new Error("Missing meta.voiceRef");
-  if (!Array.isArray(s.blocks)) throw new Error("Missing blocks");
-
-  for (let i = 0; i < (s.blocks as unknown[]).length; i++) {
-    const block = (s.blocks as Record<string, unknown>[])[i];
-    if (typeof block.id !== "string") throw new Error(`Block ${i}: missing id`);
-    if (typeof block.title !== "string") throw new Error(`Block ${i}: missing title`);
-    if (typeof block.visual !== "object" || block.visual === null) throw new Error(`Block ${i}: missing visual`);
-    const visual = block.visual as Record<string, unknown>;
-    if (typeof visual.description !== "string") throw new Error(`Block ${i}: missing visual.description`);
-    if (visual.componentPath !== undefined) {
-      throw new Error(`Block ${i}: visual.componentPath should not be set at compile stage`);
-    }
-    if (block.audio !== undefined) throw new Error(`Block ${i}: audio should not be set at compile stage`);
-    if (block.timing !== undefined) throw new Error(`Block ${i}: timing should not be set at compile stage`);
-    if (block.render !== undefined) throw new Error(`Block ${i}: render should not be set at compile stage`);
-  }
-
-  const artifacts = s.artifacts as Record<string, unknown> | undefined;
-  if (!artifacts || typeof artifacts.compiledAt !== "string") {
-    throw new Error("Missing artifacts.compiledAt");
-  }
-}
-
-/**
- * Type guard: checks if a Script is AudioReady (all blocks have audio).
- */
-export function isAudioReady(script: Script): script is AudioReadyScript {
-  return script.blocks.every((b) => b.audio !== undefined);
-}
-
-/**
- * Type guard: checks if a Script is VisualReady (all blocks have componentPath).
- */
-export function isVisualReady(script: Script): script is VisualReadyScript {
-  return script.blocks.every((b) => b.visual.componentPath !== undefined);
-}
-
-/**
- * Type guard: checks if a Script is RenderInput (all blocks have audio + componentPath).
- */
-export function isRenderInputReady(script: Script): script is RenderInputScript {
-  return script.blocks.every(
-    (b) => b.audio !== undefined && b.visual.componentPath !== undefined,
+export function isCompiled(script: Script): script is CompiledScript {
+  return (
+    script.meta.schemaVersion === "1.0" &&
+    Array.isArray(script.blocks) &&
+    script.blocks.length > 0 &&
+    script.blocks.every(
+      (b) =>
+        typeof b.id === "string" &&
+        typeof b.title === "string" &&
+        typeof b.visual?.description === "string" &&
+        Array.isArray(b.narration?.lines),
+    )
   );
 }
 
+/**
+ * Type guard: checks if a Script has audio ready (all blocks have audio with wavPath and durationSec).
+ */
+export function isAudioReady(script: Script): script is AudioReadyScript {
+  return script.blocks.every(
+    (b) =>
+      b.audio !== undefined &&
+      typeof b.audio.wavPath === "string" &&
+      typeof b.audio.durationSec === "number" &&
+      Array.isArray(b.audio.lineTimings),
+  );
+}
+
+/**
+ * Type guard: checks if a Script has visuals ready (all blocks have visual.componentPath).
+ */
+export function isVisualReady(script: Script): script is VisualReadyScript {
+  return script.blocks.every(
+    (b) => b.visual.componentPath !== undefined && typeof b.visual.componentPath === "string",
+  );
+}
+
+/**
+ * Type guard: checks if a Script is RenderInput ready (all blocks have audio + componentPath).
+ */
+export function isRenderInputReady(script: Script): script is RenderInputScript {
+  return (
+    isAudioReady(script) &&
+    script.blocks.every(
+      (b) => b.visual.componentPath !== undefined && typeof b.visual.componentPath === "string",
+    )
+  );
+}
+
+/**
+ * Type guard: checks if a Script is fully Rendered (all blocks have audio + componentPath + timing + render).
+ */
+export function isRendered(script: Script): script is RenderedScript {
+  return script.blocks.every(
+    (b) =>
+      b.audio !== undefined &&
+      b.visual.componentPath !== undefined &&
+      b.timing !== undefined &&
+      b.render !== undefined,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Assertion helpers (with descriptive errors)
+// ---------------------------------------------------------------------------
 
 /**
  * Asserts that a Script is RenderInput ready (all blocks have audio + componentPath).
@@ -391,91 +334,48 @@ export function assertRenderInputReady(data: unknown): asserts data is RenderInp
       throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing audio.wavPath`);
     }
     if (typeof audio.durationSec !== "number") {
-  }
-}
-
       throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing audio.durationSec`);
     }
   }
 }
-
 /**
- * Type guard: checks if a Script is fully Rendered (all blocks have audio + componentPath + timing + render).
+ * Asserts that a Script is Compiled (has meta, blocks with visual/narration).
+ * Throws descriptive error if not.
  */
-export function isRendered(script: Script): script is RenderedScript {
-  return script.blocks.every(
-    (b) =>
-      b.audio !== undefined &&
-      b.visual.componentPath !== undefined &&
-      b.timing !== undefined &&
-      b.render !== undefined,
-  );
-}
+export function assertCompiledScript(data: unknown): asserts data is CompiledScript {
+  if (typeof data !== "object" || data === null) {
+    throw new Error("Expected object for CompiledScript");
+  }
+  const s = data as Record<string, unknown>;
 
-// ---------------------------------------------------------------------------
-// LLM-generated component props interface
-// ---------------------------------------------------------------------------
-  );
-}
+  if (typeof s.meta !== "object" || s.meta === null) {
+    throw new Error("Missing meta");
+  }
+  const meta = s.meta as Record<string, unknown>;
+  if (meta.schemaVersion !== "1.0") throw new Error("Missing or invalid meta.schemaVersion");
+  if (typeof meta.title !== "string") throw new Error("Missing meta.title");
+  if (!Array.isArray(s.blocks)) throw new Error("Missing blocks");
+  if (s.blocks.length === 0) throw new Error("blocks array is empty");
 
-// ---------------------------------------------------------------------------
-// LLM-generated component props interface
-// ---------------------------------------------------------------------------
+  for (let i = 0; i < (s.blocks as unknown[]).length; i++) {
+    const block = (s.blocks as Record<string, unknown>[])[i];
+    if (typeof block.id !== "string") throw new Error(`Block ${i}: missing id`);
+    if (typeof block.title !== "string") throw new Error(`Block ${i}: missing title`);
 
-/**
- * Type guard: checks if a Script is fully Rendered (all blocks have audio + componentPath + timing + render).
- */
-// ---------------------------------------------------------------------------
+    if (typeof block.visual !== "object" || block.visual === null) {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual`);
+    }
+    const visual = block.visual as Record<string, unknown>;
+    if (typeof visual.description !== "string") {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual.description`);
+    }
 
-export interface AnimationProps {
-  /** In-block frame (0-based); fallback for useCurrentFrame() */
-  frame: number;
-  /** Total number of frames for this block */
-  durationInFrames: number;
-  /** Video width in pixels */
-  width: number;
-  /** Video height in pixels */
-  height: number;
-  /** Bottom subtitle safe area height in pixels */
-  subtitleSafeBottom: number;
-  /** Current theme */
-  theme: Theme;
-  /** Frames per second */
-  fps: number;
-}
-
-// ---------------------------------------------------------------------------
-// System-side rendering shell props
-// ---------------------------------------------------------------------------
-
-export interface BlockFrameProps {
-  /** Entrance animation preset */
-  enter: AnimationPreset;
-  /** Exit animation preset */
-  exit: AnimationPreset;
-  /** Number of frames for entrance animation */
-  enterFrames: number;
-  /** Number of frames for exit animation */
-  exitFrames: number;
-  /** Total frames for this block (enter + hold + exit) */
-  durationInFrames: number;
-  /** Frames per second */
-  fps: number;
-  /** Block content (DynamicComponent + SubtitleOverlay + Audio) */
-  children: unknown;
-}
-
-export interface SubtitleOverlayProps {
-  /** Narration lines with highlight info */
-  lines: NarrationLine[];
-  /** Per-line timing offsets (ms) */
-  lineTimings: { lineIndex: number; startMs: number; endMs: number }[];
-  /** Frame at which audio (and thus subtitles) start = enterFrames */
-  audioStartFrame: number;
-  /** Current in-block frame */
-  frame: number;
-  /** Frames per second */
-  fps: number;
-  /** Current theme */
-  theme: Theme;
+    if (typeof block.narration !== "object" || block.narration === null) {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing narration`);
+    }
+    const narration = block.narration as Record<string, unknown>;
+    if (!Array.isArray(narration.lines)) {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing narration.lines`);
+    }
+  }
 }

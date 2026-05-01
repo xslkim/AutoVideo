@@ -1,22 +1,15 @@
-#!/usr/bin/env node
+#!/usr/bin/env npx tsx
+
 import { Command } from "commander";
-import { registerCacheCommand } from "../src/cli/cache.js";
-import { build } from "../src/cli/build.js";
-import { tts } from "../src/cli/tts.js";
-import { visuals } from "../src/cli/visuals.js";
-import { render } from "../src/cli/render.js";
-import { preview } from "../src/cli/preview.js";
-import { loadConfig } from "../src/config/load.js";
-
-const notImplemented = (cmdName: string) => {
-  console.error(`${cmdName}: not implemented`);
-  process.exit(1);
-};
-
-function parseBlockIds(val: string | undefined): string[] | undefined {
-  if (!val) return undefined;
-  return val.split(",").map((s) => s.trim()).filter(Boolean);
-}
+import { compileCommand } from "../src/cli/compile";
+import { ttsCommand } from "../src/cli/tts";
+import { visualsCommand } from "../src/cli/visuals";
+import { renderCommand } from "../src/cli/render";
+import { previewCommand } from "../src/cli/preview";
+import { buildCommand } from "../src/cli/build";
+import { cacheCommand } from "../src/cli/cache";
+import { doctorCommand } from "../src/cli/doctor";
+import { initCommand } from "../src/cli/init";
 
 const program = new Command();
 
@@ -25,166 +18,120 @@ program
   .description("Compile Markdown teaching scripts into MP4 videos")
   .version("0.1.0");
 
+// ── One-command pipeline ──────────────────────────────────────────
 program
   .command("build")
-  .description("Run full pipeline: compile → tts → visuals → render")
+  .description("Run all stages: compile → tts → visuals → render")
   .argument("<project>", "path to project.json")
   .option("--out <dir>", "output directory")
-  .option("--config <file>", "path to config file")
-  .option("--meta <key=value...>", "override meta fields (e.g. --meta title=Foo aspect=16:9)")
-  .option("--verbose", "verbose logging")
-  .option("--dry-run", "show plan without executing")
-  .allowUnknownOption(false)
-  .action(async (projectPath: string, opts) => {
-    // PRD §7: build does NOT accept --block
-    if (process.argv.includes("--block")) {
-      console.error(
-        "Error: 'build' does not accept --block.\n" +
-        "Use step commands for partial rebuilds, e.g.:\n" +
-        "  autovideo render script.json --block B03"
-      );
-      process.exit(1);
-    }
-    try {
-      const result = await build({
-        projectPath,
-        outDir: opts.out,
-        configPath: opts.config,
-        metaArgs: opts.meta,
-        verbose: opts.verbose,
-        dryRun: opts.dryRun,
-      });
-      console.log("Build complete:", result.outDir);
-    } catch (err: any) {
-      console.error(err.message);
-      process.exit(1);
-    }
+  .option("--config <file>", "path to autovideo.config.json")
+  .option("--cache-dir <dir>", "override cache directory")
+  .option("--verbose", "detailed logging")
+  .option("--dry-run", "show what would be done without executing")
+  .option("--meta <key=value...>", "override meta fields (e.g., --meta title=Foo aspect=16:9)")
+  .action(async (project, opts) => {
+    await buildCommand(project, opts);
+  });
+
+// ── Individual stages ─────────────────────────────────────────────
+program
+  .command("compile")
+  .description("Parse Markdown DSL → script.json")
+  .argument("<project>", "path to project.json")
+  .option("--out <dir>", "output directory")
+  .option("--config <file>", "path to autovideo.config.json")
+  .option("--cache-dir <dir>", "override cache directory")
+  .option("--verbose", "detailed logging")
+  .option("--dry-run", "show what would be done without executing")
+  .option("--meta <key=value...>", "override meta fields")
+  .action(async (project, opts) => {
+    await compileCommand(project, opts);
   });
 
 program
   .command("tts")
-  .description("Generate audio + subtitle timings from narration")
+  .description("Generate audio from narration lines")
   .argument("<script>", "path to script.json")
-  .option("--block <ids>", "comma-separated block IDs to process")
-  .option("--force", "ignore cache")
-  .option("--config <file>", "path to config file")
+  .option("--block <ids>", "only process specified block(s), comma-separated")
+  .option("--force", "ignore cache, force regeneration")
+  .option("--config <file>", "path to autovideo.config.json")
   .option("--cache-dir <dir>", "override cache directory")
-  .option("--verbose", "verbose logging")
-  .option("--dry-run", "show plan without executing")
-  .action(async (scriptPath: string, opts) => {
-    try {
-      const blockIds = parseBlockIds(opts.block);
-      await tts({
-        scriptPath,
-        blockIds,
-        force: opts.force,
-        configPath: opts.config,
-        cacheDir: opts.cacheDir,
-        verbose: opts.verbose,
-        dryRun: opts.dryRun,
-      });
-    } catch (err: any) {
-      console.error(err.message);
-      process.exit(1);
-    }
+  .option("--verbose", "detailed logging")
+  .option("--dry-run", "show what would be done without executing")
+  .action(async (script, opts) => {
+    await ttsCommand(script, opts);
   });
 
 program
   .command("visuals")
-  .description("Generate React components from visual descriptions via Claude")
+  .description("Generate React components from visual descriptions")
   .argument("<script>", "path to script.json")
-  .option("--block <ids>", "comma-separated block IDs to process")
-  .option("--force", "ignore cache")
-  .option("--config <file>", "path to config file")
+  .option("--block <ids>", "only process specified block(s), comma-separated")
+  .option("--force", "ignore cache, force regeneration")
+  .option("--config <file>", "path to autovideo.config.json")
   .option("--cache-dir <dir>", "override cache directory")
-  .option("--verbose", "verbose logging")
-  .option("--dry-run", "show plan without executing")
-  .action(async (scriptPath: string, opts) => {
-    try {
-      const blockIds = parseBlockIds(opts.block);
-      await visuals({
-        scriptPath,
-        blockIds,
-        force: opts.force,
-        configPath: opts.config,
-        cacheDir: opts.cacheDir,
-        verbose: opts.verbose,
-        dryRun: opts.dryRun,
-      });
-    } catch (err: any) {
-      console.error(err.message);
-      process.exit(1);
-    }
+  .option("--verbose", "detailed logging")
+  .option("--dry-run", "show what would be done without executing")
+  .action(async (script, opts) => {
+    await visualsCommand(script, opts);
   });
 
 program
   .command("render")
-  .description("Render blocks to MP4 partials and concatenate")
+  .description("Render blocks to MP4 and concatenate")
   .argument("<script>", "path to script.json")
-  .option("--block <ids>", "comma-separated block IDs to re-render")
-  .option("--force", "ignore cache")
-  .option("--config <file>", "path to config file")
+  .option("--block <ids>", "only render specified block(s), comma-separated")
+  .option("--force", "ignore cache, force re-render")
+  .option("--config <file>", "path to autovideo.config.json")
   .option("--cache-dir <dir>", "override cache directory")
-  .option("--verbose", "verbose logging")
-  .option("--dry-run", "show plan without executing")
-  .action(async (scriptPath: string, opts) => {
-    try {
-      const blockIds = parseBlockIds(opts.block);
-      await render({
-        scriptPath,
-        blockIds,
-        force: opts.force,
-        configPath: opts.config,
-        cacheDir: opts.cacheDir,
-        verbose: opts.verbose,
-        dryRun: opts.dryRun,
-      });
-    } catch (err: any) {
-      console.error(err.message);
-      process.exit(1);
-    }
+  .option("--verbose", "detailed logging")
+  .option("--dry-run", "show what would be done without executing")
+  .action(async (script, opts) => {
+    await renderCommand(script, opts);
   });
 
 program
   .command("preview")
   .description("Open Remotion Studio for interactive preview")
   .argument("<script>", "path to script.json")
-  .option("--block <id>", "specific block to preview")
-  .option("--config <file>", "path to config file")
+  .option("--block <id>", "open studio focused on a specific block")
+  .option("--config <file>", "path to autovideo.config.json")
   .option("--cache-dir <dir>", "override cache directory")
-  .option("--verbose", "verbose logging")
-  .action(async (scriptPath: string, opts) => {
-    try {
-      await preview({
-        scriptPath,
-        blockId: opts.block,
-        configPath: opts.config,
-        cacheDir: opts.cacheDir,
-        verbose: opts.verbose,
-      });
-    } catch (err: any) {
-      console.error(err.message);
-      process.exit(1);
-    }
+  .option("--verbose", "detailed logging")
+  .action(async (script, opts) => {
+    await previewCommand(script, opts);
   });
 
-// cache command — delegates to registerCacheCommand which adds subcommands
-registerCacheCommand(program as Command);
+// ── Utilities ─────────────────────────────────────────────────────
+program
+  .command("cache")
+  .description("Manage build cache")
+  .argument("[action]", "stats | clean")
+  .option("--type <type>", "filter by cache type: audio | component | partial")
+  .option("--older-than <duration>", "only evict entries older than duration (e.g., 30d, 12h)")
+  .option("--stale", "only evict entries with stale prompt/remotion version")
+  .option("--config <file>", "path to autovideo.config.json")
+  .option("--cache-dir <dir>", "override cache directory")
+  .option("--verbose", "detailed logging")
+  .action(async (action, opts) => {
+    await cacheCommand(action, opts);
+  });
 
 program
   .command("doctor")
   .description("Check environment and dependencies")
-  .action(async () => {
-    const { doctorCommand } = await import("../src/cli/doctor.js");
-    await doctorCommand();
+  .option("--config <file>", "path to autovideo.config.json")
+  .action(async (opts) => {
+    await doctorCommand(opts);
   });
 
 program
   .command("init")
-  .description("Generate a template project")
-  .argument("<dir>", "target directory")
-  .action(async (_dir: string, _opts) => {
-    notImplemented("init");
+  .description("Create a new project from the starter template")
+  .argument("<dir>", "target directory for the new project")
+  .option("--verbose", "detailed logging")
+  .action(async (dir, opts) => {
+    await initCommand(dir, opts);
   });
 
 program.parse();

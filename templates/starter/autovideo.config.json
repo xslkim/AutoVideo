@@ -1,0 +1,25 @@
+{
+  "voxcpm": {
+    "endpoint": "http://127.0.0.1:8000",
+    "autoStart": true,
+    "cfgValue": 2.0,
+    "inferenceTimesteps": 10,
+    "denoise": false,
+    "concurrency": 4
+  },
+  "anthropic": {
+    "apiKeyEnv": "ANTHROPIC_API_KEY",
+    "model": "claude-sonnet-4-6",
+    "concurrency": 4
+  },
+  "render": {
+    "blockConcurrency": 4,
+    "minHoldSec": 1.5,
+    "defaultEnterSec": 0.5,
+    "defaultExitSec": 0.3
+  },
+  "cache": {
+    "dir": "~/.autovideo/cache",
+    "maxSizeGB": 20
+  }
+}
