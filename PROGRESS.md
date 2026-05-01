@@ -6,8 +6,8 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `T6.4`
-- **last_updated**: `2026-05-01T09:14:47Z`
+- **active_task**: `T6.5`
+- **last_updated**: `2026-05-01T09:14:48Z`
 - **next_action**: `implement T6.5`
 - **completed**: `28 / 40`
 - **blockers**: `0`
@@ -57,7 +57,7 @@
 | T6.2 | timing 计算 | done | — | 2026-05-01T08:49:53Z | 7dbf0a8 | — |
 | T6.3 | partial 渲染（程序化 bundle + renderMedia） | done | — | 2026-05-01T09:00:00Z | 9b3d07f | — |
 | T6.4 | ffmpeg concat | done | — | 2026-05-01T09:14:47Z | 5db1bef | — |
-| T6.5 | loudnorm two-pass | pending | — | — | — | — |
+| T6.5 | loudnorm two-pass | in_progress | 2026-05-01T09:14:48Z | — | — | — |
 | T6.6 | 质量校验 | pending | — | — | — | — |
 | T6.7 | render 命令组装 | pending | — | — | — | — |
 | T7.1 | Root.tsx 生成器（preview 模式） | pending | — | — | — | — |
