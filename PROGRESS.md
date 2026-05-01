@@ -7,9 +7,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `T0.1`
-- **last_updated**: `2026-05-01T04:02:10Z`
-- **next_action**: `从 T0.1 开始`
-- **completed**: `0 / 35`
+- **last_updated**: `2026-05-01T04:03:26Z`
+- **next_action**: `implement T0.2`
+- **completed**: `1 / 40`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -29,7 +29,7 @@
 
 | ID | 标题 | 状态 | 开始 | 完成 | Commit | 备注 |
 |----|------|------|------|------|--------|------|
-| T0.1 | 仓库骨架 | in_progress | 2026-05-01T04:02:10Z | — | — | — |
+| T0.1 | 仓库骨架 | done | — | 2026-05-01T04:03:26Z | 4bc6ac3 | — |
 | T0.2 | 类型定义 + Schema | pending | — | — | — | — |
 | T0.3 | 配置 loader | pending | — | — | — | — |
 | T1.1 | 项目文件 + meta 解析 | pending | — | — | — | — |
@@ -80,6 +80,11 @@
 > - acceptance: <PRD/TASKS 中列出的验收项> → ✓ / ✗
 > - artifacts: <生成的关键文件路径列表>
 > - 备注：<可选>
+
+
+### T0.1 — T0.1 @ 4bc6ac3
+- acceptance: passed by agent
+- artifacts: see git diff
 
 （开发中由 agent 追加）
 
