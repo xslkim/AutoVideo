@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "schemaVersion": "1.0",
+    "title": "Minimal Test Script",
+    "voiceRef": "/path/to/B00.wav",
+    "aspect": "16:9",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "theme": "dark-code",
+    "subtitleSafeBottom": 162
+  },
+  "blocks": [
+    {
+      "id": "B01",
+      "title": "Hello World",
+      "enter": "fade",
+      "exit": "fade",
+      "visual": {
+        "description": "屏幕中央显示大标题 \"Hello World\""
+      },
+      "narration": {
+        "lines": [
+          {
+            "text": "Hello **World**",
+            "ttsText": "Hello World",
+            "highlights": [
+              { "start": 6, "end": 11 }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "assets": {},
+  "artifacts": {
+    "compiledAt": "2026-01-01T00:00:00Z"
+  }
+}
