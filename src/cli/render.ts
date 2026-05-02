@@ -139,7 +139,13 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     fs.readFileSync(opts.scriptPath, "utf-8")
   ) as unknown;
 
-  assertRenderInputReady(scriptRaw);
+  // Determine which blocks to process (parsed before validation so we can
+  // limit validation to only the blocks that will actually be rendered).
+  const targetBlockIds = blockIds ? new Set(blockIds) : undefined;
+
+  // Only validate blocks that are in scope; other blocks may still be incomplete
+  // (e.g. during staged / partial rendering of a large project).
+  assertRenderInputReady(scriptRaw, targetBlockIds);
   const script = scriptRaw as Script;
 
   const scriptDir = path.resolve(path.dirname(opts.scriptPath));
@@ -147,9 +153,6 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   const { meta, blocks } = script;
   const fps = meta.fps;
-
-  // Determine which blocks to process
-  const targetBlockIds = blockIds ? new Set(blockIds) : undefined;
 
   // ── Step 2: Compute timing and write back ─────────────────────────
 

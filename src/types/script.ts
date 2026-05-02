@@ -297,9 +297,14 @@ export function isRendered(script: Script): script is RenderedScript {
 
 /**
  * Asserts that a Script is RenderInput ready (all blocks have audio + componentPath).
+ * When `blockIds` is provided, only validates those specific blocks; other blocks
+ * are allowed to be incomplete (e.g. during staged / partial rendering).
  * Throws descriptive error if not.
  */
-export function assertRenderInputReady(data: unknown): asserts data is RenderInputScript {
+export function assertRenderInputReady(
+  data: unknown,
+  blockIds?: Set<string>,
+): asserts data is RenderInputScript {
   if (typeof data !== "object" || data === null) {
     throw new Error("Expected object for RenderInputScript");
   }
@@ -317,6 +322,9 @@ export function assertRenderInputReady(data: unknown): asserts data is RenderInp
     const block = (s.blocks as Record<string, unknown>[])[i];
     if (typeof block.id !== "string") throw new Error(`Block ${i}: missing id`);
     if (typeof block.title !== "string") throw new Error(`Block ${i}: missing title`);
+
+    // When a block-ID filter is active, skip validation for blocks outside the target set.
+    if (blockIds && !blockIds.has(block.id as string)) continue;
 
     if (typeof block.visual !== "object" || block.visual === null) {
       throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual`);
