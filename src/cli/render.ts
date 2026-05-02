@@ -344,8 +344,13 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   // ── Step 7: ffmpeg concat ──────────────────────────────────────────
 
-  // Gather all partial paths in script order
-  const partialRelPaths = blocks.map(
+  // In --block mode only concat the requested blocks (staged / partial build).
+  // In full mode concat all blocks (non-target partials are reused from disk).
+  const blocksToConcat = targetBlockIds
+    ? blocks.filter((b) => targetBlockIds.has(b.id))
+    : blocks;
+
+  const partialRelPaths = blocksToConcat.map(
     (b) => b.render?.partialPath ?? `output/partials/${b.id}.mp4`
   );
 
@@ -407,7 +412,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     normalizedAbsPath,
     partialsDir,
     { width: meta.width, height: meta.height, fps: meta.fps },
-    blocks.map((b) => ({
+    blocksToConcat.map((b) => ({
       id: b.id,
       totalSec: b.timing?.totalSec ?? 0,
     }))
