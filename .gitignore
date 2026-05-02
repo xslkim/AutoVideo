@@ -2,6 +2,7 @@ node_modules/
 dist/
 build/
 project/
+backup/
 .cache/
 *.log
 __pycache__/

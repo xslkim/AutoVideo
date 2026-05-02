@@ -14,12 +14,19 @@
 # 输入：项目目录（已含 meta.md + script.md）
 PROJECT_DIR=/home/ubuntu/AutoVideo/project/MyVideo
 
-# 一键构建
+# 一键构建（必须用 --out 把产物放到项目目录内）
 cd /home/ubuntu/AutoVideo
-npx tsx bin/autovideo.ts build $PROJECT_DIR/project.json
+npx tsx bin/autovideo.ts compile $PROJECT_DIR/project.json \
+  --out $PROJECT_DIR/build/$(basename $PROJECT_DIR)
+# 之后 tts / visuals / render 会继续在同一目录内写产物
 
-# 输出：build/<slug>/output/final_normalized.mp4
+# 输出（在项目目录内，不是 AutoVideo 根目录）
+# $PROJECT_DIR/build/<slug>/output/final_normalized.mp4
 ```
+
+> ⚠️ **重要：构建产物必须放在项目目录内，不能放在 AutoVideo 根目录下。**
+> 如果不加 `--out` 直接跑 `compile`，产物会落在当前工作目录（即 AutoVideo 根目录的 `build/`），导致路径混乱。
+> **始终使用 `--out $PROJECT_DIR/build/<slug>` 或直接用项目目录下的构建脚本。**
 
 完整构建流程内部依次跑四个阶段：
 
@@ -56,8 +63,16 @@ test -f "$PROJECT_DIR/script.md" && echo "OK: script.md" || echo "MISSING: scrip
 
 ```bash
 cd /home/ubuntu/AutoVideo
-npx tsx bin/autovideo.ts compile $PROJECT_DIR/project.json --verbose
+
+# 读取 meta.md 里的 slug 字段（或用项目名代替）
+SLUG=my-video-slug   # 改成 meta.md 中的 slug 值
+
+npx tsx bin/autovideo.ts compile $PROJECT_DIR/project.json \
+  --out $PROJECT_DIR/build/$SLUG \
+  --verbose
 ```
+
+> ⚠️ 必须加 `--out $PROJECT_DIR/build/$SLUG`，否则 `script.json` 会写到 AutoVideo 根目录下的 `build/` 里。
 
 如果输出中报错（缺 section、块 ID 重复、动画预设无效等），需要回到 [`AUTHORING.md`](AUTHORING.md) 修正源文件后再继续。
 
@@ -74,7 +89,7 @@ test -f "$PROJECT_DIR/../../B00.wav" && echo "OK: voiceRef" || echo "MISSING: vo
 
 ## 2. 构建方式
 
-### 2.1 方式一：项目自带构建脚本（推荐）
+### 2.1 方式一：项目自带构建脚本（推荐，可避免路径问题）
 
 如果项目目录里有 `build*.sh`（如 `build-part1.sh`），直接跑即可：
 
@@ -90,7 +105,9 @@ bash build.sh --cache-dir=./cache    # 指定缓存目录
 
 1. 写入临时 `project.json`
 2. 跑 compile → tts → visuals → render 四个阶段
-3. 输出到 `build/<slug>/output/final_normalized.mp4`
+3. **把所有产物输出到 `$PROJECT_DIR/build/<slug>/`**（在项目目录内）
+
+> ✅ 推荐原因：脚本内部已正确设置 `BUILD_DIR` 为项目目录下的 `build/`，不会污染 AutoVideo 根目录。
 
 参考脚本：[`project/MicroGpt/build-part1.sh`](project/MicroGpt/build-part1.sh)
 
@@ -100,8 +117,15 @@ bash build.sh --cache-dir=./cache    # 指定缓存目录
 
 ```bash
 cd /home/ubuntu/AutoVideo
-npx tsx bin/autovideo.ts build $PROJECT_DIR/project.json
+SLUG=my-video-slug   # 改成 meta.md 中的 slug 值
+
+# ⚠️ 必须用 --out 把产物写到项目目录内
+npx tsx bin/autovideo.ts build $PROJECT_DIR/project.json \
+  --out $PROJECT_DIR/build/$SLUG
 ```
+
+> ⚠️ **不要**用 `npx tsx bin/autovideo.ts build $PROJECT_DIR/project.json`（不加 `--out`），
+> 这会把 `build/` 写在 AutoVideo 根目录，而不是项目目录里。
 
 ### 2.3 方式三：CLI 分步执行
 
@@ -109,14 +133,18 @@ npx tsx bin/autovideo.ts build $PROJECT_DIR/project.json
 
 ```bash
 cd /home/ubuntu/AutoVideo
-SLUG=my-video-slug
-BUILD=build/$SLUG
+SLUG=my-video-slug   # 改成 meta.md 中的 slug 值
+
+# ⚠️ BUILD 路径必须在 PROJECT_DIR 内
+BUILD=$PROJECT_DIR/build/$SLUG
 
 npx tsx bin/autovideo.ts compile $PROJECT_DIR/project.json --out $BUILD
 npx tsx bin/autovideo.ts tts     $BUILD/script.json --block B01,B02,B03
 npx tsx bin/autovideo.ts visuals $BUILD/script.json --block B01,B02,B03
 npx tsx bin/autovideo.ts render  $BUILD/script.json --block B01,B02,B03
 ```
+
+> ✅ 这样所有产物（`script.json`、WAV、TSX、MP4）都在 `$PROJECT_DIR/build/$SLUG/` 下，不影响根目录。
 
 ### 2.4 没有 `project.json` 时手动创建
 
@@ -177,24 +205,44 @@ EOF
 
 ## 5. 输出文件
 
+> ⚠️ **所有构建产物必须在项目目录内**，不要放在 AutoVideo 根目录。
+
+正确的目录结构（以 `project/MyVideo` 为例，`slug = my-video`）：
+
 ```
-build/<slug>/
-├── script.json                      # 编译后的中间表示
-├── src/blocks/<BXX>/Component.tsx   # AI 生成的视觉组件
-├── public/
-│   ├── audio/<BXX>.wav              # TTS 生成的语音
-│   └── script.json
-├── remotion-root.tsx                # Remotion 入口
-└── output/
-    ├── partials/<BXX>.mp4           # 每个块的独立视频
-    ├── concat.txt                   # ffmpeg concat 列表
-    ├── final.mp4                    # 拼接后的完整视频
-    └── final_normalized.mp4         # ★ 音量标准化后的最终输出
+project/MyVideo/                         ← 项目目录（PROJECT_DIR）
+├── meta.md
+├── script.md
+├── project.json
+└── build/
+    └── my-video/                        ← BUILD_DIR（= PROJECT_DIR/build/<slug>）
+        ├── script.json                  # compile 产物
+        ├── src/blocks/<BXX>/Component.tsx  # AI 生成的视觉组件
+        ├── public/
+        │   ├── audio/<BXX>.wav          # TTS 生成的语音
+        │   └── script.json
+        ├── remotion-root.tsx            # Remotion 入口
+        └── output/
+            ├── partials/<BXX>.mp4       # 每个块的独立视频
+            ├── concat.txt
+            ├── final.mp4
+            └── final_normalized.mp4     # ★ 最终视频
 ```
 
-**最终交付给用户的视频始终是** `build/<slug>/output/final_normalized.mp4`。
+**最终交付给用户的视频始终是** `$PROJECT_DIR/build/<slug>/output/final_normalized.mp4`。
 
 `<slug>` 由 `meta.md` 中的 `slug` 字段决定（如未指定，则由 `title` 自动推导）。
+
+**错误的结构（不应出现）**：
+
+```
+AutoVideo/              ← AutoVideo 根目录
+├── build/              ← ❌ 构建产物不应在这里
+│   └── my-video/
+...
+```
+
+如果发现 `build/` 出现在根目录，说明构建时漏加了 `--out $PROJECT_DIR/build/$SLUG`。
 
 ---
 
@@ -215,6 +263,9 @@ build/<slug>/
 ### 6.2 重跑某一个块
 
 ```bash
+# BUILD 变量指向项目目录内的 build 路径
+BUILD=$PROJECT_DIR/build/$SLUG
+
 npx tsx bin/autovideo.ts visuals $BUILD/script.json --block B03 --force
 npx tsx bin/autovideo.ts render  $BUILD/script.json --block B03 --force
 ```
@@ -223,8 +274,9 @@ npx tsx bin/autovideo.ts render  $BUILD/script.json --block B03 --force
 
 ```bash
 bash build.sh --force
-# 或
-npx tsx bin/autovideo.ts build $PROJECT_DIR/project.json --force
+# 或（注意 --out 不能省略）
+npx tsx bin/autovideo.ts build $PROJECT_DIR/project.json \
+  --out $PROJECT_DIR/build/$SLUG --force
 ```
 
 ### 6.4 清空缓存
@@ -274,22 +326,32 @@ npx tsx bin/autovideo.ts doctor
 ## 9. 完整端到端示例（参考）
 
 ```bash
-# 0. 假设已经收到一个准备好的项目目录
+# 0. 设定项目目录（所有产物都应在这个目录内）
 PROJECT_DIR=/home/ubuntu/AutoVideo/project/MicroGpt
+SLUG=microgpt-py-survival-guide        # 与 meta.md 中的 slug 保持一致
+BUILD=$PROJECT_DIR/build/$SLUG         # ⚠️ 产物目录在项目目录内，不是根目录
 
 # 1. 健全性检查
-test -f "$PROJECT_DIR/meta.md"     && echo "OK: meta.md"
-test -f "$PROJECT_DIR/part1.md"    && echo "OK: part1.md"
+test -f "$PROJECT_DIR/meta.md"   && echo "OK: meta.md"   || echo "MISSING: meta.md"
+test -f "$PROJECT_DIR/part1.md"  && echo "OK: part1.md"  || echo "MISSING: part1.md"
 
-# 2. 验证语法
+# 2. 验证语法（--out 指向项目目录内）
 cd /home/ubuntu/AutoVideo
-npx tsx bin/autovideo.ts compile "$PROJECT_DIR/project.json" --verbose
+npx tsx bin/autovideo.ts compile "$PROJECT_DIR/project.json" \
+  --out "$BUILD" --verbose
 
-# 3. 一键构建（首次约 5–15 分钟，依块数 / GPU / 缓存命中而定）
+# 3. 方式一：用项目脚本构建（脚本内已正确处理 BUILD_DIR）
 bash "$PROJECT_DIR/build-part1.sh"
 
-# 4. 拿到产物
-ls -lh "$PROJECT_DIR/build/microgpt-py-survival-guide/output/final_normalized.mp4"
+# 方式二：CLI 分步（手动控制时）
+# npx tsx bin/autovideo.ts tts     $BUILD/script.json --verbose
+# npx tsx bin/autovideo.ts visuals $BUILD/script.json --verbose
+# npx tsx bin/autovideo.ts render  $BUILD/script.json --verbose
+
+# 4. 确认产物在项目目录内
+ls -lh "$BUILD/output/final_normalized.mp4"
+# ✅ 正确路径：project/MicroGpt/build/microgpt-py-survival-guide/output/final_normalized.mp4
+# ❌ 错误路径：build/microgpt-py-survival-guide/output/final_normalized.mp4（根目录下）
 ```
 
 ---

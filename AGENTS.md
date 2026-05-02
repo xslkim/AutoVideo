@@ -48,7 +48,7 @@ AutoVideo/
         ├── part1.md              # ← 步骤 1 产出（可拆分）
         ├── project.json          # 自动生成
         ├── build-part1.sh        # 步骤 2 用的脚本
-        └── build/                # 步骤 2 产出
+        └── build/                # 步骤 2 产出（在项目目录内，不是 AutoVideo 根目录）
             └── <slug>/output/final_normalized.mp4   # ★ 最终视频
 ```
 
