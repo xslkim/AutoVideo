@@ -20,8 +20,8 @@ program
   .description("Compile Markdown teaching scripts into MP4 videos")
   .version("0.1.0");
 
-function getConfig(configPath?: string) {
-  return loadConfig({ configPath }).config;
+function getConfig(configPath?: string, cacheDir?: string) {
+  return loadConfig({ configPath, cacheDir }).config;
 }
 
 // ── One-command pipeline ──────────────────────────────────────────
@@ -68,10 +68,11 @@ program
   .option("--block <ids>", "only process specified block(s), comma-separated")
   .option("--force", "ignore cache, force regeneration")
   .option("--config <file>", "path to autovideo.config.json")
+  .option("--cache-dir <dir>", "override cache directory")
   .option("--verbose", "detailed logging")
   .option("--dry-run", "show what would be done without executing")
   .action(async (scriptPath, opts) => {
-    const config = getConfig(opts.config);
+    const config = getConfig(opts.config, opts.cacheDir);
     const blockIds = opts.block ? opts.block.split(",") : undefined;
     const result = await tts({
       scriptPath,
@@ -91,10 +92,11 @@ program
   .option("--block <ids>", "only process specified block(s), comma-separated")
   .option("--force", "ignore cache, force regeneration")
   .option("--config <file>", "path to autovideo.config.json")
+  .option("--cache-dir <dir>", "override cache directory")
   .option("--verbose", "detailed logging")
   .option("--dry-run", "show what would be done without executing")
   .action(async (scriptPath, opts) => {
-    const config = getConfig(opts.config);
+    const config = getConfig(opts.config, opts.cacheDir);
     const blockIds = opts.block ? opts.block.split(",") : undefined;
     const result = await visuals({
       scriptPath,
@@ -114,10 +116,11 @@ program
   .option("--block <ids>", "only render specified block(s), comma-separated")
   .option("--force", "ignore cache, force re-render")
   .option("--config <file>", "path to autovideo.config.json")
+  .option("--cache-dir <dir>", "override cache directory")
   .option("--verbose", "detailed logging")
   .option("--dry-run", "show what would be done without executing")
   .action(async (scriptPath, opts) => {
-    const config = getConfig(opts.config);
+    const config = getConfig(opts.config, opts.cacheDir);
     const blockIds = opts.block ? opts.block.split(",") : undefined;
     const result = await render({
       scriptPath,

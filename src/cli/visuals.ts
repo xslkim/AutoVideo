@@ -71,7 +71,20 @@ export interface VisualsResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
+const RETRY_BASE_DELAY_MS = 60_000; // 60s base, doubles each attempt (60s / 120s / 240s …)
+const POST_REQUEST_DELAY_MS = 20_000; // 20s cooldown after each successful API call (Claude Code OAuth rate limit)
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function is429(err: unknown): boolean {
+  if (err instanceof Error) {
+    return err.message.includes("429") || err.message.includes("rate_limit");
+  }
+  return false;
+}
 
 /**
  * Compute promptVersion: MD5 first 8 chars of system prompt content.
@@ -335,6 +348,13 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                 `  Block ${blockLabel}: validation passed on attempt ${attempt + 1}`
               );
             }
+            // Cooldown to stay within Claude Code OAuth rate limits
+            if (verbose) {
+              console.log(
+                `  Block ${blockLabel}: waiting ${POST_REQUEST_DELAY_MS / 1000}s cooldown...`
+              );
+            }
+            await sleep(POST_REQUEST_DELAY_MS);
             break;
           } catch (err: any) {
             const errMsg = err?.message ?? String(err);
@@ -357,7 +377,17 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
               abortController.abort();
               return;
             }
-            // Otherwise continue to next attempt (error feedback)
+
+            // Exponential backoff on rate-limit errors; small fixed delay otherwise
+            const delayMs = is429(err)
+              ? RETRY_BASE_DELAY_MS * Math.pow(2, attempt)
+              : 2_000;
+            if (verbose) {
+              console.log(
+                `  Block ${blockLabel}: waiting ${delayMs / 1000}s before retry...`
+              );
+            }
+            await sleep(delayMs);
           }
         }
 

@@ -105,7 +105,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
   anthropic: {
     model: "claude-sonnet-4-6",
     maxRetries: 3,
-    concurrency: 4,
+    concurrency: 1,
     baseURL: process.env.ANTHROPIC_BASE_URL,
   },
   render: {

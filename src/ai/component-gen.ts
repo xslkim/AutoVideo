@@ -109,10 +109,21 @@ export async function generateComponent(
   const model = config.model || creds.model || "claude-sonnet-4-6";
 
   // ---- Create SDK client --------------------------------------------------
+  // Pass Claude Code client headers so Anthropic can apply the correct rate-limit
+  // tier for OAuth (Claude Pro) tokens — without these the request is treated as
+  // an anonymous API call and hits the lowest quota bucket.
+  const isOAuthToken = apiKey.startsWith("sk-ant-oat");
   const client = new Anthropic({
     apiKey,
     maxRetries: config.maxRetries,
     baseURL,
+    defaultHeaders: isOAuthToken
+      ? {
+          "anthropic-beta": "claude-code-20250219",
+          "x-client-name": "claude-code",
+          "x-client-version": "2.1.126",
+        }
+      : undefined,
   });
 
   // ---- Build messages -----------------------------------------------------
