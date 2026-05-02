@@ -43,9 +43,7 @@ vi.mock("../../src/config/load.js", () => ({
         retryBadcase: true,
       },
       anthropic: {
-        apiKeyEnv: "ANTHROPIC_API_KEY",
         model: "claude-sonnet-4-6",
-        promptCaching: true,
         maxRetries: 3,
         concurrency: 4,
       },

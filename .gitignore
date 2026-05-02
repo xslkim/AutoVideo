@@ -1,6 +1,8 @@
 node_modules/
 dist/
 build/
+project/
 .cache/
 *.log
 __pycache__/
+api_key.txt

@@ -19,6 +19,7 @@
  * @see TASKS.md T7.1, T7.2
  */
 
+import path from "node:path";
 import type { Script } from "../types/script.js";
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,8 @@ export interface RootPreviewOptions {
   minHoldSec?: number;
   /** Block ID to focus on (via default composition) */
   targetBlockId?: string;
+  /** Absolute path to the build output directory */
+  buildDir: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,9 +91,16 @@ function computeDurationFrames(
  * @returns The Root.tsx file content as a string
  */
 export function generatePreviewRoot(options: RootPreviewOptions): string {
-  const { script, targetBlockId } = options;
+  const { script, targetBlockId, buildDir } = options;
   const minHoldSec = options.minHoldSec ?? 1.5;
   const { meta, blocks } = script;
+
+  // Compute relative path from buildDir back to the AutoVideo root's remotion/ directory
+  const remotionDir = path.resolve(
+    new URL(".", import.meta.url).pathname,
+    "../../remotion"
+  );
+  const relRemotionDir = path.relative(buildDir, remotionDir);
 
   // Build minimal block data for calculateMetadata
   const blockData = blocks.map((block) => ({
@@ -146,7 +156,7 @@ export function generatePreviewRoot(options: RootPreviewOptions): string {
  */
 
 import { registerRoot, Composition } from 'remotion';
-import { BlockComposition } from '../../remotion/VideoComposition';
+import { BlockComposition } from '${relRemotionDir}/VideoComposition';
 
 const script = ${scriptJsonLiteral};
 

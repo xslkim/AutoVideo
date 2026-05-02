@@ -21,6 +21,8 @@ import type { Script } from "../types/script.js";
 export interface RootRenderOptions {
   /** The parsed script.json object */
   script: Script;
+  /** Absolute path to the build output directory (used to compute relative path to remotion/) */
+  buildDir: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -41,8 +43,12 @@ export interface RootRenderOptions {
  * @returns The Root.tsx file content as a string
  */
 export function generateRenderRoot(options: RootRenderOptions): string {
-  const { script } = options;
+  const { script, buildDir } = options;
   const { meta, blocks } = script;
+
+  // Remotion files are copied into buildDir/remotion/ by the render stage.
+  // Import from the local copy so dynamic imports resolve to buildDir/src/blocks/.
+  const relRemotionDir = "./remotion";
 
   // The first block's ID is used as defaultProps
   const firstBlockId = blocks[0]?.id ?? "B01";
@@ -71,7 +77,7 @@ export function generateRenderRoot(options: RootRenderOptions): string {
   const lines: string[] = [];
 
   lines.push(`import { registerRoot, Composition } from 'remotion';`);
-  lines.push(`import { BlockComposition } from '../../remotion/VideoComposition';`);
+  lines.push(`import { BlockComposition } from '${relRemotionDir}/VideoComposition';`);
   lines.push(``);
   lines.push(`const script = ${scriptJsonLiteral};`);
   lines.push(``);
@@ -84,10 +90,10 @@ export function generateRenderRoot(options: RootRenderOptions): string {
   lines.push(`    width={script.meta.width}`);
   lines.push(`    height={script.meta.height}`);
   lines.push(`    defaultProps={{ blockId: '${firstBlockId}' }}`);
-  lines.push(`    calculateMetadata={({ inputProps }) => {`);
-  lines.push(`      const props = inputProps ?? { blockId: '${firstBlockId}' };`);
-  lines.push(`      const block = script.blocks.find(b => b.id === props.blockId);`);
-  lines.push(`      return { durationInFrames: block?.timing?.frames ?? 1, props };`);
+  lines.push(`    calculateMetadata={({ props: inputProps }) => {`);
+  lines.push(`      const resolved = inputProps ?? { blockId: '${firstBlockId}' };`);
+  lines.push(`      const block = script.blocks.find(b => b.id === resolved.blockId);`);
+  lines.push(`      return { durationInFrames: block?.timing?.frames ?? 1, props: resolved };`);
   lines.push(`    }}`);
   lines.push(`  />`);
   lines.push(`);`);

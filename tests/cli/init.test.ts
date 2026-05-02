@@ -90,7 +90,6 @@ describe("init command", () => {
 
     const readme = fs.readFileSync(path.join(target, "README.md"), "utf-8");
     expect(readme).toContain("B00.wav");
-    expect(readme).toContain("ANTHROPIC_API_KEY");
     expect(readme).toContain("doctor");
     expect(readme).toContain("build");
   });

@@ -61,11 +61,9 @@ export async function initCommand(
   console.log("Next steps:");
   console.log(`  1. Place your reference voice file (B00.wav) in ${targetDir}/`);
   console.log("     (10–30 seconds of clear speech in WAV format)");
-  console.log("  2. Set your API key:");
-  console.log('     export ANTHROPIC_API_KEY="sk-ant-..."');
-  console.log("  3. Check your environment:");
+  console.log("  2. Check your environment:");
   console.log("     autovideo doctor");
-  console.log("  4. Build the video:");
+  console.log("  3. Build the video:");
   console.log(`     cd ${targetDir} && autovideo build project.json`);
 }
 

@@ -2,7 +2,7 @@
 
 exports[`generateRenderRoot > generates a valid Root.tsx string for a 2-block script 1`] = `
 "import { registerRoot, Composition } from 'remotion';
-import { BlockComposition } from '../../remotion/VideoComposition';
+import { BlockComposition } from './remotion/VideoComposition';
 
 const script = {
   "meta": {
@@ -35,9 +35,10 @@ export const Root = () => (
     width={script.meta.width}
     height={script.meta.height}
     defaultProps={{ blockId: 'B01' }}
-    calculateMetadata={({ inputProps }) => {
-      const block = script.blocks.find(b => b.id === inputProps.blockId);
-      return { durationInFrames: block.timing.frames };
+    calculateMetadata={({ props: inputProps }) => {
+      const resolved = inputProps ?? { blockId: 'B01' };
+      const block = script.blocks.find(b => b.id === resolved.blockId);
+      return { durationInFrames: block?.timing?.frames ?? 1, props: resolved };
     }}
   />
 );
@@ -47,7 +48,7 @@ registerRoot(Root);
 
 exports[`generateRenderRoot > generates correct Root.tsx for 9:16 vertical video at 60fps 1`] = `
 "import { registerRoot, Composition } from 'remotion';
-import { BlockComposition } from '../../remotion/VideoComposition';
+import { BlockComposition } from './remotion/VideoComposition';
 
 const script = {
   "meta": {
@@ -74,9 +75,10 @@ export const Root = () => (
     width={script.meta.width}
     height={script.meta.height}
     defaultProps={{ blockId: 'B01' }}
-    calculateMetadata={({ inputProps }) => {
-      const block = script.blocks.find(b => b.id === inputProps.blockId);
-      return { durationInFrames: block.timing.frames };
+    calculateMetadata={({ props: inputProps }) => {
+      const resolved = inputProps ?? { blockId: 'B01' };
+      const block = script.blocks.find(b => b.id === resolved.blockId);
+      return { durationInFrames: block?.timing?.frames ?? 1, props: resolved };
     }}
   />
 );
@@ -86,7 +88,7 @@ registerRoot(Root);
 
 exports[`generateRenderRoot > handles single-block script 1`] = `
 "import { registerRoot, Composition } from 'remotion';
-import { BlockComposition } from '../../remotion/VideoComposition';
+import { BlockComposition } from './remotion/VideoComposition';
 
 const script = {
   "meta": {
@@ -113,9 +115,10 @@ export const Root = () => (
     width={script.meta.width}
     height={script.meta.height}
     defaultProps={{ blockId: 'B03' }}
-    calculateMetadata={({ inputProps }) => {
-      const block = script.blocks.find(b => b.id === inputProps.blockId);
-      return { durationInFrames: block.timing.frames };
+    calculateMetadata={({ props: inputProps }) => {
+      const resolved = inputProps ?? { blockId: 'B03' };
+      const block = script.blocks.find(b => b.id === resolved.blockId);
+      return { durationInFrames: block?.timing?.frames ?? 1, props: resolved };
     }}
   />
 );

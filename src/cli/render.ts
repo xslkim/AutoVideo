@@ -177,9 +177,39 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   fs.writeFileSync(publicScriptPath, JSON.stringify(script, null, 2), "utf-8");
   console.log(`[render] Wrote ${publicScriptPath}`);
 
-  // ── Step 4: Write remotion-root.tsx ────────────────────────────────
+  // ── Step 4: Copy remotion files into build dir ─────────────────────
 
-  const rootContent = generateRenderRoot({ script });
+  const buildRemotionDir = path.join(buildDir, "remotion");
+  const buildEngineDir = path.join(buildRemotionDir, "engine");
+  const buildComponentsDir = path.join(buildRemotionDir, "components");
+  fs.mkdirSync(buildEngineDir, { recursive: true });
+  fs.mkdirSync(buildComponentsDir, { recursive: true });
+
+  const repoRoot = path.resolve(
+    path.dirname(new URL(import.meta.url).pathname),
+    "../..",
+  );
+
+  const remotionFiles = [
+    { src: "remotion/VideoComposition.tsx", dest: "remotion/VideoComposition.tsx" },
+    { src: "remotion/engine/block-frame.tsx", dest: "remotion/engine/block-frame.tsx" },
+    { src: "remotion/engine/theme.ts", dest: "remotion/engine/theme.ts" },
+    { src: "remotion/engine/types.ts", dest: "remotion/engine/types.ts" },
+    { src: "remotion/components/SubtitleOverlay.tsx", dest: "remotion/components/SubtitleOverlay.tsx" },
+  ];
+
+  for (const { src, dest } of remotionFiles) {
+    const srcPath = path.join(repoRoot, src);
+    const destPath = path.join(buildDir, dest);
+    if (fs.existsSync(srcPath)) {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+  console.log(`[render] Copied remotion files to ${buildRemotionDir}`);
+
+  // ── Step 5: Write remotion-root.tsx ────────────────────────────────
+
+  const rootContent = generateRenderRoot({ script, buildDir });
   const rootPath = path.join(buildDir, "remotion-root.tsx");
   fs.writeFileSync(rootPath, rootContent, "utf-8");
   console.log(`[render] Wrote ${rootPath}`);
@@ -189,7 +219,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     return { script, cacheHits: 0, renders: 0 };
   }
 
-  // ── Step 5: Render block partials ─────────────────────────────────
+  // ── Step 6: Render block partials ─────────────────────────────────
 
   // Determine force blocks set
   const forceBlocks: Set<string> | undefined =
@@ -309,7 +339,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     `${renderResult.cacheHits} cache hits, ${renderResult.renders} renders`
   );
 
-  // ── Step 6: ffmpeg concat ──────────────────────────────────────────
+  // ── Step 7: ffmpeg concat ──────────────────────────────────────────
 
   // Gather all partial paths in script order
   const partialRelPaths = blocks.map(
@@ -332,7 +362,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   console.log(`[render] Concat complete → output/final.mp4`);
 
-  // ── Step 7: Loudnorm ────────────────────────────────────────────────
+  // ── Step 8: Loudnorm ────────────────────────────────────────────────
 
   const finalAbsPath = path.join(buildDir, "output", "final.mp4");
   const loudnormConfig = renderConfig.loudnorm ?? {
@@ -364,7 +394,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     );
   }
 
-  // ── Step 8: QA ──────────────────────────────────────────────────────
+  // ── Step 9: QA ──────────────────────────────────────────────────────
 
   const normalizedAbsPath = loudnormResult.outputPath;
   const partialsDir = path.join(buildDir, "output", "partials");
@@ -400,7 +430,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   console.log(`[render] QA passed`);
 
-  // ── Step 9: Write artifacts.renderedAt ──────────────────────────────
+  // ── Step 10: Write artifacts.renderedAt ──────────────────────────────
 
   script.artifacts.renderedAt = new Date().toISOString();
 

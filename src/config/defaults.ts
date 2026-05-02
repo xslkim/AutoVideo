@@ -31,12 +31,8 @@ export interface VoxcpmConfig {
 }
 
 export interface AnthropicConfig {
-  /** Environment variable name holding the API key */
-  apiKeyEnv: string;
   /** Claude model to use for component generation */
   model: string;
-  /** Enable Anthropic prompt caching */
-  promptCaching: boolean;
   /** Max retries on API failure */
   maxRetries: number;
   /** Optional base URL for API proxy (e.g. "https://open.bigmodel.cn/api/anthropic") */
@@ -98,7 +94,7 @@ export interface AutoVideoConfig {
 export const DEFAULT_CONFIG: AutoVideoConfig = {
   voxcpm: {
     endpoint: "http://127.0.0.1:8000",
-    modelDir: "~/.cache/voxcpm/VoxCPM2",
+    modelDir: "/home/ubuntu/model/voxcpm/VoxCPM2",
     autoStart: true,
     cfgValue: 2.0,
     inferenceTimesteps: 10,
@@ -107,9 +103,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     concurrency: 4,
   },
   anthropic: {
-    apiKeyEnv: "ANTHROPIC_API_KEY",
     model: "claude-sonnet-4-6",
-    promptCaching: true,
     maxRetries: 3,
     concurrency: 4,
     baseURL: process.env.ANTHROPIC_BASE_URL,

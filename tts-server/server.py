@@ -30,7 +30,7 @@ logger = logging.getLogger("voxcpm-server")
 
 MODEL_DIR = os.environ.get(
     "VOXCPM_MODEL_DIR",
-    os.path.expanduser("~/.cache/voxcpm/VoxCPM2"),
+    "/home/ubuntu/model/voxcpm/VoxCPM2",
 )
 
 logger.info(f"Loading VoxCPM2 model from {MODEL_DIR} ...")

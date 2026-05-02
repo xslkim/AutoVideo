@@ -1,29 +1,23 @@
 /**
- * T4.2 — Claude SDK call + prompt cache
+ * Generate React component TSX from a visual description using Claude API.
  *
- * Generates React component TSX from a visual description using
- * the Anthropic Claude API with prompt caching.
+ * Credentials are resolved from:
+ *   1. Environment variables (ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY)
+ *   2. ~/.claude/settings.json (cc-switch / Claude Code config)
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import type {
-  Message,
-  MessageParam,
-  Tool,
-} from "@anthropic-ai/sdk/resources/messages";
+import type { Message, MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import { resolveClaudeCredentials } from "../config/claude-settings.js";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** Configuration for the Anthropic Claude client (mirrors autovideo.config.json → anthropic section) */
+/** Configuration for the Claude client (mirrors autovideo.config.json → anthropic section) */
 export interface AnthropicConfig {
-  /** Environment variable name that holds the API key (default: "ANTHROPIC_API_KEY") */
-  apiKeyEnv: string;
   /** Model identifier (default: "claude-sonnet-4-6") */
   model: string;
-  /** Enable prompt caching (default: true) */
-  promptCaching: boolean;
   /** Maximum SDK-level retries with exponential back-off (default: 3) */
   maxRetries: number;
   /** Optional base URL for API proxy */
@@ -56,67 +50,19 @@ export interface ComponentGenResult {
   usage: {
     inputTokens: number;
     outputTokens: number;
-    cacheCreationInputTokens?: number;
-    cacheReadInputTokens?: number;
   };
-  /** Whether the system prompt was served from the prompt cache */
-  cacheHit: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Tool definition — forces Claude to return structured { tsx: string }
-// ---------------------------------------------------------------------------
-
-const RENDER_COMPONENT_TOOL: Tool = {
-  name: "render_component",
-  description:
-    "Render a React component for a video block. Returns the TSX source code.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      tsx: {
-        type: "string" as const,
-        description:
-          "Complete TSX source code of the React component. Must export a default function accepting AnimationProps.",
-      },
-    },
-    required: ["tsx"],
-  },
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Build the system prompt content block array with optional cache control.
- */
-function buildSystemContent(
-  systemPrompt: string,
-  promptCaching: boolean
-): Array<{ type: "text"; text: string; cache_control?: { type: "ephemeral" } }> {
-  const block: {
-    type: "text";
-    text: string;
-    cache_control?: { type: "ephemeral" };
-  } = {
-    type: "text",
-    text: systemPrompt,
-  };
-
-  if (promptCaching) {
-    block.cache_control = { type: "ephemeral" };
-  }
-
-  return [block];
-}
-
-/**
  * Build the user message content from the visual description and optional retry context.
  */
 function buildUserContent(
   input: ComponentGenInput
-): Array<{ type: "text"; text: string }> {
+): string {
   const parts: string[] = [];
 
   parts.push(
@@ -129,7 +75,11 @@ function buildUserContent(
     );
   }
 
-  return [{ type: "text", text: parts.join("\n") }];
+  parts.push(
+    `\nReturn ONLY the TSX source code. No markdown fences, no explanations.`
+  );
+
+  return parts.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -139,94 +89,81 @@ function buildUserContent(
 /**
  * Call Claude to generate a React component TSX from a visual description.
  *
- * Uses tool_choice to force the model to return structured `{ tsx: string }`
- * output via the `render_component` tool.
- *
- * System prompt is marked with `cache_control: { type: "ephemeral" }` for
- * prompt caching — the large system prompt (component template + theme tokens
- * + AnimationProps interface) stays constant across calls, so subsequent
- * blocks should hit the cache.
- *
- * @returns {tsx, usage, cacheHit}
- * @throws Error if API key is missing, or if the API returns a non-tool-use response
+ * @returns {tsx, usage}
+ * @throws Error if credentials are missing, or if the API returns an empty response
  */
 export async function generateComponent(
   input: ComponentGenInput,
   config: AnthropicConfig
 ): Promise<ComponentGenResult> {
-  // ---- Resolve API key -------------------------------------------------
-  const apiKey = process.env[config.apiKeyEnv];
-  if (!apiKey) {
+  // ---- Resolve credentials ------------------------------------------------
+  const creds = resolveClaudeCredentials();
+  if (!creds) {
     throw new Error(
-      `Anthropic API key not found. Set the ${config.apiKeyEnv} environment variable.`
+      "Claude credentials not found. Set ANTHROPIC_AUTH_TOKEN env var, or configure ~/.claude/settings.json via cc-switch."
     );
   }
 
-  // ---- Create SDK client (max_retries uses built-in exponential back-off) --
+  const apiKey = creds.authToken;
+  const baseURL = config.baseURL || creds.baseUrl;
+  const model = config.model || creds.model || "claude-sonnet-4-6";
+
+  // ---- Create SDK client --------------------------------------------------
   const client = new Anthropic({
     apiKey,
     maxRetries: config.maxRetries,
-    ...(config.baseURL && { baseURL: config.baseURL }),
+    baseURL,
   });
 
-  // ---- Build messages --------------------------------------------------
+  // ---- Build messages -----------------------------------------------------
+  const userContent = buildUserContent(input);
+
   const messages: MessageParam[] = [
     {
       role: "user",
-      content: buildUserContent(input),
+      content: userContent,
     },
   ];
 
-  // ---- Call API --------------------------------------------------------
+  // ---- Call API -----------------------------------------------------------
   const response: Message = await client.messages.create({
-    model: config.model,
+    model,
     max_tokens: 8192,
-    system: buildSystemContent(input.systemPrompt, config.promptCaching),
+    system: input.systemPrompt,
     messages,
-    tools: [RENDER_COMPONENT_TOOL],
-    tool_choice: { type: "tool", name: "render_component" },
   });
 
-  // ---- Extract TSX from tool_use response block -------------------------
-  const toolUseBlock = response.content.find(
-    (block): block is Anthropic.ToolUseBlock => block.type === "tool_use"
-  );
-
-  if (!toolUseBlock || toolUseBlock.name !== "render_component") {
-    throw new Error(
-      `Unexpected Claude response: expected tool_use block "render_component", got ${JSON.stringify(response.content)}`
-    );
+  // ---- Extract TSX from response -------------------------------------------
+  let tsx = "";
+  for (const block of response.content) {
+    if (block.type === "text") {
+      tsx += block.text;
+    }
   }
 
-  const tsx = (toolUseBlock.input as { tsx: string }).tsx;
-  if (typeof tsx !== "string" || tsx.length === 0) {
+  // Strip markdown code fences if present
+  tsx = tsx
+    .replace(/^```(?:tsx|typescript|jsx|javascript)?\s*\n?/m, "")
+    .replace(/\n?```\s*$/m, "")
+    .trim();
+
+  if (tsx.length === 0) {
     throw new Error(
-      `Claude returned empty or invalid tsx in tool response: ${JSON.stringify(toolUseBlock.input)}`
+      "Claude returned empty response."
     );
   }
-
-  // ---- Build usage info ------------------------------------------------
-  const cacheReadInputTokens =
-    (response.usage as any)?.cache_read_input_tokens ?? 0;
-  const cacheCreationInputTokens =
-    (response.usage as any)?.cache_creation_input_tokens ?? 0;
 
   return {
     tsx,
     usage: {
       inputTokens: response.usage?.input_tokens ?? 0,
       outputTokens: response.usage?.output_tokens ?? 0,
-      cacheCreationInputTokens:
-        cacheCreationInputTokens > 0 ? cacheCreationInputTokens : undefined,
-      cacheReadInputTokens:
-        cacheReadInputTokens > 0 ? cacheReadInputTokens : undefined,
     },
-    cacheHit: cacheReadInputTokens > 0,
   };
 }
 
 // ---------------------------------------------------------------------------
-// Exports for testing / external inspection
+// Exports for testing
 // ---------------------------------------------------------------------------
 
-export { RENDER_COMPONENT_TOOL, buildSystemContent, buildUserContent };
+export { buildUserContent };

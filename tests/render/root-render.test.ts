@@ -110,11 +110,11 @@ function create9x16Script(): Script {
 describe("generateRenderRoot", () => {
   it("generates a valid Root.tsx string for a 2-block script", () => {
     const script = createMinimalScript();
-    const result = generateRenderRoot({ script });
+    const result = generateRenderRoot({ script, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     // Basic structural assertions
     expect(result).toContain("import { registerRoot, Composition } from 'remotion';");
-    expect(result).toContain("import { BlockComposition } from '../../remotion/VideoComposition';");
+    expect(result).toContain("import { BlockComposition } from './remotion/VideoComposition';");
     expect(result).toContain('id="Block"');
     expect(result).toContain('component={BlockComposition}');
     expect(result).toContain("durationInFrames={1}");
@@ -123,8 +123,9 @@ describe("generateRenderRoot", () => {
     expect(result).toContain("height={script.meta.height}");
     expect(result).toContain("defaultProps={{ blockId: 'B01' }}");
     expect(result).toContain("calculateMetadata");
-    expect(result).toContain("inputProps.blockId");
-    expect(result).toContain("block.timing.frames");
+    expect(result).toContain("props: inputProps");
+    expect(result).toContain("resolved.blockId");
+    expect(result).toContain("block?.timing?.frames");
     expect(result).toContain("registerRoot(Root)");
 
     // Should contain inlined script data for both blocks
@@ -139,7 +140,7 @@ describe("generateRenderRoot", () => {
 
   it("generates correct Root.tsx for 9:16 vertical video at 60fps", () => {
     const script = create9x16Script();
-    const result = generateRenderRoot({ script });
+    const result = generateRenderRoot({ script, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     // The inlined script should have the correct meta
     expect(result).toContain('"fps": 60');
@@ -154,7 +155,7 @@ describe("generateRenderRoot", () => {
 
   it("includes all block IDs in the inlined script data", () => {
     const script = createMinimalScript();
-    const result = generateRenderRoot({ script });
+    const result = generateRenderRoot({ script, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     // Both blocks must appear in the inlined data
     expect(result).toMatch(/"id":\s*"B01"/);
@@ -196,7 +197,7 @@ describe("generateRenderRoot", () => {
       artifacts: {},
     };
 
-    const result = generateRenderRoot({ script });
+    const result = generateRenderRoot({ script, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     expect(result).toContain("defaultProps={{ blockId: 'B03' }}");
     expect(result).toContain('"B03"');

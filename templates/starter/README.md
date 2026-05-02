@@ -14,15 +14,7 @@ B00.wav   ← 10–30 seconds of clear speech, WAV format
 
 This file is required for TTS (text-to-speech) voice cloning. All narration blocks will use this voice.
 
-### 2. Set your API key
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-
-This is needed for Claude to generate visual components.
-
-### 3. Check your environment
+### 2. Check your environment
 
 ```bash
 autovideo doctor
@@ -30,7 +22,7 @@ autovideo doctor
 
 This verifies that all dependencies (Node.js, ffmpeg, Chromium, VoxCPM2, etc.) are available.
 
-### 4. Build the video
+### 3. Build the video
 
 ```bash
 autovideo build project.json

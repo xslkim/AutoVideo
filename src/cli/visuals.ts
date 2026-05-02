@@ -203,9 +203,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
 
   // Anthropic config for generateComponent
   const anthropicConfig: AnthropicConfig = {
-    apiKeyEnv: config.anthropic.apiKeyEnv,
     model: config.anthropic.model,
-    promptCaching: config.anthropic.promptCaching,
     maxRetries: config.anthropic.maxRetries,
     baseURL: config.anthropic.baseURL,
   };

@@ -210,7 +210,7 @@ export async function validateStatic(tsxPath: string, tsconfigPath: string): Pro
     const { stdout, stderr } = await execFileAsync(tscPath, ["-p", tsconfigPath], {
       cwd: path.dirname(tsconfigPath),
       timeout: 30000,
-      env: { ...process.env, ANTHROPIC_API_KEY: undefined },
+      env: { ...process.env },
       maxBuffer: 1024 * 1024,
     });
     const combined = (stdout || "") + (stderr || "");

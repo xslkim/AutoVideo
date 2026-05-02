@@ -8,7 +8,6 @@
     "concurrency": 4
   },
   "anthropic": {
-    "apiKeyEnv": "ANTHROPIC_API_KEY",
     "model": "claude-sonnet-4-6",
     "concurrency": 4
   },

@@ -133,7 +133,6 @@ Optional file in project root:
   },
   "anthropic": {
     "model": "claude-sonnet-4-6",
-    "promptCaching": true,
     "maxRetries": 3
   },
   "render": {

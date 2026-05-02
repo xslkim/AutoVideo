@@ -23,16 +23,16 @@ describe('runIsolated', () => {
   it('should whitelist only allowed env vars and strip sensitive ones', async () => {
     // Set a sensitive env var in the current process (for test purposes)
     // The child process should NOT see it because runIsolated builds a clean env
-    process.env.ANTHROPIC_API_KEY = 'sk-test-secret-key-12345';
+    process.env.ANTHROPIC_AUTH_TOKEN = 'sk-test-secret-token-12345';
 
     try {
-      // Use printenv to check if ANTHROPIC_API_KEY is visible in child
-      const result = await runIsolated('printenv', ['ANTHROPIC_API_KEY']);
+      // Use printenv to check if ANTHROPIC_AUTH_TOKEN is visible in child
+      const result = await runIsolated('printenv', ['ANTHROPIC_AUTH_TOKEN']);
       // printenv exits 0 if var is set, 1 if not set
       expect(result.exitCode).not.toBe(0);
       expect(result.stdout.trim()).toBe('');
     } finally {
-      delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.ANTHROPIC_AUTH_TOKEN;
     }
   });
 

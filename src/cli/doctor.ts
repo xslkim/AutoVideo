@@ -18,6 +18,7 @@ import { homedir, platform } from "node:os";
 import * as http from "node:http";
 import { loadConfig } from "../config/load.js";
 import type { AutoVideoConfig } from "../config/defaults.js";
+import { resolveClaudeCredentials } from "../config/claude-settings.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -235,45 +236,44 @@ async function checkVoxCPMModel(config: AutoVideoConfig): Promise<CheckResult> {
   };
 }
 
-async function checkClaudeApiKey(config: AutoVideoConfig): Promise<CheckResult> {
-  const envVar = config.anthropic.apiKeyEnv;
-  const val = process.env[envVar];
-  if (val && val.length > 0) {
+async function checkClaudeCredentials(_config: AutoVideoConfig): Promise<CheckResult> {
+  const creds = resolveClaudeCredentials();
+  if (!creds) {
     return {
-      name: "Claude API key",
-      status: "PASS",
-      detail: `${envVar} is set (${val.length} chars)`,
-      fix: "",
+      name: "Claude credentials",
+      status: "FAIL",
+      detail: "no credentials found",
+      fix: "Set ANTHROPIC_AUTH_TOKEN env var, or configure ~/.claude/settings.json via cc-switch.",
     };
   }
   return {
-    name: "Claude API key",
-    status: "FAIL",
-    detail: `${envVar} is not set`,
-    fix: `Set the environment variable: export ${envVar}="sk-ant-..."`,
+    name: "Claude credentials",
+    status: "PASS",
+    detail: `configured (baseUrl: ${creds.baseUrl})`,
+    fix: "",
   };
 }
 
 async function checkClaudeApiConnectivity(config: AutoVideoConfig): Promise<CheckResult> {
-  // First check if API key is available
-  const envVar = config.anthropic.apiKeyEnv;
-  const apiKey = process.env[envVar];
-  if (!apiKey) {
+  const creds = resolveClaudeCredentials();
+  if (!creds) {
     return {
       name: "Claude API connectivity",
       status: "WARN",
-      detail: "skipped (no API key)",
-      fix: `Set ${envVar} first`,
+      detail: "skipped (no credentials)",
+      fix: "Configure Claude credentials first.",
     };
   }
 
   try {
-    // Use Anthropic SDK for a minimal ping call
     const Anthropic = (await import("@anthropic-ai/sdk")).default;
-    const client = new Anthropic({ apiKey });
-    // Minimal API call: list messages with tiny limit
+    const client = new Anthropic({
+      apiKey: creds.authToken,
+      baseURL: creds.baseUrl,
+    });
+    const model = config.anthropic.model || creds.model || "claude-sonnet-4-6";
     await client.messages.create({
-      model: config.anthropic.model,
+      model,
       max_tokens: 1,
       messages: [{ role: "user", content: "ping" }],
     });
@@ -284,18 +284,16 @@ async function checkClaudeApiConnectivity(config: AutoVideoConfig): Promise<Chec
       fix: "",
     };
   } catch (err: any) {
-    // If we get a 400/401/403 etc., the API is reachable but auth may be wrong
     const status = err?.status ?? err?.statusCode;
     if (status === 401) {
       return {
         name: "Claude API connectivity",
         status: "WARN",
         detail: `reachable but auth failed (HTTP ${status})`,
-        fix: "Check your API key is valid.",
+        fix: "Check your credentials are valid.",
       };
     }
     if (status && status >= 400 && status < 500) {
-      // API reachable, just something wrong with the request
       return {
         name: "Claude API connectivity",
         status: "PASS",
@@ -307,7 +305,7 @@ async function checkClaudeApiConnectivity(config: AutoVideoConfig): Promise<Chec
       name: "Claude API connectivity",
       status: "WARN",
       detail: `unreachable: ${err?.message ?? err}`,
-      fix: "Check network connectivity and Anthropic API status.",
+      fix: "Check network connectivity and API endpoint.",
     };
   }
 }
@@ -459,7 +457,7 @@ export async function doctorAction(): Promise<number> {
   checks.push(await checkCJKFonts());
   checks.push(await checkVoxCPMService(config));
   checks.push(await checkVoxCPMModel(config));
-  checks.push(await checkClaudeApiKey(config));
+  checks.push(await checkClaudeCredentials(config));
   checks.push(await checkClaudeApiConnectivity(config));
   checks.push(await checkCacheDirWritable(config));
   checks.push(await checkDiskSpace());

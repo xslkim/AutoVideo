@@ -83,9 +83,7 @@ function createTestConfig(overrides?: Partial<AutoVideoConfig>): AutoVideoConfig
       concurrency: 4,
     },
     anthropic: {
-      apiKeyEnv: "ANTHROPIC_API_KEY",
       model: "claude-sonnet-4-6",
-      promptCaching: true,
       maxRetries: 3,
       concurrency: 2,
     },
@@ -162,7 +160,6 @@ function cleanup(): void {
 // Mock generateComponent to avoid real API calls
 vi.mock("../../src/ai/component-gen.js", () => ({
   generateComponent: vi.fn(),
-  buildSystemContent: vi.fn(() => "system prompt"),
   buildUserContent: vi.fn(() => "user prompt"),
 }));
 
@@ -202,7 +199,6 @@ describe("visuals command", () => {
     mockGenerate.mockResolvedValue({
       tsx: VALID_TSX,
       usage: { inputTokens: 100, outputTokens: 50 },
-      cacheHit: false,
     });
     mockValidate.mockResolvedValue({ pass: true, errors: [] });
 
@@ -240,7 +236,6 @@ describe("visuals command", () => {
       return {
         tsx: callCount === 1 ? INVALID_TSX : VALID_TSX,
         usage: { inputTokens: 100, outputTokens: 50 },
-        cacheHit: false,
       };
     });
 
@@ -283,7 +278,6 @@ describe("visuals command", () => {
     mockGenerate.mockResolvedValue({
       tsx: INVALID_TSX,
       usage: { inputTokens: 100, outputTokens: 50 },
-      cacheHit: false,
     });
 
     // Validate always fails
@@ -314,7 +308,6 @@ describe("visuals command", () => {
     mockGenerate.mockResolvedValue({
       tsx: VALID_TSX,
       usage: { inputTokens: 100, outputTokens: 50 },
-      cacheHit: false,
     });
     mockValidate.mockResolvedValue({ pass: true, errors: [] });
 
@@ -330,7 +323,6 @@ describe("visuals command", () => {
     mockGenerate.mockResolvedValue({
       tsx: VALID_TSX,
       usage: { inputTokens: 100, outputTokens: 50 },
-      cacheHit: false,
     });
     mockValidate.mockResolvedValue({ pass: true, errors: [] });
 
@@ -352,7 +344,6 @@ describe("visuals command", () => {
     mockGenerate.mockResolvedValue({
       tsx: VALID_TSX,
       usage: { inputTokens: 100, outputTokens: 50 },
-      cacheHit: false,
     });
     mockValidate.mockResolvedValue({ pass: true, errors: [] });
 
@@ -383,7 +374,6 @@ describe("visuals command", () => {
     mockGenerate.mockResolvedValue({
       tsx: VALID_TSX,
       usage: { inputTokens: 100, outputTokens: 50 },
-      cacheHit: false,
     });
     mockValidate.mockResolvedValue({ pass: true, errors: [] });
 
@@ -398,7 +388,6 @@ describe("visuals command", () => {
     mockGenerate.mockResolvedValue({
       tsx: VALID_TSX,
       usage: { inputTokens: 100, outputTokens: 50 },
-      cacheHit: false,
     });
     mockValidate.mockResolvedValue({ pass: true, errors: [] });
 
@@ -429,14 +418,12 @@ describe("visuals command", () => {
         return {
           tsx: INVALID_TSX,
           usage: { inputTokens: 100, outputTokens: 50 },
-          cacheHit: false,
         };
       }
       b02Started = true;
       return {
         tsx: VALID_TSX,
         usage: { inputTokens: 100, outputTokens: 50 },
-        cacheHit: false,
       };
     });
 

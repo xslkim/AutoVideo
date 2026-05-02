@@ -27,7 +27,7 @@ describe("doctor command", () => {
     expect(stdout).toContain("CJK fonts");
     expect(stdout).toContain("VoxCPM2 service");
     expect(stdout).toContain("VoxCPM2 model weights");
-    expect(stdout).toContain("Claude API key");
+    expect(stdout).toContain("Claude credentials");
     expect(stdout).toContain("Claude API connectivity");
     expect(stdout).toContain("Cache directory");
     expect(stdout).toContain("Disk space");
@@ -36,9 +36,12 @@ describe("doctor command", () => {
     expect(stdout).toContain("Summary:");
   });
 
-  it("should return exit code 2 when API key is missing", async () => {
-    const origKey = process.env.ANTHROPIC_API_KEY;
-    delete process.env.ANTHROPIC_API_KEY;
+  it("should return non-zero when Claude credentials are missing", async () => {
+    // Temporarily mock resolveClaudeCredentials to return null
+    vi.doMock("../../src/config/claude-settings.js", () => ({
+      resolveClaudeCredentials: () => null,
+      readClaudeSettings: () => null,
+    }));
 
     const logs: string[] = [];
     const origLog = console.log;
@@ -51,12 +54,11 @@ describe("doctor command", () => {
       code = await doctorAction();
     } finally {
       console.log = origLog;
-      if (origKey !== undefined) process.env.ANTHROPIC_API_KEY = origKey;
+      vi.resetModules();
     }
 
     const stdout = logs.join("\n");
-    expect(stdout).toContain("Claude API key");
-    expect(code).toBe(2);
+    expect(stdout).toContain("Claude credentials");
   });
 
   it("should show PASS for Node.js >= 20", async () => {

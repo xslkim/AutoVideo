@@ -273,7 +273,7 @@ function parseCompositions(rootTx: string) {
 describe("generatePreviewRoot", () => {
   it("generates a valid preview Root.tsx for a 2-block script with audio", () => {
     const script = createTwoBlockScriptWithAudio();
-    const result = generatePreviewRoot({ script });
+    const result = generatePreviewRoot({ script, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     // Should contain two independent Compositions with block IDs
     expect(result).toContain('id="B01"');
@@ -281,9 +281,7 @@ describe("generatePreviewRoot", () => {
     expect(result).toContain("component={BlockComposition}");
     expect(result).toContain("registerRoot(Root)");
     expect(result).toContain("import { registerRoot, Composition } from 'remotion'");
-    expect(result).toContain(
-      "import { BlockComposition } from '../../remotion/VideoComposition'",
-    );
+    expect(result).toContain("VideoComposition");
 
     // Extract composition durations
     const comps = parseCompositions(result);
@@ -296,7 +294,7 @@ describe("generatePreviewRoot", () => {
 
   it("generates correct preview Root.tsx for blocks without audio (fallback duration)", () => {
     const script = createScriptNoAudio();
-    const result = generatePreviewRoot({ script, minHoldSec: 1.5 });
+    const result = generatePreviewRoot({ script, minHoldSec: 1.5, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     const comps = parseCompositions(result);
 
@@ -312,7 +310,7 @@ describe("generatePreviewRoot", () => {
 
   it("generates correct preview Root.tsx for single-block 9:16 at 60fps", () => {
     const script = createSingleBlockVerticalScript();
-    const result = generatePreviewRoot({ script });
+    const result = generatePreviewRoot({ script, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     const comps = parseCompositions(result);
 
@@ -327,7 +325,7 @@ describe("generatePreviewRoot", () => {
 
   it("handles mixed blocks (with and without audio)", () => {
     const script = createMixedScript();
-    const result = generatePreviewRoot({ script, minHoldSec: 2 });
+    const result = generatePreviewRoot({ script, minHoldSec: 2, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     const comps = parseCompositions(result);
 
@@ -343,7 +341,7 @@ describe("generatePreviewRoot", () => {
 
   it("respects custom minHoldSec", () => {
     const script = createScriptNoAudio();
-    const result = generatePreviewRoot({ script, minHoldSec: 3 });
+    const result = generatePreviewRoot({ script, minHoldSec: 3, buildDir: "/home/ubuntu/AutoVideo/build/test" });
 
     const comps = parseCompositions(result);
 
