@@ -103,3 +103,62 @@ export function parseScript(scriptMd: string): ParseResult {
     warnings,
   }
 }
+
+// ---------------------------------------------------------------------------
+// extractBlock — client-side version of §B.2
+// ---------------------------------------------------------------------------
+
+export interface ExtractResult {
+  content: string
+  range: [number, number]  // [startLine, endLine) 0-based
+}
+
+/**
+ * Extract a single block's content from script.md.
+ * Throws if the block is not found.
+ */
+export function extractBlock(scriptMd: string, id: string): ExtractResult {
+  const lines = scriptMd.split('\n')
+  let start = -1
+
+  for (let i = 0; i < lines.length; i++) {
+    const m = BLOCK_HEADER.exec(lines[i])
+    if (m && m.groups!.id === id) {
+      start = i
+      break
+    }
+  }
+
+  if (start < 0) {
+    throw new Error(`block ${id} not found`)
+  }
+
+  let end = lines.length
+  for (let i = start + 1; i < lines.length; i++) {
+    if (BLOCK_HEADER.test(lines[i])) {
+      end = i
+      break
+    }
+  }
+
+  return { content: lines.slice(start, end).join('\n'), range: [start, end] }
+}
+
+// ---------------------------------------------------------------------------
+// extractAssetPaths — find ./assets/ references in a block
+// ---------------------------------------------------------------------------
+
+const ASSET_PATH_RE = /\.\/assets\/([^\s)\]]+)/g
+
+/**
+ * Extract asset references from block content (visual section).
+ * Returns deduplicated array of paths relative to project root.
+ */
+export function extractAssetPaths(blockContent: string): string[] {
+  const paths = new Set<string>()
+  let m: RegExpExecArray | null
+  while ((m = ASSET_PATH_RE.exec(blockContent)) !== null) {
+    paths.add(`assets/${m[1]}`)
+  }
+  return Array.from(paths)
+}

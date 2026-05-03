@@ -44,14 +44,17 @@
           <span class="collapse-icon">{{ rightCollapsed ? '◀' : '▶' }}</span>
         </div>
         <div v-show="!rightCollapsed" class="panel-content">
-          <div v-if="selectedBlockId" class="selected-block-info">
-            <div class="block-panel-header">
-              <span class="block-panel-id">{{ selectedBlockId }}</span>
-              <span class="block-panel-title">{{ selectedBlockTitle || '(无标题)' }}</span>
-            </div>
-            <n-divider />
-            <n-empty description="块详情面板（待实现）" size="small" />
-          </div>
+          <BlockPanel
+            v-if="selectedBlockId"
+            :key="'bp-' + selectedBlockId"
+            :project-name="projectName"
+            :block-id="selectedBlockId"
+            :block-title="selectedBlockTitle"
+            :visual-mode="selectedBlockVisualMode"
+            @close="onBlockSelected('')"
+            @block-saved="onScriptChanged"
+            @visual-mode-changed="onVisualModeChanged"
+          />
           <n-empty v-else description="点击块查看详情" size="small" />
         </div>
       </div>
@@ -75,9 +78,11 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from '../components/layout/TopBar.vue'
 import BlockSidebar from '../components/layout/BlockSidebar.vue'
+import BlockPanel from '../components/block/BlockPanel.vue'
 import MetaEditor from '../components/editors/MetaEditor.vue'
 import ScriptEditor from '../components/editors/ScriptEditor.vue'
 import type { ParseResult } from '../utils/scriptParser'
+import type { VisualMode } from '../../../server/types/api'
 
 const route = useRoute()
 const projectName = computed(() => route.params.name as string)
@@ -93,6 +98,7 @@ const parsedBlocks = ref<ParseResult | null>(null)
 // Selected block for right panel
 const selectedBlockId = ref<string | null>(null)
 const selectedBlockTitle = ref('')
+const selectedBlockVisualMode = ref<VisualMode>('animation')
 
 function onBlocksUpdated(result: ParseResult) {
   parsedBlocks.value = result
@@ -105,9 +111,13 @@ function onBlockSelected(id: string) {
     return
   }
   selectedBlockId.value = id
-  // Find title from parsed blocks
   const block = parsedBlocks.value?.blocks.find(b => b.id === id)
   selectedBlockTitle.value = block?.title ?? ''
+  selectedBlockVisualMode.value = block?.visualMode ?? 'animation'
+}
+
+function onVisualModeChanged(mode: VisualMode) {
+  selectedBlockVisualMode.value = mode
 }
 
 function onScriptChanged() {
@@ -220,7 +230,7 @@ function onScriptChanged() {
 .panel-content {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 0;
 }
 
 .collapse-icon {
