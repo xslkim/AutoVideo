@@ -7,9 +7,9 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `—`
-- **last_updated**: `2026-05-03T10:30:00Z`
-- **next_action**: `开始 WP1.4 前端：项目列表页`
+- **active_task**: `WP1.4`
+- **last_updated**: `2026-05-03T11:00:00Z`
+- **next_action**: `开始 WP1.5 前端：项目页三栏布局 + MetaEditor`
 - **completed**: `6 / 42`
 - **blockers**: `0`
 
@@ -57,7 +57,7 @@
 | WP1.1 | 路径守卫中间件 | done | 2026-05-03 | 2026-05-03 | — | — |
 | WP1.2 | 项目服务 + 项目列表 API | done | 2026-05-03 | 2026-05-03 | — | — |
 | WP1.3 | Meta / Script 读写 API（含 ETag） | done | 2026-05-03 | 2026-05-03 | — | — |
-| WP1.4 | 前端：项目列表页 | pending | — | — | — | — |
+| WP1.4 | 前端：项目列表页 | in_progress | 2026-05-03 | — | — | — |
 | WP1.5 | 前端：项目页三栏布局 + MetaEditor | pending | — | — | — | — |
 | WP1.6 | Phase 1 验收 | pending | — | — | — | — |
 
