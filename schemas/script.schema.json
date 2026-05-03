@@ -65,6 +65,12 @@
           "title": {
             "type": "string"
           },
+          "visualMode": {
+            "type": "string",
+            "enum": ["animation", "image"],
+            "default": "animation",
+            "description": "Visual generation mode: animation (Claude-generated Component.tsx) or image (AI-generated PNG)"
+          },
           "enter": {
             "type": "string",
             "enum": ["fade", "fade-up", "fade-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "none"]
@@ -85,6 +91,10 @@
               "componentPath": {
                 "type": "string",
                 "description": "Path to generated .tsx component (filled by visuals stage)"
+              },
+              "imagePath": {
+                "type": "string",
+                "description": "Path to generated PNG image (filled by image-gen stage, POSIX relative to build dir)"
               }
             }
           },

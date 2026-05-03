@@ -11,6 +11,7 @@ import schema from "../../schemas/script.schema.json" with { type: "json" };
 import minimalFixture from "../fixtures/minimal-script.json" with { type: "json" };
 import {
   assertCompiledScript,
+  assertVisualsReady,
   isAudioReady,
   isVisualReady,
   isRenderInputReady,
@@ -104,6 +105,12 @@ describe("assertCompiledScript", () => {
     expect(() => assertCompiledScript(script)).toThrow(/componentPath should not be set at compile stage/);
   });
 
+  it("throws on block with imagePath set at compile stage", () => {
+    const script = structuredClone(minimalFixture);
+    (script as any).blocks[0].visual.imagePath = "public/images/B01.png";
+    expect(() => assertCompiledScript(script)).toThrow(/imagePath should not be set at compile stage/);
+  });
+
   it("throws on missing artifacts.compiledAt", () => {
     const script = structuredClone(minimalFixture);
     delete (script as any).artifacts.compiledAt;
@@ -132,6 +139,7 @@ describe("Readiness type guards", () => {
       {
         id: "B01",
         title: "Test Block",
+        visualMode: "animation",
         enter: "fade",
         exit: "fade",
         visual: { description: "Test visual" },
@@ -223,6 +231,128 @@ describe("Readiness type guards", () => {
       cacheHit: false,
     };
     expect(isRendered(rendered)).toBe(true);
+  });
+
+  it("isVisualReady returns true for image-mode blocks with imagePath", () => {
+    const imgBlock: Script = structuredClone(base);
+    imgBlock.blocks[0].visualMode = "image";
+    imgBlock.blocks[0].visual.imagePath = "public/images/B01.png";
+    expect(isVisualReady(imgBlock)).toBe(true);
+  });
+
+  it("isVisualReady returns false for image-mode blocks missing imagePath", () => {
+    const imgBlock: Script = structuredClone(base);
+    imgBlock.blocks[0].visualMode = "image";
+    expect(isVisualReady(imgBlock)).toBe(false);
+  });
+
+  it("isRenderInputReady returns true for image-mode blocks with audio + imagePath", () => {
+    const imgReady: Script = structuredClone(base);
+    imgReady.blocks[0].visualMode = "image";
+    imgReady.blocks[0].audio = {
+      wavPath: "public/audio/B01.wav",
+      durationSec: 3.5,
+      lineTimings: [{ lineIndex: 0, startMs: 0, endMs: 3500 }],
+    };
+    imgReady.blocks[0].visual.imagePath = "public/images/B01.png";
+    expect(isRenderInputReady(imgReady)).toBe(true);
+  });
+
+  it("isRendered returns true for image-mode blocks fully populated", () => {
+    const rendered: Script = structuredClone(base);
+    rendered.blocks[0].visualMode = "image";
+    rendered.blocks[0].audio = {
+      wavPath: "public/audio/B01.wav",
+      durationSec: 3.5,
+      lineTimings: [{ lineIndex: 0, startMs: 0, endMs: 3500 }],
+    };
+    rendered.blocks[0].visual.imagePath = "public/images/B01.png";
+    rendered.blocks[0].timing = {
+      enterSec: 0.5,
+      holdSec: 3.5,
+      exitSec: 0.3,
+      totalSec: 4.3,
+      frames: 129,
+      enterFrames: 15,
+    };
+    rendered.blocks[0].render = {
+      partialPath: "output/partials/B01.mp4",
+      cacheHit: false,
+    };
+    expect(isRendered(rendered)).toBe(true);
+  });
+});
+
+describe("assertVisualsReady", () => {
+  const base: Script = {
+    meta: {
+      schemaVersion: "1.0",
+      title: "Test",
+      voiceRef: "/a.wav",
+      aspect: "16:9",
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      theme: "dark-code",
+      subtitleSafeBottom: 162,
+    },
+    blocks: [
+      {
+        id: "B01",
+        title: "Test Block",
+        visualMode: "animation",
+        enter: "fade",
+        exit: "fade",
+        visual: { description: "Test visual" },
+        narration: {
+          lines: [
+            { text: "Hello", ttsText: "Hello", highlights: [] },
+          ],
+        },
+      },
+    ],
+    assets: {},
+    artifacts: {},
+  };
+
+  it("throws on empty object", () => {
+    expect(() => assertVisualsReady({})).toThrow();
+  });
+
+  it("throws on missing meta", () => {
+    expect(() => assertVisualsReady({ blocks: [] })).toThrow(/Missing meta/);
+  });
+
+  it("throws on missing blocks", () => {
+    expect(() =>
+      assertVisualsReady({
+        meta: { schemaVersion: "1.0", title: "T" },
+      }),
+    ).toThrow(/Missing blocks/);
+  });
+
+  it("throws on animation block missing componentPath", () => {
+    const script = structuredClone(base);
+    expect(() => assertVisualsReady(script)).toThrow(/missing visual.componentPath/);
+  });
+
+  it("throws on image block missing imagePath", () => {
+    const script = structuredClone(base);
+    (script as any).blocks[0].visualMode = "image";
+    expect(() => assertVisualsReady(script)).toThrow(/requires visual.imagePath/);
+  });
+
+  it("accepts animation block with componentPath", () => {
+    const script = structuredClone(base);
+    script.blocks[0].visual.componentPath = "src/blocks/B01/Component.tsx";
+    expect(() => assertVisualsReady(script)).not.toThrow();
+  });
+
+  it("accepts image block with imagePath", () => {
+    const script = structuredClone(base);
+    (script as any).blocks[0].visualMode = "image";
+    script.blocks[0].visual.imagePath = "public/images/B01.png";
+    expect(() => assertVisualsReady(script)).not.toThrow();
   });
 });
 

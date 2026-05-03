@@ -14,6 +14,7 @@
     {
       "id": "B01",
       "title": "Hello World",
+      "visualMode": "animation",
       "enter": "fade",
       "exit": "fade",
       "visual": {

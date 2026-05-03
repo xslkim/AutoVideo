@@ -9,7 +9,7 @@ exports[`generatePreviewRoot > generates a valid preview Root.tsx for a 2-block 
  */
 
 import { registerRoot, Composition } from 'remotion';
-import { BlockComposition } from '../../remotion/VideoComposition';
+import { BlockComposition } from '../../../../xsl/AutoVideo/remotion/VideoComposition';
 
 const script = {
   "meta": {
@@ -72,7 +72,7 @@ exports[`generatePreviewRoot > generates correct preview Root.tsx for blocks wit
  */
 
 import { registerRoot, Composition } from 'remotion';
-import { BlockComposition } from '../../remotion/VideoComposition';
+import { BlockComposition } from '../../../../xsl/AutoVideo/remotion/VideoComposition';
 
 const script = {
   "meta": {
@@ -135,7 +135,7 @@ exports[`generatePreviewRoot > generates correct preview Root.tsx for single-blo
  */
 
 import { registerRoot, Composition } from 'remotion';
-import { BlockComposition } from '../../remotion/VideoComposition';
+import { BlockComposition } from '../../../../xsl/AutoVideo/remotion/VideoComposition';
 
 const script = {
   "meta": {
@@ -181,7 +181,7 @@ exports[`generatePreviewRoot > handles mixed blocks (with and without audio) 1`]
  */
 
 import { registerRoot, Composition } from 'remotion';
-import { BlockComposition } from '../../remotion/VideoComposition';
+import { BlockComposition } from '../../../../xsl/AutoVideo/remotion/VideoComposition';
 
 const script = {
   "meta": {

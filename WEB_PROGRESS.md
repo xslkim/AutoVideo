@@ -8,8 +8,8 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `WP5.1 类型与 Schema 更新`
-- **last_updated**: `2026-05-04T02:35:00Z`
-- **next_action**: `开始 WP5.1 类型与 Schema 更新`
+- **last_updated**: `2026-05-04T02:40:00Z`
+- **next_action**: `实现 WP5.1 类型与 Schema 更新`
 - **completed**: `27 / 42`
 - **blockers**: `0`
 
@@ -98,7 +98,7 @@
 
 | ID | 标题 | 状态 | 开始 | 完成 | Commit | 备注 |
 |----|------|------|------|------|--------|------|
-| WP5.1 | 类型与 Schema 更新 | pending | — | — | — | — |
+| WP5.1 | 类型与 Schema 更新 | in_progress | 2026-05-04 | — | — | — |
 | WP5.2 | compile.ts 解析 @visual 指令 | pending | — | — | — | — |
 | WP5.3 | image-gen.ts 文生图模块 | pending | — | — | — | — |
 | WP5.4 | visuals.ts 模式分流 | pending | — | — | — | — |

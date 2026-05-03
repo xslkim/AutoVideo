@@ -20,6 +20,12 @@ export interface ProgressEvent {
 }
 
 // ---------------------------------------------------------------------------
+// Visual mode — animation (Claude-generated Component.tsx) vs image (AI-generated PNG)
+// ---------------------------------------------------------------------------
+
+export type VisualMode = 'animation' | 'image';
+
+// ---------------------------------------------------------------------------
 // Animation preset — union literal type
 // ---------------------------------------------------------------------------
 
@@ -103,9 +109,12 @@ export interface Block {
   enter: AnimationPreset;
   exit: AnimationPreset;
 
+  visualMode: VisualMode; // 缺省 'animation'，图片模式为 'image'
+
   visual: {
     description: string; // --- visual --- raw text, fed to LLM
     componentPath?: string; // Stage 3 fills (generated .tsx path)
+    imagePath?: string; // Stage 3 fills for image mode (POSIX relative to build dir)
   };
 
   narration: {
@@ -177,24 +186,24 @@ export interface AudioReadyScript extends Script {
   blocks: (Block & { audio: NonNullable<Block["audio"]> })[];
 }
 
-/** visuals output; all blocks contain `visual.componentPath` */
+/** visuals output; all blocks contain visual.componentPath (animation) or visual.imagePath (image) */
 export interface VisualReadyScript extends Script {
-  blocks: (Block & { visual: { description: string; componentPath: string } })[];
+  blocks: (Block & { visual: { description: string; componentPath?: string; imagePath?: string } })[];
 }
 
-/** render input prerequisite; all blocks contain audio + componentPath, but timing not yet calculated */
+/** render input prerequisite; all blocks contain audio + (componentPath | imagePath), but timing not yet calculated */
 export interface RenderInputScript extends Script {
   blocks: (Block & {
     audio: NonNullable<Block["audio"]>;
-    visual: { description: string; componentPath: string };
+    visual: { description: string; componentPath?: string; imagePath?: string };
   })[];
 }
 
-/** render complete; all blocks contain audio + componentPath + timing + render */
+/** render complete; all blocks contain audio + (componentPath | imagePath) + timing + render */
 export interface RenderedScript extends Script {
   blocks: (Block & {
     audio: NonNullable<Block["audio"]>;
-    visual: { description: string; componentPath: string };
+    visual: { description: string; componentPath?: string; imagePath?: string };
     timing: NonNullable<Block["timing"]>;
     render: NonNullable<Block["render"]>;
   })[];
@@ -273,34 +282,83 @@ export function isAudioReady(script: Script): script is AudioReadyScript {
 }
 
 /**
- * Type guard: checks if a Script has visuals ready (all blocks have visual.componentPath).
+ * Type guard: checks if a Script has visuals ready.
+ * Animation blocks require visual.componentPath; image blocks require visual.imagePath.
  */
 export function isVisualReady(script: Script): script is VisualReadyScript {
-  return script.blocks.every(
-    (b) => b.visual.componentPath !== undefined && typeof b.visual.componentPath === "string",
-  );
+  return script.blocks.every((b) => {
+    if (b.visualMode === 'image') {
+      return b.visual.imagePath !== undefined && typeof b.visual.imagePath === 'string';
+    }
+    return b.visual.componentPath !== undefined && typeof b.visual.componentPath === 'string';
+  });
 }
 
 /**
- * Type guard: checks if a Script is RenderInput ready (all blocks have audio + componentPath).
+ * Asserts that a Script has visuals ready.
+ * Animation blocks require visual.componentPath; image blocks require visual.imagePath.
+ * Throws descriptive error if not.
+ */
+export function assertVisualsReady(data: unknown): asserts data is VisualReadyScript {
+  if (typeof data !== "object" || data === null) {
+    throw new Error("Expected object for VisualReadyScript");
+  }
+  const s = data as Record<string, unknown>;
+
+  if (typeof s.meta !== "object" || s.meta === null) {
+    throw new Error("Missing meta");
+  }
+  const meta = s.meta as Record<string, unknown>;
+  if (meta.schemaVersion !== "1.0") throw new Error("Missing or invalid meta.schemaVersion");
+  if (typeof meta.title !== "string") throw new Error("Missing meta.title");
+  if (!Array.isArray(s.blocks)) throw new Error("Missing blocks");
+
+  for (let i = 0; i < (s.blocks as unknown[]).length; i++) {
+    const block = (s.blocks as Record<string, unknown>[])[i];
+    if (typeof block.id !== "string") throw new Error(`Block ${i}: missing id`);
+
+    if (typeof block.visual !== "object" || block.visual === null) {
+      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual`);
+    }
+    const visual = block.visual as Record<string, unknown>;
+    const vmode = typeof block.visualMode === 'string' ? block.visualMode : 'animation';
+
+    if (vmode === 'image') {
+      if (typeof visual.imagePath !== "string") {
+        throw new Error(`Block ${i} (${block.id ?? "unknown"}): image mode requires visual.imagePath`);
+      }
+    } else {
+      if (typeof visual.componentPath !== "string") {
+        throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual.componentPath`);
+      }
+    }
+  }
+}
+
+/**
+ * Type guard: checks if a Script is RenderInput ready (all blocks have audio + visual).
+ * Animation blocks require visual.componentPath; image blocks require visual.imagePath.
  */
 export function isRenderInputReady(script: Script): script is RenderInputScript {
   return (
     isAudioReady(script) &&
-    script.blocks.every(
-      (b) => b.visual.componentPath !== undefined && typeof b.visual.componentPath === "string",
-    )
+    script.blocks.every((b) => {
+      if (b.visualMode === 'image') {
+        return b.visual.imagePath !== undefined && typeof b.visual.imagePath === 'string';
+      }
+      return b.visual.componentPath !== undefined && typeof b.visual.componentPath === 'string';
+    })
   );
 }
 
 /**
- * Type guard: checks if a Script is fully Rendered (all blocks have audio + componentPath + timing + render).
+ * Type guard: checks if a Script is fully Rendered (all blocks have audio + visual + timing + render).
  */
 export function isRendered(script: Script): script is RenderedScript {
   return script.blocks.every(
     (b) =>
       b.audio !== undefined &&
-      b.visual.componentPath !== undefined &&
+      (b.visual.componentPath !== undefined || b.visual.imagePath !== undefined) &&
       b.timing !== undefined &&
       b.render !== undefined,
   );
@@ -345,8 +403,15 @@ export function assertRenderInputReady(
       throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual`);
     }
     const visual = block.visual as Record<string, unknown>;
-    if (typeof visual.componentPath !== "string") {
-      throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual.componentPath (required for render)`);
+    const vmode = typeof block.visualMode === 'string' ? block.visualMode : 'animation';
+    if (vmode === 'image') {
+      if (typeof visual.imagePath !== "string") {
+        throw new Error(`Block ${i} (${block.id ?? "unknown"}): image mode requires visual.imagePath`);
+      }
+    } else {
+      if (typeof visual.componentPath !== "string") {
+        throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual.componentPath (required for render)`);
+      }
     }
 
     if (typeof block.audio !== "object" || block.audio === null) {
@@ -406,6 +471,9 @@ export function assertCompiledScript(data: unknown): asserts data is CompiledScr
     }
     if (visual.componentPath !== undefined) {
       throw new Error(`Block ${i} (${block.id}): componentPath should not be set at compile stage`);
+    }
+    if (visual.imagePath !== undefined) {
+      throw new Error(`Block ${i} (${block.id}): imagePath should not be set at compile stage`);
     }
   }
 
