@@ -74,6 +74,7 @@
 import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from '../components/layout/TopBar.vue'
+import BlockSidebar from '../components/layout/BlockSidebar.vue'
 import MetaEditor from '../components/editors/MetaEditor.vue'
 import ScriptEditor from '../components/editors/ScriptEditor.vue'
 import type { ParseResult } from '../utils/scriptParser'
@@ -84,12 +85,34 @@ const projectName = computed(() => route.params.name as string)
 const activeTab = ref('meta')
 const rightCollapsed = ref(false)
 const taskBarExpanded = ref(false)
+const scriptEditorKey = ref(0)
 
-// Parsed blocks from ScriptEditor (for BlockSidebar in WP2.4)
+// Parsed blocks from ScriptEditor (for BlockSidebar)
 const parsedBlocks = ref<ParseResult | null>(null)
+
+// Selected block for right panel
+const selectedBlockId = ref<string | null>(null)
+const selectedBlockTitle = ref('')
 
 function onBlocksUpdated(result: ParseResult) {
   parsedBlocks.value = result
+}
+
+function onBlockSelected(id: string) {
+  if (!id) {
+    selectedBlockId.value = null
+    selectedBlockTitle.value = ''
+    return
+  }
+  selectedBlockId.value = id
+  // Find title from parsed blocks
+  const block = parsedBlocks.value?.blocks.find(b => b.id === id)
+  selectedBlockTitle.value = block?.title ?? ''
+}
+
+function onScriptChanged() {
+  // Force reload ScriptEditor to pick up changes made by BlockSidebar
+  scriptEditorKey.value++
 }
 </script>
 
