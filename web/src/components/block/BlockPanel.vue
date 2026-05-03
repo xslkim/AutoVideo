@@ -13,6 +13,7 @@
       <n-radio-group
         :value="currentMode"
         size="small"
+        :disabled="disabled"
         @update:value="onModeChange"
       >
         <n-radio-button value="animation">动画</n-radio-button>
@@ -37,6 +38,7 @@
           :key="'be-' + blockId + '-' + editorKey"
           :project-name="projectName"
           :block-id="blockId"
+          :disabled="disabled"
           @saved="onBlockSaved"
         />
       </n-tab-pane>
@@ -70,6 +72,7 @@ const props = defineProps<{
   blockId: string
   blockTitle: string
   visualMode: VisualMode
+  disabled?: boolean
 }>()
 
 const emit = defineEmits<{

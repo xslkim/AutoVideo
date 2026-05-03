@@ -3,7 +3,7 @@
     <!-- Toolbar -->
     <div class="editor-toolbar">
       <span v-if="isDirty" class="dirty-badge">● 未保存</span>
-      <n-button size="small" type="primary" :loading="saving" @click="save">
+      <n-button size="small" type="primary" :loading="saving" :disabled="disabled" @click="save">
         保存
       </n-button>
     </div>
@@ -74,6 +74,7 @@ const { message } = createDiscreteApi(['message'])
 
 const props = defineProps<{
   projectName: string
+  disabled?: boolean
 }>()
 
 const emit = defineEmits<{

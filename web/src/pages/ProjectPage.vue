@@ -1,7 +1,20 @@
 <template>
   <div class="project-page">
     <!-- Top bar -->
-    <TopBar :project-name="projectName" />
+    <TopBar :project-name="projectName" :non-standard="nonStandard" />
+
+    <!-- Non-standard project warning banner -->
+    <n-alert
+      v-if="nonStandard"
+      type="error"
+      :bordered="false"
+      class="nonstandard-banner"
+    >
+      <template #header>
+        该项目使用非标准 project.json 配置，编辑功能已禁用
+      </template>
+      项目的 project.json 包含非标准字段（如自定义 meta 路径或多脚本文件），在此模式下不支持写入操作。请将 project.json 恢复为标准格式后方可编辑。
+    </n-alert>
 
     <!-- Body: left sidebar + center + right panel -->
     <div class="project-body">
@@ -10,6 +23,7 @@
         <BlockSidebar
           :project-name="projectName"
           :parsed-blocks="parsedBlocks"
+          :disabled="nonStandard"
           @block-selected="onBlockSelected"
           @script-changed="onScriptChanged"
         />
@@ -26,10 +40,10 @@
           :pane-style="{ height: '100%', overflow: 'hidden', padding: 0 }"
         >
           <n-tab-pane name="meta" tab="meta.md" display-directive="show">
-            <MetaEditor :project-name="projectName" />
+            <MetaEditor :project-name="projectName" :disabled="nonStandard" />
           </n-tab-pane>
           <n-tab-pane name="script" tab="script.md" display-directive="show">
-            <ScriptEditor :key="'script-' + scriptEditorKey" :project-name="projectName" @blocks-updated="onBlocksUpdated" />
+            <ScriptEditor :key="'script-' + scriptEditorKey" :project-name="projectName" :disabled="nonStandard" @blocks-updated="onBlocksUpdated" />
           </n-tab-pane>
           <n-tab-pane name="assets" tab="资源" display-directive="show">
             <AssetManager :project-name="projectName" />
@@ -51,6 +65,7 @@
             :block-id="selectedBlockId"
             :block-title="selectedBlockTitle"
             :visual-mode="selectedBlockVisualMode"
+            :disabled="nonStandard"
             @close="onBlockSelected('')"
             @block-saved="onScriptChanged"
             @visual-mode-changed="onVisualModeChanged"
@@ -66,7 +81,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from '../components/layout/TopBar.vue'
 import BlockSidebar from '../components/layout/BlockSidebar.vue'
@@ -75,6 +90,7 @@ import TaskBar from '../components/layout/TaskBar.vue'
 import MetaEditor from '../components/editors/MetaEditor.vue'
 import ScriptEditor from '../components/editors/ScriptEditor.vue'
 import AssetManager from '../components/assets/AssetManager.vue'
+import { apiGet } from '../utils/api'
 import type { ParseResult } from '../utils/scriptParser'
 import type { VisualMode } from '../../../server/types/api'
 
@@ -84,6 +100,7 @@ const projectName = computed(() => route.params.name as string)
 const activeTab = ref('meta')
 const rightCollapsed = ref(false)
 const scriptEditorKey = ref(0)
+const nonStandard = ref(false)
 
 // Parsed blocks from ScriptEditor (for BlockSidebar)
 const parsedBlocks = ref<ParseResult | null>(null)
@@ -92,6 +109,22 @@ const parsedBlocks = ref<ParseResult | null>(null)
 const selectedBlockId = ref<string | null>(null)
 const selectedBlockTitle = ref('')
 const selectedBlockVisualMode = ref<VisualMode>('animation')
+
+// Fetch project detail (for nonStandard flag)
+async function fetchProjectDetail() {
+  const result = await apiGet<{ nonStandard: boolean }>(`/api/projects/${projectName.value}`, { silent: true })
+  if (result.ok) {
+    nonStandard.value = result.data.nonStandard
+  }
+}
+
+onMounted(() => {
+  fetchProjectDetail()
+})
+
+watch(projectName, () => {
+  fetchProjectDetail()
+})
 
 function onBlocksUpdated(result: ParseResult) {
   parsedBlocks.value = result
@@ -229,5 +262,11 @@ function onScriptChanged() {
 .collapse-icon {
   font-size: 10px;
   color: #999;
+}
+
+/* Non-standard banner */
+.nonstandard-banner {
+  border-radius: 0;
+  flex-shrink: 0;
 }
 </style>

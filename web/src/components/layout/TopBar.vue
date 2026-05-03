@@ -121,6 +121,7 @@ const { message } = createDiscreteApi(['message'])
 
 const props = defineProps<{
   projectName: string
+  nonStandard?: boolean
 }>()
 
 const router = useRouter()
@@ -135,15 +136,15 @@ const mergeLoading   = ref(false)
 // ── Disable logic: same stage already has a pending/running task ──────
 
 const compileDisabled = computed(() =>
-  taskStore.hasActiveStage('compile') || taskStore.hasActiveStage('build'),
+  props.nonStandard || taskStore.hasActiveStage('compile') || taskStore.hasActiveStage('build'),
 )
 
 const buildDisabled = computed(() =>
-  taskStore.hasActiveStage('build') || taskStore.hasActiveStage('compile'),
+  props.nonStandard || taskStore.hasActiveStage('build') || taskStore.hasActiveStage('compile'),
 )
 
 const mergeDisabled = computed(() =>
-  taskStore.hasActiveStage('merge'),
+  props.nonStandard || taskStore.hasActiveStage('merge'),
 )
 
 // ── Final video preview/download ──────────────────────────────────────

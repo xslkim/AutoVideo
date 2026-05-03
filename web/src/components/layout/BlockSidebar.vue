@@ -3,7 +3,7 @@
     <!-- Header: title + add button -->
     <div class="sidebar-header">
       <span>块列表</span>
-      <n-button size="tiny" :loading="addingBlock" @click="addBlock">
+      <n-button size="tiny" :loading="addingBlock" :disabled="disabled" @click="addBlock">
         + 新建块
       </n-button>
     </div>
@@ -14,25 +14,25 @@
       <div class="batch-row">
         <n-button
           size="tiny"
-          :disabled="taskStore.hasActiveStage('tts') || batchLoading === 'tts'"
+          :disabled="disabled || taskStore.hasActiveStage('tts') || batchLoading === 'tts'"
           :loading="batchLoading === 'tts'"
           @click="batchCreate('tts')"
         >批量音频</n-button>
         <n-button
           size="tiny"
-          :disabled="taskStore.hasActiveStage('visuals') || batchLoading === 'visuals'"
+          :disabled="disabled || taskStore.hasActiveStage('visuals') || batchLoading === 'visuals'"
           :loading="batchLoading === 'visuals'"
           @click="batchCreate('visuals')"
         >批量视觉</n-button>
         <n-button
           size="tiny"
-          :disabled="taskStore.hasActiveStage('render') || batchLoading === 'render'"
+          :disabled="disabled || taskStore.hasActiveStage('render') || batchLoading === 'render'"
           :loading="batchLoading === 'render'"
           @click="batchCreate('render')"
         >批量渲染</n-button>
         <n-button
           size="tiny"
-          :disabled="batchLoading === 'clear'"
+          :disabled="disabled || batchLoading === 'clear'"
           :loading="batchLoading === 'clear'"
           @click="batchClearCache"
         >批量清缓存</n-button>
@@ -110,6 +110,7 @@ const taskStore = useTaskStore()
 const props = defineProps<{
   projectName: string
   parsedBlocks: ParseResult | null
+  disabled?: boolean
 }>()
 
 const emit = defineEmits<{
