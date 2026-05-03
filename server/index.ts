@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { createProjectRoutes } from './routes/projects.js';
 import { createBlockRoutes } from './routes/blocks.js';
 import { createAssetRoutes } from './routes/assets.js';
+import { TaskQueue } from './services/taskQueue.js';
 
 const app = new Hono();
 
@@ -19,6 +20,10 @@ const repoRoot = __dirname.endsWith(DIST_SEGMENTS)
   ? path.resolve(__dirname, '../../..')
   : path.resolve(__dirname, '..');
 const projectsRoot = process.env.PROJECTS_ROOT || path.join(repoRoot, 'project');
+
+// --- Task queue (shared singleton) ---
+
+export const taskQueue = new TaskQueue(projectsRoot, repoRoot);
 
 // --- API routes ---
 
