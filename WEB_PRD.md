@@ -1,8 +1,18 @@
 # AutoVideo Web UI — 产品需求文档
 
-**版本**: 2.3
+**版本**: 2.4
 **日期**: 2026-05-03
 **状态**: 待开发（目标：可由 AI agent 自主按文档实现）
+
+**v2.4 更新**:
+- 修正 §8 帧预览：去掉不存在的 `timing.startFrame/endFrame`，改用 Block composition + blockId
+- 解决 §14.1 tsconfig 矛盾：根 tsconfig 不 include server/
+- 快照流程必须复制 voice/ 目录（§4.5），否则 voiceRef 找不到文件
+- 加 `currentSlug` 任务运行期锁定规则（§3.3），meta.md slug 变更与未结束任务冲突返回 409
+- 明确 web 模式不读 `~/.claude/settings.json`，仅给一次性导入提示（§13.4）
+- Remotion bundle 必须显式传 `publicDir`（§7 / §8 / §A.5.4）
+- 单块清缓存同时清 cache/* + build/{slug}/ 实际产物 + 回写 script.json 字段（§5.1）
+- Phase 1 / Phase 6 验收脚本修正：先 build:server；/api/output 用 Content-Type 校验
 
 ---
 
@@ -131,6 +141,16 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 - taskRunner 调用任何 CLI stage 前都必须显式传 `outDir = path.join(projectDir, "build", currentSlug)`，**禁止依赖 `process.cwd()` 的相对解析**
 - compile 模块即使保留默认行为（`resolve("build", slug)`），web 路径也由调用方覆盖
 - 服务启动时若发现 `<repo>/build/` 目录存在（孤儿产物），日志 warn 一次，不删除
+
+**currentSlug 一致性规则**：
+
+- `currentSlug` 由 live `meta.md` 解析得出（不取目录 mtime 最大者）
+- 任务**入队**时（`POST /api/tasks` 收到请求那刻）即根据 live meta.md 计算并写入 `task.outputSlug`，持久化到 `tasks.jsonl`
+- 任务**运行**全程使用 `task.outputSlug`，期间用户即使改了 meta.md 的 slug 也不影响该任务输出位置
+- 当用户 `PUT /api/projects/:name/meta` 提交新内容且 slug 字段变更时，后端检查任务队列：
+  - 若有 `pending`/`running` 任务的 `outputSlug` 与新 slug 不一致 → 返回 `409 Conflict { code: "ERR_SLUG_LOCKED", runningTaskId, currentSlug, newSlug }`
+  - UI 弹框：「有任务正在使用 slug `xxx`，请等待任务结束或取消任务后再修改」
+- 块状态判定（§4.2.1）使用 live `currentSlug`；新 slug 下没有 build 目录时，所有块状态都显示为「未生成」
 
 ### 3.4 项目名约束
 
@@ -388,6 +408,8 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
    - `meta.md` → `_snapshot/meta.md`
    - `script.md` → `_snapshot/script.md`
    - `assets/` 整目录 → `_snapshot/assets/`（如存在）
+   - `voice/` 整目录 → `_snapshot/voice/`（如存在）。**必须复制**：`src/parser/meta.ts` 把 `voiceRef` 解析为相对 meta.md 目录的绝对路径，从快照编译时若 voice 目录缺失会报 `voiceRef file not found`
+   - 任何 meta.md / script.md 中以 `./` 开头的相对路径引用的目录（v1 仅 `assets/` 和 `voice/`）都要纳入快照
 3. 调用 compile：
    ```ts
    await compile({
@@ -396,7 +418,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
      onProgress, signal, ...config,
    });
    ```
-4. compile 内部解析 `_snapshot/project.json` → `_snapshot/meta.md` / `_snapshot/script.md` / `_snapshot/assets/`，输出 `outDir/script.json`
+4. compile 内部解析 `_snapshot/project.json` → `_snapshot/meta.md` / `_snapshot/script.md` / `_snapshot/assets/` / `_snapshot/voice/`，输出 `outDir/script.json`（`voiceRef` 字段为快照内绝对路径，下游 tts 直接用即可）
 
 > 用户编辑 script.md 后，必须重新 `compile`（或 `build`），下游 stage 才看到新内容。这是有意为之的契约（§12-2 的延伸）：避免跑了一半的 IR 与 live source 漂移。tts/visuals/render 直接读 `outDir/script.json`，不需要也不要再拷贝 source。
 
@@ -452,8 +474,15 @@ PUT    /api/projects/:name/blocks/:id   → 保存单块（来自块详情面板
 GET    /api/projects/:name/blocks       → 解析 script.md 返回 [{ id, title, line, visualMode, status, warnings }]
 PUT    /api/projects/:name/blocks/:id/visual-mode  → 切换块视觉模式 { mode: "animation" | "image" }
                                                      后端在该块块头下方插入/更新 `@visual: <mode>` 指令并写回 script.md
-POST   /api/projects/:name/blocks/:id/cache/clear  → 清空该块某类缓存
+POST   /api/projects/:name/blocks/:id/cache/clear  → 清空该块某类缓存 + 同时删除 build/{slug}/ 下对应实际产物
                                                      body: { kind: "audio" | "visual" | "partial" | "all" }
+                                                     audio   → 删 cache/audio/{hash}.* + build/{slug}/public/audio/{id}.wav + script.json 中 block.audio
+                                                     visual  → 删 cache/components/{hash}.* + cache/images/{hash}.* +
+                                                               build/{slug}/src/blocks/{id}/Component.tsx + build/{slug}/public/images/{id}.png +
+                                                               script.json 中 block.visual.componentPath / imagePath
+                                                     partial → 删 cache/partials/{hash}.* + build/{slug}/output/partials/{id}.mp4 + script.json 中 block.render
+                                                     all     → 上述全部 + script.json 中 block.timing
+                                                     操作完成后块状态立即回退到「未生成」
 ```
 
 **ETag/冲突协议**:
@@ -634,6 +663,7 @@ server/
 - 服务启动时预先调用 `@remotion/bundler` 一次，产物缓存到 `<repo>/.autovideo-web/remotion-bundle/`
 - 当 `build/{slug}/src/` 内容变化时（按目录 mtime 或 manifest hash）lazy 重 bundle
 - 否则 `frameRenderer` 复用同一 bundle 实例
+- bundle 调用**必须显式**传 `publicDir: path.join(buildDir, "public")`，与现有 `src/render/render-blocks.ts` 一致；否则 `staticFile("script.json")` / `staticFile("audio/...")` / `staticFile("images/...")` 解析不到
 
 **路径守卫**:
 - 任何接受 `:name`、`:file` 的路由先经过 `pathGuard` 中间件：白名单正则 + `path.resolve` + `startsWith` 校验，越界直接 400
@@ -670,20 +700,27 @@ await tts({
 接口：`GET /api/projects/:name/blocks/:id/preview?frame=N`
 
 后端流程：
-1. 读取 `build/{currentSlug}/script.json` 获取 `block.visual.componentPath`、`block.timing`、`block.audio.durationSec`、`meta.fps`、`meta.aspect`
-2. 校验：componentPath 文件存在；frame 在 `[0, timing.endFrame - timing.startFrame]` 内（越界返回 422）
-3. 取 / 重建 Remotion bundle（见 §7）
-4. 调用 `renderStill`：
+1. 读取 `build/{currentSlug}/script.json` 获取 `block.visual.componentPath`、`block.timing`、`block.audio?.durationSec`、`meta.fps`、`meta.aspect`、`meta.width`、`meta.height`
+2. 校验：componentPath 文件存在；frame 在 `[0, durationInFrames - 1]` 内（越界返回 422）
+   - `durationInFrames` 优先取 `block.timing.frames`（render 阶段已计算）；若无 timing 则用 `Math.round((block.audio?.durationSec ?? 5) * meta.fps)` 兜底
+3. 取 / 重建 Remotion bundle（见 §7），bundle 必须传 `publicDir: path.join(buildDir, "public")`，否则 `staticFile()` 解析不到 `script.json` / `audio/*` / `images/*`
+4. 用 `selectComposition` 拿到 `Block` 组合（Root.tsx 已注册，参数 `blockId`），再调用 `renderStill`：
    ```ts
+   const composition = await selectComposition({
+     serveUrl: bundleLocation,
+     id: 'Block',
+     inputProps: { blockId: id },  // calculateMetadata 会按 script.json 推 durationInFrames
+   });
    await renderStill({
-     composition: { id: 'VideoComposition', ... },
+     composition,                     // 已含 width/height/fps/durationInFrames
      serveUrl: bundleLocation,
      output: tmpFile,
-     frame: N + block.timing.startFrame,
-     inputProps: { script, currentBlockId: id },  // script 为整 script.json 内容
+     frame: N,                        // ★ 单块内偏移，不需要全局 startFrame
+     inputProps: { blockId: id },
      imageFormat: 'png',
      scale: 1,
      timeoutInMilliseconds: 30000,
+     cancelSignal: abortController.signal,
    });
    ```
 5. 返回 PNG 文件流，`Cache-Control: no-store`
@@ -698,7 +735,8 @@ await tts({
 
 **前置条件不满足**：
 - componentPath 不存在 → 404 `{ reason: "no_component" }`
-- audio 不存在但需要总帧数 → 仍可渲染（用 timing.endFrame 兜底），但 UI 提示「未生成音频，时长按默认值估算」
+- audio 不存在 → 仍可渲染（按 §8 步骤 2 兜底用 5 秒），UI 提示「未生成音频，时长按默认值估算」
+- `script.json` 必须先 copy 到 `build/{slug}/public/script.json`（compile / preview 模块已经在做，taskRunner 调用 compile 时已写入；frameRenderer 不要重复写）
 
 ---
 
@@ -854,7 +892,7 @@ await tts({
 | 11 | 平台支持 | 仅 Linux/macOS；Windows v1 不支持 |
 | 12 | Component.tsx 编辑 | UI 内只读；如需修改请用外部 IDE 改 `build/{slug}/src/blocks/...` |
 | 13 | 拖拽排序块 | 不支持；用户在 script.md 中手动调整 |
-| 14 | currentSlug | 始终用当前 meta.md 解析后的 slug，不取 mtime 最新 |
+| 14 | currentSlug | 始终用当前 meta.md 解析后的 slug，不取 mtime 最新；任务入队时锁定 `task.outputSlug`，运行期固定；slug 变更与未结束任务冲突返回 409 ERR_SLUG_LOCKED |
 | 15 | 任务运行中编辑 | 允许编辑；**仅 compile/build** 启动时快照 source 到 `build/{slug}/_snapshot/` 并从快照 compile；tts/visuals/render/merge 不快照，直接读 `build/{slug}/script.json` |
 | 16 | Remotion bundle | 启动预 bundle，缓存到 `.autovideo-web/remotion-bundle/`，按 src 内容变化 lazy 重建 |
 | 17 | 块视觉模式 | 块可选 `animation` / `image`；通过 `@visual:` 指令存于 script.md；`visuals` 模块按模式分流 |
@@ -877,6 +915,9 @@ await tts({
 | 34 | merge 术语 | UI 显示「合并视频」；Web stage = `merge`；CLI flag = `render --concat-only`；模块函数 = `concatPartials + applyLoudnorm + runQA` |
 | 35 | 包结构 | 不引入 npm workspaces；root + web/ 双 package + 各自 lockfile；`tsconfig.server.json` 编译 server/ 到 dist/server/ |
 | 36 | 取消信号 | 必须传到 fetch/SDK/Remotion `cancelSignal`/ffmpeg `child.kill`；taskRunner 给 5s 宽限 |
+| 37 | Anthropic 配置来源 | web 模式不读 `~/.claude/settings.json`，统一走 UI 设置 + env；首次启动若检测到 ~/.claude/settings.json 有 key 而 web/env 都没有，UI 弹一次性导入提示 |
+| 38 | 单块清缓存范围 | 同时清 cache/* 和 build/{slug}/ 下对应实际产物 + 回写 script.json 字段，确保块状态立即回退到「未生成」 |
+| 39 | 快照范围 | compile/build 快照必须包含 voice/ 目录（voiceRef 解析依赖），未来若引入新的 meta-relative 资源也需纳入 |
 
 ---
 
@@ -932,6 +973,13 @@ await tts({
 
 UI 设置面板优先级最高：UI 写入后立即覆盖；UI 显式置 null 才读环境变量。
 
+**与 CLI `~/.claude/settings.json` 的关系**：
+
+- 现有 `src/ai/component-gen.ts` 在 CLI 模式下会自动读 `~/.claude/settings.json` 的 `apiKey` / `baseURL`
+- web 模式**不读** `~/.claude/settings.json`，仅按上表的"UI > env"优先级取配置；理由是 web 把配置统一收口到设置面板，避免两套来源相互覆盖
+- 服务首次启动时若同时满足：①`.autovideo-web/config.json` 中 `anthropic.apiKey` 为空 ②环境变量 `ANTHROPIC_API_KEY` 为空 ③`~/.claude/settings.json` 存在且包含可用 apiKey —— 则在日志和 UI 顶部 banner 显示「检测到 ~/.claude/settings.json 配置，是否一键导入到 Web 设置？」，用户点确认后由后端读该文件 → 写入 `config.json`
+- 该提示一次性，用户点忽略后下次启动不再弹
+
 ### 13.5 配置文件结构
 
 ```json
@@ -973,7 +1021,7 @@ UI 设置面板优先级最高：UI 写入后立即覆盖；UI 显式置 null �
 <repo>/
 ├── package.json                 ← 既有，再加 server 相关 deps + scripts
 ├── package-lock.json
-├── tsconfig.json                ← 既有；新增 include "server/**/*.ts"
+├── tsconfig.json                ← 既有，保持不动（不 include server/，避免 npm run build 误编译 server）
 ├── tsconfig.server.json         ← ★ 新增，专编 server → dist/server/
 ├── server/                      ← 后端源码
 ├── web/
@@ -1195,7 +1243,7 @@ export interface Block {
    - 模板里的 `{id}` 在写入时替换为实际块 ID（如 `B03`）
 3. IR 写入：`block.visual.imagePath = "public/images/{id}.png"`、`block.visual.componentPath = "src/blocks/{id}/Component.tsx"`（与动画模式同字段）
 
-**bundle/render 影响**: 由于 PNG 在 `publicDir` 内，`bundle()` 默认会拷到 serve 目录，`staticFile()` 解析无需调整；`render-blocks.ts` 与 `root-render.ts` 完全无需修改。
+**bundle/render 影响**: 由于 PNG 在 `publicDir` 内，且 `src/render/render-blocks.ts` 已经显式传 `publicDir: path.join(buildDir, "public")`，`staticFile("images/{id}.png")` 解析正确；`render-blocks.ts` 与 `root-render.ts` 完全无需修改。Web 的 `frameRenderer` 也必须按相同方式传 publicDir（已在 §7 / §8 强调）。
 
 **缓存**: `cacheKey = sha256(prompt + model + size + baseURL)`，命中则跳过 HTTP 调用直接复制旧 PNG 与 wrapper；`force` 模式忽略缓存。
 
@@ -1410,8 +1458,13 @@ function replaceBlock(scriptMd: string, id: string, newContent: string): string 
 
 ### Phase 1
 ```bash
+# 先编译 server（首次执行 dist/server/index.js 不存在）
+npm ci
+npm run build:server
+
 # 启动服务（后台）
 PORT=3030 npm run start:web &
+sleep 2  # 等 Hono 监听
 
 # 健康
 curl -fsS http://127.0.0.1:3030/api/health | jq -e '.ok == true'
@@ -1515,6 +1568,11 @@ curl -fsS -X POST -H "Content-Type: application/json" \
 curl -fsS http://127.0.0.1:3030/api/doctor \
   | jq -e '.voxcpm and .anthropic and .imageGen and .ffmpeg and .remotion'
 
+# 验收前确保至少有一个图片模式块（验收点 1 要求"动画块和图片块各至少 1 个"）
+curl -fsS -X PUT -H "Content-Type: application/json" \
+  -d '{"mode":"image"}' \
+  http://127.0.0.1:3030/api/projects/MicroGpt/blocks/B01/visual-mode
+
 # 全量构建（耗时较长）
 TASK=$(curl -fsS -X POST -H "Content-Type: application/json" \
   -d '{"project":"MicroGpt","stage":"build"}' \
@@ -1530,9 +1588,17 @@ test -f project/MicroGpt/build/*/output/final_normalized.mp4
 # 仓库根不应出现孤儿 build/
 test ! -d build || ! ls build/*/output/final_normalized.mp4 2>/dev/null
 
-# /api/output 优先返回 final_normalized.mp4
+# /api/output 优先返回 final_normalized.mp4（Content-Type 必须是 video/mp4，且能下载到非空 mp4）
 curl -fsS -I http://127.0.0.1:3030/api/projects/MicroGpt/output \
-  | grep -qiE 'Content-Length|Content-Range'
+  | grep -qi '^content-type:[[:space:]]*video/mp4'
+curl -fsS -o /tmp/out.mp4 http://127.0.0.1:3030/api/projects/MicroGpt/output
+test -s /tmp/out.mp4
+file /tmp/out.mp4 | grep -qE 'ISO Media|MP4'
+
+# Range 请求返回 206 + 正确长度
+curl -fsS -D - -H "Range: bytes=0-1023" -o /tmp/range.bin \
+  http://127.0.0.1:3030/api/projects/MicroGpt/output \
+  | grep -qi '^HTTP/.* 206'
 
 # Demo 项目创建（复用 POST /api/projects）
 rm -rf project/demo
