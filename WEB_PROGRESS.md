@@ -8,8 +8,8 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `WP3.5 前端：任务栏 + 任务触发`
-- **last_updated**: `2026-05-03T23:30:00Z`
-- **next_action**: `实现 TaskBar / TaskItem / taskStore / SSE 前端封装`
+- **last_updated**: `2026-05-03T23:45:00Z`
+- **next_action**: `实现中：sse.ts → taskStore.ts → TaskProgress → TaskItem → TaskBar → TopBar → BlockPanel → ProjectPage`
 - **completed**: `20 / 42`
 - **blockers**: `0`
 
@@ -81,7 +81,7 @@
 | WP3.2 | 任务队列服务 | done | 2026-05-03 | 2026-05-03 | 9400925 | — |
 | WP3.3 | 任务运行器 | done | 2026-05-03 | 2026-05-03 | 7db0ef6 | — |
 | WP3.4 | 任务 API + SSE | done | 2026-05-03 | 2026-05-03 | 217dff1 | — |
-| WP3.5 | 前端：任务栏 + 任务触发 | pending | — | — | — | — |
+| WP3.5 | 前端：任务栏 + 任务触发 | in_progress | 2026-05-03 | — | — | — |
 | WP3.6 | Phase 3 验收 | pending | — | — | — | — |
 
 ### 阶段 WP4：产物预览（Phase 4）

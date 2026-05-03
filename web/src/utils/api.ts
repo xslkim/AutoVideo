@@ -92,3 +92,23 @@ export function apiPut<T>(
   if (ifMatch) headers['If-Match'] = ifMatch
   return apiFetch<T>(url, { method: 'PUT', headers, body: JSON.stringify(body) }, opts)
 }
+
+export function apiPost<T>(
+  url: string,
+  body?: unknown,
+  opts?: { silent?: boolean },
+): Promise<ApiResult<T>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  return apiFetch<T>(
+    url,
+    { method: 'POST', headers, body: body !== undefined ? JSON.stringify(body) : undefined },
+    opts,
+  )
+}
+
+export function apiDelete<T>(
+  url: string,
+  opts?: { silent?: boolean },
+): Promise<ApiResult<T>> {
+  return apiFetch<T>(url, { method: 'DELETE' }, opts)
+}

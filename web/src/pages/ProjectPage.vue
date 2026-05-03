@@ -60,16 +60,8 @@
       </div>
     </div>
 
-    <!-- Bottom task bar (collapsible) -->
-    <div class="task-bar" :class="{ 'task-bar--expanded': taskBarExpanded }">
-      <div class="task-bar-header" @click="taskBarExpanded = !taskBarExpanded">
-        <span class="task-status">● 空闲</span>
-        <span class="collapse-icon">{{ taskBarExpanded ? '▼' : '▲' }}</span>
-      </div>
-      <div v-show="taskBarExpanded" class="task-bar-content">
-        <n-empty description="暂无任务" size="small" />
-      </div>
-    </div>
+    <!-- Bottom task bar -->
+    <TaskBar :project-name="projectName" />
   </div>
 </template>
 
@@ -79,6 +71,7 @@ import { useRoute } from 'vue-router'
 import TopBar from '../components/layout/TopBar.vue'
 import BlockSidebar from '../components/layout/BlockSidebar.vue'
 import BlockPanel from '../components/block/BlockPanel.vue'
+import TaskBar from '../components/layout/TaskBar.vue'
 import MetaEditor from '../components/editors/MetaEditor.vue'
 import ScriptEditor from '../components/editors/ScriptEditor.vue'
 import AssetManager from '../components/assets/AssetManager.vue'
@@ -90,7 +83,6 @@ const projectName = computed(() => route.params.name as string)
 
 const activeTab = ref('meta')
 const rightCollapsed = ref(false)
-const taskBarExpanded = ref(false)
 const scriptEditorKey = ref(0)
 
 // Parsed blocks from ScriptEditor (for BlockSidebar)
@@ -237,31 +229,5 @@ function onScriptChanged() {
 .collapse-icon {
   font-size: 10px;
   color: #999;
-}
-
-/* Bottom task bar */
-.task-bar {
-  flex-shrink: 0;
-  border-top: 1px solid var(--n-border-color, #e0e0e6);
-}
-
-.task-bar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 16px;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.task-status {
-  color: #18a058;
-}
-
-.task-bar-content {
-  padding: 8px 16px 12px;
-  border-top: 1px solid var(--n-border-color, #e0e0e6);
-  max-height: 180px;
-  overflow-y: auto;
 }
 </style>

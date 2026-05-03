@@ -10,25 +10,101 @@
     </div>
     <div class="top-bar-actions">
       <n-space size="small">
-        <n-button size="small" disabled>编译</n-button>
-        <n-button size="small" disabled>全量构建</n-button>
-        <n-button size="small" disabled>合并视频</n-button>
+        <n-button
+          size="small"
+          :disabled="compileDisabled"
+          :loading="compileLoading"
+          @click="onCompile"
+        >
+          编译
+        </n-button>
+        <n-button
+          size="small"
+          :disabled="buildDisabled"
+          :loading="buildLoading"
+          @click="onBuild"
+        >
+          全量构建
+        </n-button>
+        <n-button
+          size="small"
+          :disabled="mergeDisabled"
+          :loading="mergeLoading"
+          @click="onMerge"
+        >
+          合并视频
+        </n-button>
         <n-button size="small" disabled>预览成片</n-button>
         <n-button size="small" disabled>下载成片</n-button>
-        <n-button size="small" quaternary>⚙ 设置</n-button>
+        <n-button size="small" quaternary disabled>⚙ 设置</n-button>
       </n-space>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useTaskStore } from '../../stores/taskStore'
+import { createDiscreteApi } from 'naive-ui'
+
+const { message } = createDiscreteApi(['message'])
 
 const props = defineProps<{
   projectName: string
 }>()
 
 const router = useRouter()
+const taskStore = useTaskStore()
+
+// ── Loading states ────────────────────────────────────────────────────
+
+const compileLoading = ref(false)
+const buildLoading   = ref(false)
+const mergeLoading   = ref(false)
+
+// ── Disable logic: same stage already has a pending/running task ──────
+
+const compileDisabled = computed(() =>
+  taskStore.hasActiveStage('compile') || taskStore.hasActiveStage('build'),
+)
+
+const buildDisabled = computed(() =>
+  taskStore.hasActiveStage('build') || taskStore.hasActiveStage('compile'),
+)
+
+const mergeDisabled = computed(() =>
+  taskStore.hasActiveStage('merge'),
+)
+
+// ── Action handlers ───────────────────────────────────────────────────
+
+async function onCompile() {
+  compileLoading.value = true
+  const task = await taskStore.createTask(props.projectName, 'compile')
+  compileLoading.value = false
+  if (task) {
+    message.success('编译任务已提交')
+  }
+}
+
+async function onBuild() {
+  buildLoading.value = true
+  const task = await taskStore.createTask(props.projectName, 'build')
+  buildLoading.value = false
+  if (task) {
+    message.success('全量构建任务已提交')
+  }
+}
+
+async function onMerge() {
+  mergeLoading.value = true
+  const task = await taskStore.createTask(props.projectName, 'merge')
+  mergeLoading.value = false
+  if (task) {
+    message.success('合并视频任务已提交')
+  }
+}
 </script>
 
 <style scoped>

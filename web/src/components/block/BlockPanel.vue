@@ -41,8 +41,65 @@
         />
       </n-tab-pane>
       <n-tab-pane name="output" tab="产物预览" display-directive="show">
-        <div class="placeholder-pane">
-          <n-empty description="产物预览（待实现）" size="small" />
+        <div class="output-pane">
+          <!-- Output preview placeholder -->
+          <div class="output-placeholder">
+            <n-empty description="产物预览（待实现）" size="small" />
+          </div>
+
+          <!-- Single-block action buttons -->
+          <div class="output-actions">
+            <div class="output-actions-title">单块操作</div>
+            <n-space vertical size="small">
+              <!-- Generate audio -->
+              <n-dropdown trigger="click" :options="audioMenuOpts" @select="(k: string) => onBlockAction(k, 'tts')">
+                <n-button
+                  size="small"
+                  block
+                  :disabled="taskStore.hasActiveStage('tts')"
+                  :loading="actionLoading === 'tts'"
+                >
+                  生成音频
+                </n-button>
+              </n-dropdown>
+
+              <!-- Generate visual (label changes per mode) -->
+              <n-dropdown trigger="click" :options="visualMenuOpts" @select="(k: string) => onBlockAction(k, 'visuals')">
+                <n-button
+                  size="small"
+                  block
+                  :disabled="taskStore.hasActiveStage('visuals')"
+                  :loading="actionLoading === 'visuals'"
+                >
+                  {{ currentMode === 'image' ? '生成图片' : '生成视觉' }}
+                </n-button>
+              </n-dropdown>
+
+              <!-- Render segment -->
+              <n-dropdown trigger="click" :options="renderMenuOpts" @select="(k: string) => onBlockAction(k, 'render')">
+                <n-button
+                  size="small"
+                  block
+                  :disabled="taskStore.hasActiveStage('render')"
+                  :loading="actionLoading === 'render'"
+                >
+                  渲染分段
+                </n-button>
+              </n-dropdown>
+
+              <!-- Recompile -->
+              <n-dropdown trigger="click" :options="compileMenuOpts" @select="(k: string) => onBlockAction(k, 'compile')">
+                <n-button
+                  size="small"
+                  block
+                  :disabled="taskStore.hasActiveStage('compile') || taskStore.hasActiveStage('build')"
+                  :loading="actionLoading === 'compile'"
+                >
+                  重新编译
+                </n-button>
+              </n-dropdown>
+            </n-space>
+          </div>
         </div>
       </n-tab-pane>
     </n-tabs>
@@ -50,13 +107,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { NButton, NDivider, NRadioGroup, NRadioButton, NSpin, NTabs, NTabPane, NEmpty, createDiscreteApi } from 'naive-ui'
+import { ref, watch, computed } from 'vue'
+import { NButton, NDivider, NRadioGroup, NRadioButton, NSpin, NTabs, NTabPane, NEmpty, NDropdown, NSpace, createDiscreteApi } from 'naive-ui'
 import { apiPut, getEtag } from '../../utils/api'
+import { useTaskStore } from '../../stores/taskStore'
 import BlockScriptEditor from './BlockScriptEditor.vue'
-import type { VisualMode } from '../../../../server/types/api'
+import type { VisualMode, Stage } from '../../../../server/types/api'
 
 const { message } = createDiscreteApi(['message'])
+const taskStore = useTaskStore()
 
 // ---------------------------------------------------------------------------
 // Props / Emits
@@ -83,6 +142,7 @@ const activeTab     = ref('script')
 const currentMode   = ref<VisualMode>(props.visualMode)
 const modeSwitching = ref(false)
 const editorKey     = ref(0)
+const actionLoading = ref<string | null>(null)
 
 // ---------------------------------------------------------------------------
 // Sync visualMode from props (when switching to a different block)
@@ -123,6 +183,53 @@ async function onModeChange(mode: VisualMode) {
   }
 
   modeSwitching.value = false
+}
+
+// ---------------------------------------------------------------------------
+// Block action buttons (Tab B)
+// ---------------------------------------------------------------------------
+
+function makeMenuOpts(label: string) {
+  return [
+    {
+      key: `${label}-force`,
+      label: '强制重跑（忽略缓存）',
+    },
+    {
+      key: `${label}-clear-cache`,
+      label: '清缓存（即将推出）',
+      disabled: true,
+    },
+  ]
+}
+
+const audioMenuOpts   = computed(() => makeMenuOpts('audio'))
+const visualMenuOpts  = computed(() => makeMenuOpts('visual'))
+const renderMenuOpts  = computed(() => makeMenuOpts('render'))
+const compileMenuOpts = computed(() => makeMenuOpts('compile'))
+
+async function onBlockAction(key: string, stage: Stage) {
+  const force = key.includes('-force')
+
+  actionLoading.value = stage
+  const task = await taskStore.createTask(
+    props.projectName,
+    stage,
+    stage === 'compile' ? undefined : [props.blockId],
+    force,
+  )
+  actionLoading.value = null
+
+  if (task) {
+    const stageLabels: Record<string, string> = {
+      tts: '生成音频',
+      visuals: '生成视觉',
+      render: '渲染',
+      compile: '编译',
+    }
+    const label = stageLabels[stage] || stage
+    message.success(`${label}任务已提交`)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -191,12 +298,33 @@ function onBlockSaved() {
   flex-shrink: 0;
 }
 
-/* Tab B placeholder */
-.placeholder-pane {
+/* Tab B — output pane */
+.output-pane {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.output-placeholder {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  min-height: 200px;
+  min-height: 100px;
+}
+
+.output-actions {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--n-border-color, #e0e0e6);
+}
+
+.output-actions-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #999;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 </style>
