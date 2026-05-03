@@ -8,7 +8,7 @@ import { createProjectRoutes } from './routes/projects.js';
 const app = new Hono();
 
 const isDev = process.env.NODE_ENV !== 'production';
-const repoRoot = path.resolve(import.meta.dirname, '..');
+const repoRoot = path.resolve(import.meta.dirname, '../../..');
 const projectsRoot = process.env.PROJECTS_ROOT || path.join(repoRoot, 'project');
 
 // --- API routes ---
