@@ -61,7 +61,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTaskStore } from '../../stores/taskStore'
 import { createDiscreteApi } from 'naive-ui'
@@ -105,6 +105,11 @@ const outputUrl = computed(() =>
 const showPreview = ref(false)
 const previewError = ref('')
 const showSettings = ref(false)
+
+// Clear preview error when modal opens or closes
+watch(showPreview, (val) => {
+  if (val) previewError.value = ''
+})
 
 function onPreviewError() {
   previewError.value = '无法加载成片视频，请确认已执行全量构建'
