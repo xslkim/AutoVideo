@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP6.7 Phase 6 验收`
-- **last_updated**: `2026-05-04T21:45:00Z`
-- **next_action**: `开始 WP6.7 Phase 6 验收`
-- **completed**: `41 / 42`
+- **active_task**: `—`
+- **last_updated**: `2026-05-04T22:30:00Z`
+- **next_action**: `所有任务已完成`
+- **completed**: `42 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -117,7 +117,7 @@
 | WP6.4 | 错误展示 + 日志查看 | done | 2026-05-04 | 2026-05-04 | 9c88880 | — |
 | WP6.5 | 部署脚本 | done | 2026-05-04 | 2026-05-04 | 72923b4 | — |
 | WP6.6 | 进程稳定性 + 优雅退出 | done | 2026-05-04 | 2026-05-04 | 7873a0c | — |
-| WP6.7 | Phase 6 验收 | pending | — | — | — | — |
+| WP6.7 | Phase 6 验收 | done | 2026-05-04 | 2026-05-04 | e38acd0 | 修复 imageGen/anthropic apiKey 配置映射 |
 
 ---
 

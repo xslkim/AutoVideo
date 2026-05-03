@@ -138,6 +138,7 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
       const raw: AppConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
       if (raw.anthropic) {
+        if (raw.anthropic.apiKey) cfg.anthropic.apiKey = raw.anthropic.apiKey;
         if (raw.anthropic.baseURL) cfg.anthropic.baseURL = raw.anthropic.baseURL;
         if (raw.anthropic.model) cfg.anthropic.model = raw.anthropic.model;
         if (raw.anthropic.concurrency !== undefined) cfg.anthropic.concurrency = raw.anthropic.concurrency;
@@ -150,7 +151,12 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
       }
 
       if (raw.imageGen) {
-        // imageGen config is stored for later use by image-gen module (WP5.3)
+        if (raw.imageGen.baseURL) cfg.imageGen.baseURL = raw.imageGen.baseURL;
+        if (raw.imageGen.apiKey) cfg.imageGen.apiKey = raw.imageGen.apiKey;
+        if (raw.imageGen.model) cfg.imageGen.model = raw.imageGen.model;
+        if (raw.imageGen.size) cfg.imageGen.size = raw.imageGen.size;
+        if (raw.imageGen.timeoutMs !== undefined) cfg.imageGen.timeoutMs = raw.imageGen.timeoutMs;
+        if (raw.imageGen.concurrency !== undefined) cfg.imageGen.concurrency = raw.imageGen.concurrency;
       }
     } catch {
       // Malformed config — use defaults
