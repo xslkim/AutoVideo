@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP2.1 服务端脚本解析器`
-- **last_updated**: `2026-05-03T14:00:00Z`
-- **next_action**: `实现 WP2.1 后继续 WP2.2`
-- **completed**: `9 / 42`
+- **active_task**: `—`
+- **last_updated**: `2026-05-03T14:10:00Z`
+- **next_action**: `开始 WP2.2 块列表 API + 单块 API`
+- **completed**: `10 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -65,7 +65,7 @@
 
 | ID | 标题 | 状态 | 开始 | 完成 | Commit | 备注 |
 |----|------|------|------|------|--------|------|
-| WP2.1 | 服务端脚本解析器 | in_progress | 2026-05-03 | — | — | — |
+| WP2.1 | 服务端脚本解析器 | done | 2026-05-03 | 2026-05-03 | b2d8ccd | — |
 | WP2.2 | 块列表 API + 单块 API | pending | — | — | — | — |
 | WP2.3 | 前端：ScriptEditor + 自定义语法高亮 | pending | — | — | — | — |
 | WP2.4 | 前端：BlockSidebar 侧边栏 | pending | — | — | — | — |
