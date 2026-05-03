@@ -62,6 +62,9 @@ export class TaskQueue extends EventEmitter {
   private runningId: string | null = null;
   private abortControllers: Map<string, AbortController> = new Map();
   private cancelTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  /** Task IDs that the user explicitly requested to cancel. Used to distinguish
+   *  user-triggered abort from other abort errors in handleTaskSettled. */
+  private cancelledIds: Set<string> = new Set();
 
   private projectsRoot: string;
   private tasksFile: string;
@@ -156,6 +159,8 @@ export class TaskQueue extends EventEmitter {
     }
 
     // status === 'running'
+    this.cancelledIds.add(taskId);
+
     const controller = this.abortControllers.get(taskId);
     if (controller) {
       controller.abort();
@@ -305,9 +310,10 @@ export class TaskQueue extends EventEmitter {
 
     const isAbortError =
       err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError');
+    const wasCancelled = this.cancelledIds.has(taskId);
 
     if (err && !isAbortError) {
-      // Actual failure
+      // Actual failure (not caused by user cancel or abort signal)
       task.status = 'failed';
       task.finishedAt = Date.now();
       task.durationMs = task.finishedAt - (task.startedAt ?? task.createdAt);
@@ -317,13 +323,14 @@ export class TaskQueue extends EventEmitter {
       this.persist(task);
       this.emit('task:fail', { ...task });
     } else {
-      // Completed or cancelled
+      // Completed, cancelled, or cancelling → settled
       if (task.status === 'cancelling') {
         task.status = 'cancelled';
-      } else if (task.status === 'running') {
+      } else if (wasCancelled || task.status === 'cancelled') {
+        task.status = 'cancelled';
+      } else {
         task.status = 'completed';
       }
-      // If already cancelled (settled immediately after abort), keep it cancelled
       task.finishedAt = Date.now();
       task.durationMs = task.finishedAt - (task.startedAt ?? task.createdAt);
       this.persist(task);
@@ -331,6 +338,7 @@ export class TaskQueue extends EventEmitter {
     }
 
     // Release worker and continue
+    this.cancelledIds.delete(taskId);
     this.runningId = null;
     this.abortControllers.delete(taskId);
     this.processNext();
