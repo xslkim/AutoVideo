@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP2.7 Phase 2 验收`
-- **last_updated**: `2026-05-03T18:30:00Z`
-- **next_action**: `运行 Phase 2 验收脚本`
-- **completed**: `15 / 42`
+- **active_task**: `WP3.1 CLI 模块改造：onProgress / signal / force`
+- **last_updated**: `2026-05-03T18:45:00Z`
+- **next_action**: `读 WEB_TASKS.md WP3.1 并开始实现`
+- **completed**: `16 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -71,7 +71,7 @@
 | WP2.4 | 前端：BlockSidebar 侧边栏 | done | 2026-05-03 | 2026-05-03 | 4c240ff | — |
 | WP2.5 | 前端：BlockPanel 块详情面板 Tab A | done | 2026-05-03 | 2026-05-03 | ea03100 | — |
 | WP2.6 | 资源管理 API + 前端 | done | 2026-05-03T17:00:00Z | 2026-05-03T18:00:00Z | db83a09 | — |
-| WP2.7 | Phase 2 验收 | in_progress | 2026-05-03T18:30:00Z | — | — | — |
+| WP2.7 | Phase 2 验收 | done | 2026-05-03T18:30:00Z | 2026-05-03T18:45:00Z | 87ab2e6 | — |
 
 ### 阶段 WP3：任务队列与进度（Phase 3）
 
