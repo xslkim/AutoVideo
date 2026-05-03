@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP1.6`
-- **last_updated**: `2026-05-03T13:00:00Z`
-- **next_action**: `运行 Phase 1 验收脚本`
-- **completed**: `8 / 42`
+- **active_task**: `—`
+- **last_updated**: `2026-05-03T13:10:00Z`
+- **next_action**: `开始 WP2.1 服务端脚本解析器`
+- **completed**: `9 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -59,7 +59,7 @@
 | WP1.3 | Meta / Script 读写 API（含 ETag） | done | 2026-05-03 | 2026-05-03 | — | — |
 | WP1.4 | 前端：项目列表页 | done | 2026-05-03 | 2026-05-03 | 9aa5d6a | — |
 | WP1.5 | 前端：项目页三栏布局 + MetaEditor | done | 2026-05-03 | 2026-05-03 | 50ddce3 | — |
-| WP1.6 | Phase 1 验收 | in_progress | 2026-05-03 | — | — | — |
+| WP1.6 | Phase 1 验收 | done | 2026-05-03 | 2026-05-03 | 50edb7f | — |
 
 ### 阶段 WP2：脚本编辑与资源管理（Phase 2）
 
