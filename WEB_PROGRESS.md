@@ -7,9 +7,9 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP4.1 Range 中间件`
-- **last_updated**: `2026-05-03T23:45:00Z`
-- **next_action**: `实现产物 API`
+- **active_task**: `WP4.2 产物 API`
+- **last_updated**: `2026-05-03T23:50:00Z`
+- **next_action**: `实现帧渲染服务`
 - **completed**: `23 / 42`
 - **blockers**: `0`
 
@@ -89,7 +89,7 @@
 | ID | 标题 | 状态 | 开始 | 完成 | Commit | 备注 |
 |----|------|------|------|------|--------|------|
 | WP4.1 | Range 中间件 | done | 2026-05-03 | 2026-05-03 | 10feb05 | — |
-| WP4.2 | 产物 API | pending | — | — | — | — |
+| WP4.2 | 产物 API | in_progress | 2026-05-03 | — | — | — |
 | WP4.3 | 帧渲染服务 | pending | — | — | — | — |
 | WP4.4 | 前端：产物预览组件 | pending | — | — | — | — |
 | WP4.5 | Phase 4 验收 | pending | — | — | — | — |

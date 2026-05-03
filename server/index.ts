@@ -8,6 +8,7 @@ import { createProjectRoutes } from './routes/projects.js';
 import { createBlockRoutes } from './routes/blocks.js';
 import { createAssetRoutes } from './routes/assets.js';
 import { createTaskRoutes } from './routes/tasks.js';
+import { createOutputRoutes } from './routes/output.js';
 import { TaskQueue } from './services/taskQueue.js';
 import { createTaskRunner } from './services/taskRunner.js';
 
@@ -39,6 +40,7 @@ app.get('/api/health', (c) => {
 app.route('/api/projects', createProjectRoutes(projectsRoot));
 app.route('/api/projects', createBlockRoutes(projectsRoot));
 app.route('/api/projects', createAssetRoutes(projectsRoot));
+app.route('/api/projects', createOutputRoutes(projectsRoot));
 app.route('/api/tasks', createTaskRoutes(taskQueue));
 
 // --- Static / SPA fallback ---

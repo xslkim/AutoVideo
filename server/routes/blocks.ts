@@ -2,7 +2,8 @@ import { Hono } from 'hono';
 import path from 'node:path';
 import fs from 'node:fs';
 import { projectGuard } from '../middleware/pathGuard.js';
-import { readFileWithEtag, writeFileWithEtag } from '../services/projectService.js';
+import { serveFileWithRange } from '../middleware/range.js';
+import { readFileWithEtag, writeFileWithEtag, parseMetaFields, computeSlug } from '../services/projectService.js';
 import { parseScript } from '../services/scriptParser.js';
 import {
   extractBlock,
@@ -14,6 +15,20 @@ import type { VisualMode } from '../types/api.js';
 
 // Allowed visual modes
 const VISUAL_MODES: VisualMode[] = ['animation', 'image'];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Read meta.md and return the current slug (defaults to project name). */
+function resolveSlug(projectsRoot: string, name: string): string {
+  const metaPath = path.join(projectsRoot, name, 'meta.md');
+  if (fs.existsSync(metaPath)) {
+    const metaContent = fs.readFileSync(metaPath, 'utf-8');
+    return computeSlug(parseMetaFields(metaContent), name);
+  }
+  return name;
+}
 
 // ---------------------------------------------------------------------------
 // Visual-mode patch helper
@@ -192,6 +207,55 @@ export function createBlockRoutes(projectsRoot: string) {
     }
 
     return c.json({ ok: true, etag: result.etag, mode });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/projects/:name/blocks/:id/audio → WAV (supports Range)
+  // ---------------------------------------------------------------------------
+  app.get('/:name/blocks/:id/audio', projectGuard(projectsRoot), (c) => {
+    const { name, id } = c.req.param();
+    const slug = resolveSlug(projectsRoot, name);
+    const filePath = path.join(projectsRoot, name, 'build', slug, 'public', 'audio', `${id}.wav`);
+    return serveFileWithRange(c, filePath, 'audio/wav');
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/projects/:name/blocks/:id/component → Component.tsx text/plain
+  // ---------------------------------------------------------------------------
+  app.get('/:name/blocks/:id/component', projectGuard(projectsRoot), (c) => {
+    const { name, id } = c.req.param();
+    const slug = resolveSlug(projectsRoot, name);
+    const filePath = path.join(projectsRoot, name, 'build', slug, 'src', 'blocks', id, 'Component.tsx');
+    if (!fs.existsSync(filePath)) {
+      return new Response('Not Found', { status: 404 });
+    }
+    const content = fs.readFileSync(filePath, 'utf-8');
+    return new Response(content, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/projects/:name/blocks/:id/image → PNG (image mode)
+  //   ?download=1 → Content-Disposition: attachment
+  // ---------------------------------------------------------------------------
+  app.get('/:name/blocks/:id/image', projectGuard(projectsRoot), (c) => {
+    const { name, id } = c.req.param();
+    const slug = resolveSlug(projectsRoot, name);
+    const filePath = path.join(projectsRoot, name, 'build', slug, 'public', 'images', `${id}.png`);
+    const download = c.req.query('download') === '1';
+    return serveFileWithRange(c, filePath, 'image/png', download ? `${id}.png` : undefined);
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/projects/:name/blocks/:id/video → partial MP4 (supports Range)
+  // ---------------------------------------------------------------------------
+  app.get('/:name/blocks/:id/video', projectGuard(projectsRoot), (c) => {
+    const { name, id } = c.req.param();
+    const slug = resolveSlug(projectsRoot, name);
+    const filePath = path.join(projectsRoot, name, 'build', slug, 'output', 'partials', `${id}.mp4`);
+    return serveFileWithRange(c, filePath, 'video/mp4');
   });
 
   return app;
