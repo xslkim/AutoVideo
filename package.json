@@ -8,6 +8,11 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:server": "tsc -p tsconfig.server.json",
+    "build:client": "cd web && npm ci && npm run build",
+    "build:web": "npm run build:server && npm run build:client",
+    "start:web": "node dist/server/server/index.js",
+    "dev:web": "concurrently -k \"tsx server/index.ts\" \"cd web && npx vite\"",
     "dev": "tsx bin/autovideo.ts"
   },
   "dependencies": {
@@ -21,6 +26,8 @@
     "p-limit": "^5.0.0",
     "pinyin-pro": "^3.28.1",
     "proper-lockfile": "^4.1.2",
+    "hono": "^4.5.0",
+    "@hono/node-server": "^1.12.0",
     "remotion": "^4.0.380",
     "zod": "^3.23.8"
   },
@@ -33,6 +40,7 @@
     "@types/proper-lockfile": "^4.1.4",
     "@types/react": "^19.2.14",
     "ajv": "^8.20.0",
+    "concurrently": "^8.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.4.0",
     "vitest": "^1.0.0"

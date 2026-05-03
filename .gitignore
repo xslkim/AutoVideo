@@ -4,6 +4,8 @@ build/
 project/
 backup/
 .cache/
+.autovideo-web/
+web/dist/
 *.log
 __pycache__/
 api_key.txt
