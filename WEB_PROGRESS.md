@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP4.5 Phase 4 验收`
-- **last_updated**: `2026-05-04T01:30:00Z`
-- **next_action**: `进入 Phase 4 验收`
-- **completed**: `26 / 42`
+- **active_task**: `WP5.1 类型与 Schema 更新`
+- **last_updated**: `2026-05-04T02:35:00Z`
+- **next_action**: `开始 WP5.1 类型与 Schema 更新`
+- **completed**: `27 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -92,7 +92,7 @@
 | WP4.2 | 产物 API | done | 2026-05-03 | 2026-05-03 | d3cd01e | — |
 | WP4.3 | 帧渲染服务 | done | 2026-05-03 | 2026-05-03 | fd312d2 | — |
 | WP4.4 | 前端：产物预览组件 | done | 2026-05-04 | 2026-05-04 | 3f6b2f7 | — |
-| WP4.5 | Phase 4 验收 | pending | — | — | — | — |
+| WP4.5 | Phase 4 验收 | done | 2026-05-04 | 2026-05-04 | 97baa69 | — |
 
 ### 阶段 WP5：视觉模式 / 文生图 / 设置面板（Phase 5）
 
