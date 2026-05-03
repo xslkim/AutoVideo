@@ -1,0 +1,198 @@
+import { Hono } from 'hono';
+import path from 'node:path';
+import fs from 'node:fs';
+import { projectGuard } from '../middleware/pathGuard.js';
+import { readFileWithEtag, writeFileWithEtag } from '../services/projectService.js';
+import { parseScript } from '../services/scriptParser.js';
+import {
+  extractBlock,
+  replaceBlock,
+  NotFoundError,
+  ValidationError,
+} from '../services/scriptEditor.js';
+import type { VisualMode } from '../types/api.js';
+
+// Allowed visual modes
+const VISUAL_MODES: VisualMode[] = ['animation', 'image'];
+
+// ---------------------------------------------------------------------------
+// Visual-mode patch helper
+// ---------------------------------------------------------------------------
+
+const VISUAL_DIRECTIVE_RE = /^@visual:\s*/;
+
+/**
+ * Update or insert `@visual: <mode>` in a block's content string.
+ * The block header (first line) is never touched.
+ */
+function patchVisualMode(blockContent: string, mode: VisualMode): string {
+  const lines = blockContent.split('\n');
+  let found = false;
+
+  for (let i = 1; i < lines.length; i++) {
+    if (VISUAL_DIRECTIVE_RE.test(lines[i])) {
+      lines[i] = `@visual: ${mode}`;
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    // Insert immediately after block header (line 0)
+    lines.splice(1, 0, `@visual: ${mode}`);
+  }
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Route factory
+// ---------------------------------------------------------------------------
+
+export function createBlockRoutes(projectsRoot: string) {
+  const app = new Hono();
+
+  // -------------------------------------------------------------------------
+  // GET /api/projects/:name/blocks
+  // -------------------------------------------------------------------------
+  app.get('/:name/blocks', projectGuard(projectsRoot), (c) => {
+    const name = c.req.param('name')!;
+    const projDir = path.join(projectsRoot, name);
+    const scriptPath = path.join(projDir, 'script.md');
+
+    if (!fs.existsSync(scriptPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'script.md not found' } }, 404);
+    }
+
+    // Determine currentSlug from meta.md
+    let currentSlug = name;
+    const metaPath = path.join(projDir, 'meta.md');
+    if (fs.existsSync(metaPath)) {
+      const metaContent = fs.readFileSync(metaPath, 'utf-8');
+      const slugMatch = metaContent.match(/^slug:\s*(.+)$/m);
+      if (slugMatch) currentSlug = slugMatch[1].trim();
+    }
+
+    const buildDir = path.join(projDir, 'build', currentSlug);
+    const scriptMd = fs.readFileSync(scriptPath, 'utf-8');
+    const { blocks, warnings } = parseScript(scriptMd, buildDir);
+
+    return c.json({ blocks, warnings, currentSlug });
+  });
+
+  // -------------------------------------------------------------------------
+  // PUT /api/projects/:name/blocks/:id
+  // Replace a single block's content in script.md (ETag-protected)
+  // -------------------------------------------------------------------------
+  app.put('/:name/blocks/:id', projectGuard(projectsRoot), async (c) => {
+    const name = c.req.param('name')!;
+    const id = c.req.param('id')!;
+    const projDir = path.join(projectsRoot, name);
+    const scriptPath = path.join(projDir, 'script.md');
+
+    if (!fs.existsSync(scriptPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'script.md not found' } }, 404);
+    }
+
+    const ifMatch = c.req.header('If-Match');
+    if (!ifMatch) {
+      return c.json({ error: { code: 'ERR_MISSING_IF_MATCH', message: 'If-Match header required' } }, 400);
+    }
+
+    const body = await c.req.json<{ content: string }>();
+    if (typeof body.content !== 'string') {
+      return c.json({ error: { code: 'ERR_INVALID_BODY', message: 'body.content must be a string' } }, 400);
+    }
+
+    // Read current script.md and check ETag
+    const { content: scriptMd, etag: currentEtag } = readFileWithEtag(scriptPath);
+    if (currentEtag !== ifMatch) {
+      return c.json({ currentContent: scriptMd, currentEtag }, 409);
+    }
+
+    // Replace block content (may throw NotFoundError or ValidationError)
+    let newScriptMd: string;
+    try {
+      newScriptMd = replaceBlock(scriptMd, id, body.content);
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return c.json({ error: { code: err.code, message: err.message } }, 404);
+      }
+      if (err instanceof ValidationError) {
+        return c.json({ error: { code: err.code, message: err.message } }, 422);
+      }
+      throw err;
+    }
+
+    // Write back (re-checks ETag atomically)
+    const result = writeFileWithEtag(scriptPath, newScriptMd, ifMatch);
+    if ('conflict' in result) {
+      const fresh = readFileWithEtag(scriptPath);
+      return c.json({ currentContent: fresh.content, currentEtag: fresh.etag }, 409);
+    }
+
+    return c.json({ ok: true, etag: result.etag });
+  });
+
+  // -------------------------------------------------------------------------
+  // PUT /api/projects/:name/blocks/:id/visual-mode
+  // Toggle @visual directive inside a block (ETag-protected)
+  // -------------------------------------------------------------------------
+  app.put('/:name/blocks/:id/visual-mode', projectGuard(projectsRoot), async (c) => {
+    const name = c.req.param('name')!;
+    const id = c.req.param('id')!;
+    const projDir = path.join(projectsRoot, name);
+    const scriptPath = path.join(projDir, 'script.md');
+
+    if (!fs.existsSync(scriptPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'script.md not found' } }, 404);
+    }
+
+    const ifMatch = c.req.header('If-Match');
+    if (!ifMatch) {
+      return c.json({ error: { code: 'ERR_MISSING_IF_MATCH', message: 'If-Match header required' } }, 400);
+    }
+
+    const body = await c.req.json<{ mode: string }>();
+    const mode = body.mode as VisualMode;
+    if (!VISUAL_MODES.includes(mode)) {
+      return c.json(
+        { error: { code: 'ERR_INVALID_MODE', message: `mode must be one of: ${VISUAL_MODES.join(', ')}` } },
+        400,
+      );
+    }
+
+    // Read current script.md and check ETag
+    const { content: scriptMd, etag: currentEtag } = readFileWithEtag(scriptPath);
+    if (currentEtag !== ifMatch) {
+      return c.json({ currentContent: scriptMd, currentEtag }, 409);
+    }
+
+    // Extract block, patch @visual directive, replace block
+    let newScriptMd: string;
+    try {
+      const { content: blockContent } = extractBlock(scriptMd, id);
+      const patchedBlock = patchVisualMode(blockContent, mode);
+      newScriptMd = replaceBlock(scriptMd, id, patchedBlock);
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return c.json({ error: { code: err.code, message: err.message } }, 404);
+      }
+      if (err instanceof ValidationError) {
+        return c.json({ error: { code: err.code, message: err.message } }, 422);
+      }
+      throw err;
+    }
+
+    // Write back
+    const result = writeFileWithEtag(scriptPath, newScriptMd, ifMatch);
+    if ('conflict' in result) {
+      const fresh = readFileWithEtag(scriptPath);
+      return c.json({ currentContent: fresh.content, currentEtag: fresh.etag }, 409);
+    }
+
+    return c.json({ ok: true, etag: result.etag, mode });
+  });
+
+  return app;
+}
