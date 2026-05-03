@@ -9,6 +9,7 @@ import { createBlockRoutes } from './routes/blocks.js';
 import { createAssetRoutes } from './routes/assets.js';
 import { createTaskRoutes } from './routes/tasks.js';
 import { createOutputRoutes } from './routes/output.js';
+import { createSystemRoutes } from './routes/system.js';
 import { TaskQueue } from './services/taskQueue.js';
 import { createTaskRunner } from './services/taskRunner.js';
 import { FrameRenderer } from './services/frameRenderer.js';
@@ -45,6 +46,7 @@ app.route('/api/projects', createBlockRoutes(projectsRoot, frameRenderer));
 app.route('/api/projects', createAssetRoutes(projectsRoot));
 app.route('/api/projects', createOutputRoutes(projectsRoot));
 app.route('/api/tasks', createTaskRoutes(taskQueue));
+app.route('/', createSystemRoutes(repoRoot));
 
 // --- Static / SPA fallback ---
 

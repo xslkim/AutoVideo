@@ -36,7 +36,7 @@
         </n-button>
         <n-button size="small" @click="showPreview = true">预览成片</n-button>
         <n-button size="small" @click="onDownload">下载成片</n-button>
-        <n-button size="small" quaternary disabled>⚙ 设置</n-button>
+        <n-button size="small" quaternary @click="showSettings = true">⚙ 设置</n-button>
       </n-space>
     </div>
 
@@ -54,6 +54,9 @@
         <div v-if="previewError" class="preview-error">{{ previewError }}</div>
       </div>
     </n-modal>
+
+    <!-- Settings modal -->
+    <SettingsModal v-if="showSettings" :show="showSettings" @close="showSettings = false" />
   </div>
 </template>
 
@@ -62,6 +65,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTaskStore } from '../../stores/taskStore'
 import { createDiscreteApi } from 'naive-ui'
+import SettingsModal from '../SettingsModal.vue'
 
 const { message } = createDiscreteApi(['message'])
 
@@ -100,6 +104,7 @@ const outputUrl = computed(() =>
 
 const showPreview = ref(false)
 const previewError = ref('')
+const showSettings = ref(false)
 
 function onPreviewError() {
   previewError.value = '无法加载成片视频，请确认已执行全量构建'
