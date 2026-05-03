@@ -5,6 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createProjectRoutes } from './routes/projects.js';
 import { createBlockRoutes } from './routes/blocks.js';
+import { createAssetRoutes } from './routes/assets.js';
 
 const app = new Hono();
 
@@ -20,6 +21,7 @@ app.get('/api/health', (c) => {
 
 app.route('/api/projects', createProjectRoutes(projectsRoot));
 app.route('/api/projects', createBlockRoutes(projectsRoot));
+app.route('/api/projects', createAssetRoutes(projectsRoot));
 
 // --- Static / SPA fallback ---
 

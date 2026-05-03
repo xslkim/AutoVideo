@@ -32,7 +32,7 @@
             <ScriptEditor :key="'script-' + scriptEditorKey" :project-name="projectName" @blocks-updated="onBlocksUpdated" />
           </n-tab-pane>
           <n-tab-pane name="assets" tab="资源" display-directive="show">
-            <div class="placeholder-pane">资源管理（待实现）</div>
+            <AssetManager :project-name="projectName" />
           </n-tab-pane>
         </n-tabs>
       </div>
@@ -81,6 +81,7 @@ import BlockSidebar from '../components/layout/BlockSidebar.vue'
 import BlockPanel from '../components/block/BlockPanel.vue'
 import MetaEditor from '../components/editors/MetaEditor.vue'
 import ScriptEditor from '../components/editors/ScriptEditor.vue'
+import AssetManager from '../components/assets/AssetManager.vue'
 import type { ParseResult } from '../utils/scriptParser'
 import type { VisualMode } from '../../../server/types/api'
 

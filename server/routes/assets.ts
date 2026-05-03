@@ -1,0 +1,220 @@
+import { Hono } from 'hono';
+import path from 'node:path';
+import fs from 'node:fs';
+import { projectGuard, fileGuard } from '../middleware/pathGuard.js';
+import { readFileWithEtag, writeFileWithEtag, computeEtag } from '../services/projectService.js';
+
+const ASSET_FILE_RE = /^[a-zA-Z0-9_.-]+\.(png|jpe?g|gif|webp|svg)$/;
+const WAV_FILE_RE = /^[a-zA-Z0-9_.-]+\.wav$/;
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
+
+const MIME_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.wav': 'audio/wav',
+};
+
+function getMime(fileName: string): string {
+  const ext = path.extname(fileName).toLowerCase();
+  return MIME_TYPES[ext] || 'application/octet-stream';
+}
+
+export function createAssetRoutes(projectsRoot: string) {
+  const app = new Hono();
+
+  // GET /api/projects/:name/assets — list top-level asset files
+  app.get('/:name/assets', projectGuard(projectsRoot), (c) => {
+    const name = c.req.param('name')!;
+    const assetsDir = path.join(projectsRoot, name, 'assets');
+    if (!fs.existsSync(assetsDir)) {
+      return c.json([]);
+    }
+    const entries = fs.readdirSync(assetsDir, { withFileTypes: true });
+    const files = entries
+      .filter(e => e.isFile() && ASSET_FILE_RE.test(e.name))
+      .map(e => {
+        const stat = fs.statSync(path.join(assetsDir, e.name));
+        return {
+          name: e.name,
+          size: stat.size,
+          mime: getMime(e.name),
+        };
+      });
+    return c.json(files);
+  });
+
+  // POST /api/projects/:name/assets — upload assets (multipart, field name "file")
+  app.post('/:name/assets', projectGuard(projectsRoot), async (c) => {
+    const name = c.req.param('name')!;
+    const assetsDir = path.join(projectsRoot, name, 'assets');
+
+    // Ensure assets directory exists
+    if (!fs.existsSync(assetsDir)) {
+      fs.mkdirSync(assetsDir, { recursive: true });
+    }
+
+    try {
+      const formData = await c.req.raw.formData();
+      const uploaded: { name: string; size: number }[] = [];
+      const errors: { name: string; reason: string }[] = [];
+
+      // Collect all file entries
+      for (const [fieldName, value] of formData.entries()) {
+        if (fieldName !== 'file' || !(value instanceof File)) continue;
+
+        const file = value;
+
+        // Validate file size
+        if (file.size > MAX_UPLOAD_SIZE) {
+          errors.push({ name: file.name, reason: 'File exceeds 10MB limit' });
+          continue;
+        }
+
+        // Validate file name
+        if (!ASSET_FILE_RE.test(file.name)) {
+          errors.push({ name: file.name, reason: 'Invalid file name' });
+          continue;
+        }
+
+        try {
+          const buf = Buffer.from(await file.arrayBuffer());
+          fs.writeFileSync(path.join(assetsDir, file.name), buf);
+          uploaded.push({ name: file.name, size: file.size });
+        } catch {
+          errors.push({ name: file.name, reason: 'Failed to write file' });
+        }
+      }
+
+      return c.json({ uploaded, errors });
+    } catch {
+      return c.json({ error: { code: 'ERR_UPLOAD_FAILED', message: 'Failed to process upload' } }, 400);
+    }
+  });
+
+  // DELETE /api/projects/:name/assets/:file — delete an asset file
+  app.delete('/:name/assets/:file', projectGuard(projectsRoot), fileGuard(projectsRoot), (c) => {
+    const name = c.req.param('name')!;
+    const file = c.req.param('file')!;
+    const filePath = path.join(projectsRoot, name, 'assets', file);
+
+    if (!fs.existsSync(filePath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: `File not found: ${file}` } }, 404);
+    }
+
+    fs.unlinkSync(filePath);
+    return c.json({ ok: true });
+  });
+
+  // GET /api/projects/:name/assets/:file — serve file content
+  app.get('/:name/assets/:file', projectGuard(projectsRoot), fileGuard(projectsRoot), (c) => {
+    const name = c.req.param('name')!;
+    const file = c.req.param('file')!;
+    const filePath = path.join(projectsRoot, name, 'assets', file);
+
+    if (!fs.existsSync(filePath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: `File not found: ${file}` } }, 404);
+    }
+
+    const buf = fs.readFileSync(filePath);
+    c.header('Content-Type', getMime(file));
+    c.header('Content-Length', String(buf.length));
+    return c.body(buf as unknown as string);
+  });
+
+  // POST /api/projects/:name/voice — upload voice reference
+  app.post('/:name/voice', projectGuard(projectsRoot), async (c) => {
+    const name = c.req.param('name')!;
+    const voiceDir = path.join(projectsRoot, name, 'voice');
+    const metaPath = path.join(projectsRoot, name, 'meta.md');
+
+    if (!fs.existsSync(metaPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'meta.md not found' } }, 404);
+    }
+
+    // Check If-Match for meta.md
+    const ifMatch = c.req.header('If-Match');
+    if (!ifMatch) {
+      return c.json({ error: { code: 'ERR_MISSING_IF_MATCH', message: 'If-Match header required' } }, 400);
+    }
+
+    try {
+      const formData = await c.req.raw.formData();
+      const file = formData.get('file');
+
+      if (!(file instanceof File)) {
+        return c.json({ error: { code: 'ERR_INVALID_BODY', message: 'Missing file field' } }, 400);
+      }
+
+      // Validate file is WAV
+      if (!WAV_FILE_RE.test(file.name)) {
+        return c.json({ error: { code: 'ERR_INVALID_FILENAME', message: 'Only .wav files are accepted for voice upload' } }, 400);
+      }
+
+      // Ensure voice directory exists
+      if (!fs.existsSync(voiceDir)) {
+        fs.mkdirSync(voiceDir, { recursive: true });
+      }
+
+      // Write voice file
+      const buf = Buffer.from(await file.arrayBuffer());
+      fs.writeFileSync(path.join(voiceDir, file.name), buf);
+
+      // Update meta.md voiceRef
+      const voiceRef = `./voice/${file.name}`;
+      const current = fs.readFileSync(metaPath, 'utf-8');
+      const currentEtag = computeEtag(current);
+
+      if (currentEtag !== ifMatch) {
+        // Clean up the uploaded file since we can't update meta.md
+        try { fs.unlinkSync(path.join(voiceDir, file.name)); } catch { /* ignore */ }
+        return c.json({ currentContent: current, currentEtag }, 409);
+      }
+
+      // Rewrite meta.md: update or add voiceRef in the meta section
+      const lines = current.split('\n');
+      let inMeta = false;
+      let voiceRefLine = -1;
+      let metaEndLine = -1;
+
+      for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trim();
+        if (trimmed === '--- meta ---') { inMeta = true; continue; }
+        if (inMeta && trimmed === '---') { metaEndLine = i; break; }
+        if (!inMeta) continue;
+        if (trimmed.startsWith('voiceRef')) {
+          voiceRefLine = i;
+        }
+      }
+
+      if (voiceRefLine >= 0) {
+        // Replace existing voiceRef
+        const indent = lines[voiceRefLine].match(/^(\s*)/)?.[1] ?? '';
+        lines[voiceRefLine] = `${indent}voiceRef: ${voiceRef}`;
+      } else if (metaEndLine >= 0) {
+        // Insert voiceRef before the closing ---
+        lines.splice(metaEndLine, 0, `voiceRef: ${voiceRef}`);
+      } else {
+        // No meta section found — shouldn't happen for valid meta.md
+        return c.json({ error: { code: 'ERR_INVALID_META', message: 'Could not find meta section in meta.md' } }, 400);
+      }
+
+      const newContent = lines.join('\n');
+      fs.writeFileSync(metaPath, newContent, 'utf-8');
+      const newEtag = computeEtag(newContent);
+
+      return c.json({
+        voiceRef,
+        metaContent: newContent,
+        metaEtag: newEtag,
+      });
+    } catch {
+      return c.json({ error: { code: 'ERR_UPLOAD_FAILED', message: 'Failed to process voice upload' } }, 400);
+    }
+  });
+
+  return app;
+}
