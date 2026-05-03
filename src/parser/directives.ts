@@ -1,13 +1,13 @@
 /**
  * AutoVideo — Block directive parser
  *
- * Parses @enter, @exit, @duration directives from block headers.
+ * Parses @enter, @exit, @duration, @visual directives from block headers.
  * Duration only accepts `<number>s` format per PRD §3.5.
  *
  * PRD references: §3.5 (块指令)
  */
 
-import type { AnimationPreset, ANIMATION_PRESETS } from "../types/script.js";
+import type { AnimationPreset, ANIMATION_PRESETS, VisualMode } from "../types/script.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +17,7 @@ export interface ParsedDirectives {
   enter: AnimationPreset;
   exit: AnimationPreset;
   explicitDurationSec?: number;
+  visualMode: VisualMode;
 }
 
 export class DirectiveError extends Error {
@@ -43,6 +44,9 @@ const VALID_PRESETS: readonly string[] = [
 
 const DEFAULT_ENTER: AnimationPreset = "fade";
 const DEFAULT_EXIT: AnimationPreset = "fade";
+const DEFAULT_VISUAL_MODE: VisualMode = "animation";
+
+const VALID_VISUAL_MODES: readonly string[] = ["animation", "image"];
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -55,12 +59,13 @@ const DEFAULT_EXIT: AnimationPreset = "fade";
  * Lines may include @type, @rect, @style, @align etc. which are ignored
  * (they are from the old format and not part of the current spec).
  *
- * Only @enter, @exit, @duration are parsed per PRD §3.5.
+ * Only @enter, @exit, @duration, @visual are parsed per PRD §3.5.
  */
 export function parseDirectives(lines: string[]): ParsedDirectives {
   let enter: AnimationPreset = DEFAULT_ENTER;
   let exit: AnimationPreset = DEFAULT_EXIT;
   let explicitDurationSec: number | undefined;
+  let visualMode: VisualMode = DEFAULT_VISUAL_MODE;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -108,6 +113,16 @@ export function parseDirectives(lines: string[]): ParsedDirectives {
         }
         break;
       }
+      case "visual": {
+        if (VALID_VISUAL_MODES.includes(value)) {
+          visualMode = value as VisualMode;
+        } else {
+          console.warn(
+            `Invalid @visual "${value}". Must be one of: ${VALID_VISUAL_MODES.join(", ")}. Falling back to "${DEFAULT_VISUAL_MODE}".`,
+          );
+        }
+        break;
+      }
       // Ignore unknown directives (like @type, @rect, @style, @align from old format)
     }
   }
@@ -115,6 +130,7 @@ export function parseDirectives(lines: string[]): ParsedDirectives {
   return {
     enter,
     exit,
+    visualMode,
     ...(explicitDurationSec !== undefined ? { explicitDurationSec } : {}),
   };
 }

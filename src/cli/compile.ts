@@ -230,7 +230,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       title: raw.title,
       enter: raw.enter,
       exit: raw.exit,
-      visualMode: 'animation',
+      visualMode: raw.visualMode,
       visual: {
         description: processedBlock
           ? processedBlock.visualDescription

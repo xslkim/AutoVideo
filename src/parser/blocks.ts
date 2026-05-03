@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { parseDirectives, type ParsedDirectives } from "./directives.js";
 import { parseNarration, type NarrationLine } from "./narration.js";
-import type { AnimationPreset } from "../types/script.js";
+import type { AnimationPreset, VisualMode } from "../types/script.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +27,7 @@ export interface RawBlock {
   enter: AnimationPreset;
   exit: AnimationPreset;
   explicitDurationSec?: number;
+  visualMode: VisualMode;
   /** Visual description text (raw, between --- visual --- and next --- or EOF) */
   visualDescription: string;
   /** Parsed narration lines */
@@ -242,6 +243,7 @@ export function parseBlockFile(filePath: string): RawBlock[] {
       enter: directives.enter,
       exit: directives.exit,
       explicitDurationSec: directives.explicitDurationSec,
+      visualMode: directives.visualMode,
       visualDescription: visual.text.trim(),
       narrationLines,
       sourceFilePath: filePath,
