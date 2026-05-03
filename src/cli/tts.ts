@@ -34,15 +34,18 @@ import {
   type CompiledScript,
   type Script,
   type Block,
+  type ProgressEvent,
 } from "../types/script.js";
 import type { AutoVideoConfig } from "../config/defaults.js";
 
 // ── Error class ───────────────────────────────────────────────────────
 
 export class TtsError extends Error {
-  constructor(message: string) {
+  code: string;
+  constructor(message: string, code = "ERR_TTS_FAILED") {
     super(message);
     this.name = "TtsError";
+    this.code = code;
   }
 }
 
@@ -61,6 +64,10 @@ export interface TtsOptions {
   verbose?: boolean;
   /** Dry run — show plan but don't execute */
   dryRun?: boolean;
+  /** Progress callback */
+  onProgress?: (event: ProgressEvent) => void;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
 }
 
 export interface TtsResult {
@@ -129,8 +136,17 @@ function sleep(ms: number): Promise<void> {
  * @throws TtsError on fatal errors
  */
 export async function tts(opts: TtsOptions): Promise<TtsResult> {
-  const { config, verbose = false, dryRun = false, force = false } = opts;
+  const { config, verbose = false, dryRun = false, force = false, onProgress, signal } = opts;
   const { voxcpm: voxcpmCfg, cache: cacheCfg } = config;
+
+  const emit = (percent: number, step: string, blockId?: string) => {
+    onProgress?.({ percent, step, stage: "tts", blockId });
+  };
+
+  emit(0, "开始语音合成");
+
+  // Check abort before starting
+  if (signal?.aborted) throw new TtsError("TTS cancelled", "ERR_CANCELLED");
 
   // ── Step 1: Load and validate script ──────────────────────────────
 
@@ -194,7 +210,8 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
   } catch (err) {
     throw new TtsError(
       `VoxCPM server unavailable: ${err instanceof Error ? err.message : err}\n` +
-        "Run `autovideo doctor` to check your setup."
+        "Run `autovideo doctor` to check your setup.",
+      "ERR_VOXCPM_OFFLINE"
     );
   }
 
@@ -214,7 +231,8 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
     if (verbose) console.log(`[tts] Registered voice: ${voiceId}`);
   } catch (err) {
     throw new TtsError(
-      `Failed to register voice: ${err instanceof Error ? err.message : err}`
+      `Failed to register voice: ${err instanceof Error ? err.message : err}`,
+      "ERR_VOXCPM_VOICE_REGISTER"
     );
   }
 
@@ -227,6 +245,8 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
     console.log(`[tts] voiceRefHash: ${voiceRefHash.slice(0, 8)}...`);
     console.log(`[tts] voxcpmModelVersion: ${voxcpmModelVersion.slice(0, 8)}...`);
   }
+
+  emit(10, "服务就绪，开始处理语音行");
 
   // ── Initialize cache store ────────────────────────────────────────
 
@@ -242,6 +262,14 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
   // ── Step 5–8: Process blocks with concurrency ─────────────────────
 
   const abortController = new AbortController();
+  // Forward external signal cancellation to internal abort controller
+  if (signal) {
+    if (signal.aborted) {
+      abortController.abort(signal.reason);
+      throw new TtsError("TTS cancelled", "ERR_CANCELLED");
+    }
+    signal.addEventListener("abort", () => abortController.abort(signal.reason), { once: true });
+  }
   let cacheHits = 0;
   let apiCalls = 0;
   const failedBlocks: { blockId: string; error: string }[] = [];
@@ -385,7 +413,8 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
     );
     abortController.abort();
     throw new TtsError(
-      `TTS failed for ${blockId} line ${lineIndex}: ${errorMsg}`
+      `TTS failed for ${blockId} line ${lineIndex}: ${errorMsg}`,
+      "ERR_TTS_LINE_FAILED"
     );
   }
 
@@ -406,11 +435,16 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
         `TTS failed for ${failedBlocks.length} line(s)\n\n` +
           `Failed lines:\n${blockList}\n\n` +
           `Resume after fixing the issue:\n` +
-          `  autovideo tts ${opts.scriptPath} --block ${resumeIds} --force`
+          `  autovideo tts ${opts.scriptPath} --block ${resumeIds} --force`,
+        "ERR_TTS_LINE_FAILED"
       );
     }
     throw err;
   }
+
+  if (signal?.aborted) throw new TtsError("TTS cancelled", "ERR_CANCELLED");
+
+  emit(60, "拼接语音片段");
 
   // ── Step 7: Concatenate line WAVs per block ───────────────────────
 
@@ -487,6 +521,8 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
   if (serverProcess.process) {
     serverProcess.process.kill("SIGTERM");
   }
+
+  emit(100, "语音合成完成");
 
   return { script, cacheHits, apiCalls };
 }

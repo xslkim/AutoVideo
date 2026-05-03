@@ -42,6 +42,8 @@ export interface RenderBlocksOptions {
   config: AutoVideoConfig;
   /** Force re-render (ignore cache) for specific block IDs, or all blocks */
   forceBlocks?: Set<string>;
+  /** External abort signal for cancellation */
+  signal?: AbortSignal;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -81,7 +83,7 @@ export async function renderBlocks(
   script: Script,
   options: RenderBlocksOptions
 ): Promise<RenderBlocksResult> {
-  const { buildDir, config, forceBlocks } = options;
+  const { buildDir, config, forceBlocks, signal: externalSignal } = options;
   const renderConfig = config.render ?? {};
 
   const blockConcurrency = renderConfig.blockConcurrency ?? 4;
@@ -125,6 +127,15 @@ export async function renderBlocks(
   // ── Step 2: Render each block ───────────────────────────────────────────
   const limiter = pLimit(blockConcurrency);
   const { cancelSignal, cancel } = makeCancelSignal();
+
+  // Forward external signal cancellation to internal cancel
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      cancel();
+      throw new Error("Render cancelled");
+    }
+    externalSignal.addEventListener("abort", () => cancel(), { once: true });
+  }
 
   const renderTasks = script.blocks.map((block: Block) => {
     return limiter(async () => {

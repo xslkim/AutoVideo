@@ -5,6 +5,21 @@
  */
 
 // ---------------------------------------------------------------------------
+// Progress event — used by onProgress callbacks across CLI modules
+// ---------------------------------------------------------------------------
+
+export interface ProgressEvent {
+  /** Overall completion percentage (0-100) */
+  percent: number;
+  /** Human-readable step description */
+  step: string;
+  /** Current stage identifier */
+  stage: string;
+  /** Current block being processed, if applicable */
+  blockId?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Animation preset — union literal type
 // ---------------------------------------------------------------------------
 

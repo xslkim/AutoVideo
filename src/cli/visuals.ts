@@ -31,15 +31,18 @@ import {
   assertCompiledScript,
   type Script,
   type Block,
+  type ProgressEvent,
 } from "../types/script.js";
 import type { AutoVideoConfig } from "../config/defaults.js";
 
 // ── Error class ───────────────────────────────────────────────────────
 
 export class VisualsError extends Error {
-  constructor(message: string) {
+  code: string;
+  constructor(message: string, code = "ERR_VISUALS_FAILED") {
     super(message);
     this.name = "VisualsError";
+    this.code = code;
   }
 }
 
@@ -58,6 +61,10 @@ export interface VisualsOptions {
   verbose?: boolean;
   /** Dry run — show plan but don't execute */
   dryRun?: boolean;
+  /** Progress callback */
+  onProgress?: (event: ProgressEvent) => void;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
 }
 
 export interface VisualsResult {
@@ -210,9 +217,18 @@ Before emitting code, mentally verify:
 // ── Main visuals function ─────────────────────────────────────────────
 
 export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
-  const { scriptPath, config, blockIds, force, verbose, dryRun } = options;
+  const { scriptPath, config, blockIds, force, verbose, dryRun, onProgress, signal } = options;
   const resolvedScriptPath = path.resolve(scriptPath);
   const buildOutDir = path.dirname(resolvedScriptPath);
+
+  const emit = (percent: number, step: string, blockId?: string) => {
+    onProgress?.({ percent, step, stage: "visuals", blockId });
+  };
+
+  emit(0, "开始视觉生成");
+
+  // Check abort before starting
+  if (signal?.aborted) throw new VisualsError("Visuals cancelled", "ERR_CANCELLED");
 
   // Read and validate script.json
   const scriptRaw = fs.readFileSync(resolvedScriptPath, "utf-8");
@@ -264,11 +280,22 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
     console.log(
       `[dry-run] Would process ${targetBlocks.length} block(s): ${targetBlocks.map((b) => b.id).join(", ")}`
     );
+    emit(100, "Dry run 完成");
     return { script, cacheHits: 0, apiCalls: 0 };
   }
 
+  emit(5, `准备处理 ${targetBlocks.length} 个块`);
+
   // AbortController for cancellation on failure
   const abortController = new AbortController();
+  // Forward external signal cancellation to internal abort controller
+  if (signal) {
+    if (signal.aborted) {
+      abortController.abort(signal.reason);
+      throw new VisualsError("Visuals cancelled", "ERR_CANCELLED");
+    }
+    signal.addEventListener("abort", () => abortController.abort(signal.reason), { once: true });
+  }
   let hasFailed = false;
   const failedBlocks: { id: string; error: string }[] = [];
   let cacheHits = 0;
@@ -350,7 +377,8 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
 
             const result: ComponentGenResult = await generateComponent(
               input,
-              anthropicConfig
+              anthropicConfig,
+              abortController.signal
             );
             componentSource = result.tsx;
             apiCalls++;
@@ -477,12 +505,14 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
       "Resume after fixing the issue:",
       `  autovideo visuals ${scriptPath} --block ${failedBlocks.map((b) => b.id).join(",")} --force`,
     ].join("\n");
-    throw new VisualsError(msg);
+    throw new VisualsError(msg, "ERR_VISUALS_BLOCK_FAILED");
   }
 
   console.log(
     `\n✓ Visuals complete: ${targetBlocks.length} block(s) processed (${cacheHits} cache hits, ${apiCalls} API calls)`
   );
+
+  emit(100, "视觉生成完成");
 
   return { script, cacheHits, apiCalls };
 }

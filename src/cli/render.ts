@@ -26,6 +26,7 @@ import {
   assertRenderInputReady,
   type Script,
   type Block,
+  type ProgressEvent,
 } from "../types/script.js";
 import type { AutoVideoConfig } from "../config/defaults.js";
 import { generateRenderRoot } from "../render/root-render.js";
@@ -37,9 +38,11 @@ import { runQA, type QAResult } from "../render/qa.js";
 // ── Error class ───────────────────────────────────────────────────────
 
 export class RenderError extends Error {
-  constructor(message: string) {
+  code: string;
+  constructor(message: string, code = "ERR_RENDER_FAILED") {
     super(message);
     this.name = "RenderError";
+    this.code = code;
   }
 }
 
@@ -58,6 +61,12 @@ export interface RenderOptions {
   verbose?: boolean;
   /** Dry run — show plan but don't execute */
   dryRun?: boolean;
+  /** Progress callback */
+  onProgress?: (event: ProgressEvent) => void;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
+  /** Skip renderBlocks, only concat + loudnorm + qa (PRD A.3) */
+  concatOnly?: boolean;
 }
 
 export interface RenderResult {
@@ -129,7 +138,19 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     dryRun = false,
     force = false,
     blockIds,
+    onProgress,
+    signal,
+    concatOnly = false,
   } = opts;
+
+  const emit = (percent: number, step: string, blockId?: string) => {
+    onProgress?.({ percent, step, stage: "render", blockId });
+  };
+
+  emit(0, "开始渲染");
+
+  // Check abort before starting
+  if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
 
   const renderConfig = config.render ?? {};
 
@@ -219,8 +240,85 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   if (dryRun) {
     console.log(`[render] Dry run — would render ${blocks.length} block(s)`);
+    emit(100, "Dry run 完成");
     return { script, cacheHits: 0, renders: 0 };
   }
+
+  if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+  // ── concatOnly mode (PRD A.3): skip renderBlocks, only concat+loudnorm+qa ─
+  if (concatOnly) {
+    emit(10, "验证 partial 文件");
+
+    const allPartials = blocks.map(
+      (b) => b.render?.partialPath ?? `output/partials/${b.id}.mp4`
+    );
+
+    for (const relPath of allPartials) {
+      const absPath = path.join(buildDir, relPath);
+      if (!fs.existsSync(absPath)) {
+        throw new RenderError(
+          `缺少 partial: ${path.basename(absPath, ".mp4")}`,
+          "ERR_PARTIAL_MISSING"
+        );
+      }
+    }
+
+    if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+    emit(30, "拼接 partials");
+    console.log(`[render] Concatenating ${allPartials.length} partials...`);
+    concatPartials(allPartials, { buildDir });
+    console.log(`[render] Concat complete → output/final.mp4`);
+
+    if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+    emit(60, "响度归一化");
+    const concatFinalPath = path.join(buildDir, "output", "final.mp4");
+    const loudnormCfg = renderConfig.loudnorm ?? {
+      i: -16, tp: -1.5, lra: 11, twoPass: true, audioBitrate: "192k",
+    };
+    console.log(`[render] Applying loudnorm normalization...`);
+    const loudnormOut: LoudnormResult = await applyLoudnorm(
+      concatFinalPath, loudnormCfg, buildDir
+    );
+    console.log(`[render] Loudnorm complete → ${path.basename(loudnormOut.outputPath)}`);
+
+    if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+    emit(80, "QA 检查");
+    const normedPath = loudnormOut.outputPath;
+    const partialsDirQA = path.join(buildDir, "output", "partials");
+    console.log(`[render] Running QA checks...`);
+    const qaOut: QAResult = await runQA(
+      normedPath, partialsDirQA,
+      { width: meta.width, height: meta.height, fps: meta.fps },
+      blocks.map((b) => ({ id: b.id, totalSec: b.timing?.totalSec ?? 0 }))
+    );
+
+    if (qaOut.errors.length > 0) {
+      console.error(`[render] QA failed:`);
+      for (const err of qaOut.errors) console.error(`  ✗ ${err}`);
+      throw new RenderError(
+        `QA check failed with ${qaOut.errors.length} error(s):\n` +
+        qaOut.errors.map((e) => `  - ${e}`).join("\n"),
+        "ERR_QA_FAILED"
+      );
+    }
+
+    script.artifacts.renderedAt = new Date().toISOString();
+    const scriptOutPathConcat = path.join(buildDir, "script.json");
+    fs.writeFileSync(scriptOutPathConcat, JSON.stringify(script, null, 2), "utf-8");
+    if (fs.existsSync(publicScriptPath)) {
+      fs.writeFileSync(publicScriptPath, JSON.stringify(script, null, 2), "utf-8");
+    }
+
+    console.log(`✓ Concat-only complete → output/final_normalized.mp4`);
+    emit(100, "Concat-only 完成");
+    return { script, cacheHits: 0, renders: 0 };
+  }
+
+  emit(10, `渲染 ${blocks.length} 个块`);
 
   // ── Step 6: Render block partials ─────────────────────────────────
 
@@ -278,6 +376,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
       buildDir,
       config,
       forceBlocks: targetForceBlocks,
+      signal,
     });
 
     // Verify non-target partials were not modified
@@ -323,6 +422,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
       buildDir,
       config,
       forceBlocks,
+      signal,
     });
 
     // Write render info back to blocks
@@ -342,6 +442,10 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     `${renderResult.cacheHits} cache hits, ${renderResult.renders} renders`
   );
 
+  if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+  emit(60, "拼接 partials");
+
   // ── Step 7: ffmpeg concat ──────────────────────────────────────────
 
   // In --block mode only concat the requested blocks (staged / partial build).
@@ -360,7 +464,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     if (!fs.existsSync(absPath)) {
       throw new RenderError(
         `Partial not found: ${absPath}\n` +
-        `Block may not have been rendered. Run: autovideo render ${opts.scriptPath} --block <id> --force`
+        `Block may not have been rendered. Run: autovideo render ${opts.scriptPath} --block <id> --force`,
+        "ERR_PARTIAL_MISSING"
       );
     }
   }
@@ -371,6 +476,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   console.log(`[render] Concat complete → output/final.mp4`);
 
   // ── Step 8: Loudnorm ────────────────────────────────────────────────
+
+  emit(75, "响度归一化");
 
   const finalAbsPath = path.join(buildDir, "output", "final.mp4");
   const loudnormConfig = renderConfig.loudnorm ?? {
@@ -404,6 +511,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   // ── Step 9: QA ──────────────────────────────────────────────────────
 
+  emit(90, "QA 检查");
+
   const normalizedAbsPath = loudnormResult.outputPath;
   const partialsDir = path.join(buildDir, "output", "partials");
 
@@ -425,7 +534,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     }
     throw new RenderError(
       `QA check failed with ${qaResult.errors.length} error(s):\n` +
-      qaResult.errors.map((e) => `  - ${e}`).join("\n")
+      qaResult.errors.map((e) => `  - ${e}`).join("\n"),
+      "ERR_QA_FAILED"
     );
   }
 
@@ -452,6 +562,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   console.log(
     `✓ Render complete: ${blocks.length} blocks → output/final_normalized.mp4`
   );
+
+  emit(100, "渲染完成");
 
   return {
     script,

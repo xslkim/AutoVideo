@@ -22,6 +22,8 @@ export interface AnthropicConfig {
   maxRetries: number;
   /** Optional base URL for API proxy */
   baseURL?: string;
+  /** Explicit API key (web mode) — if set, skips env/settings resolution */
+  apiKey?: string;
 }
 
 /** Input for a single component-generation call */
@@ -94,19 +96,39 @@ function buildUserContent(
  */
 export async function generateComponent(
   input: ComponentGenInput,
-  config: AnthropicConfig
+  config: AnthropicConfig,
+  signal?: AbortSignal
 ): Promise<ComponentGenResult> {
   // ---- Resolve credentials ------------------------------------------------
-  const creds = resolveClaudeCredentials();
-  if (!creds) {
-    throw new Error(
-      "Claude credentials not found. Set ANTHROPIC_AUTH_TOKEN env var, or configure ~/.claude/settings.json via cc-switch."
-    );
+  let apiKey: string | undefined;
+  let baseURL: string | undefined;
+  let model: string;
+
+  if (config.apiKey) {
+    // Web mode: explicit key from config
+    apiKey = config.apiKey;
+    baseURL = config.baseURL;
+    model = config.model || "claude-sonnet-4-6";
+  } else {
+    // CLI mode: resolve from env / ~/.claude/settings.json
+    const creds = resolveClaudeCredentials();
+    if (!creds) {
+      const err = new Error(
+        "Claude credentials not found. Set ANTHROPIC_AUTH_TOKEN env var, or configure ~/.claude/settings.json via cc-switch."
+      );
+      (err as any).code = "ERR_ANTHROPIC_KEY_MISSING";
+      throw err;
+    }
+    apiKey = creds.authToken;
+    baseURL = config.baseURL || creds.baseUrl;
+    model = config.model || creds.model || "claude-sonnet-4-6";
   }
 
-  const apiKey = creds.authToken;
-  const baseURL = config.baseURL || creds.baseUrl;
-  const model = config.model || creds.model || "claude-sonnet-4-6";
+  if (!apiKey) {
+    const err = new Error("Anthropic API key is required but not provided.");
+    (err as any).code = "ERR_ANTHROPIC_KEY_MISSING";
+    throw err;
+  }
 
   // ---- Create SDK client --------------------------------------------------
   // Pass Claude Code client headers so Anthropic can apply the correct rate-limit
@@ -142,6 +164,8 @@ export async function generateComponent(
     max_tokens: 8192,
     system: input.systemPrompt,
     messages,
+  }, {
+    signal,
   });
 
   // ---- Extract TSX from response -------------------------------------------

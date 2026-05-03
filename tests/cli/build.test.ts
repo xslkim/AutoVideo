@@ -60,7 +60,7 @@ vi.mock("../../src/config/load.js", () => ({
   }),
 }));
 
-import { build, BuildError, cwdHelper } from "../../src/cli/build.js";
+import { build, BuildError } from "../../src/cli/build.js";
 import { compile, type CompileResult } from "../../src/cli/compile.js";
 import { tts, type TtsResult } from "../../src/cli/tts.js";
 import { visuals, type VisualsResult } from "../../src/cli/visuals.js";
@@ -141,8 +141,6 @@ function setupMocksForSuccess(outDir = "/tmp/build-test-video") {
 describe("build orchestrator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.spyOn(cwdHelper, "change").mockImplementation(() => {});
-    vi.spyOn(cwdHelper, "get").mockImplementation(() => process.cwd());
   });
 
   // ── Stage ordering ──────────────────────────────────────────────────
@@ -321,11 +319,10 @@ describe("build orchestrator", () => {
     );
   });
 
-  // ── Cwd switches after compile (PRD §10) ────────────────────────────
-  // Since vitest workers don't support process.chdir, we verify the
-  // changeCwd export is called by checking the mock side effects.
+  // ── No more process.chdir (WP3.1) ────────────────────────────────────
+  // build() no longer changes cwd; outDir is passed as a parameter.
 
-  it("calls changeCwd with outDir after compile", async () => {
+  it("returns correct outDir without changing cwd", async () => {
     const outDir = "/tmp/cwd-test-out";
     const script = makeScript();
 
@@ -336,6 +333,5 @@ describe("build orchestrator", () => {
 
     const result = await build({ projectPath: FIXTURE_PROJECT });
     expect(result.outDir).toBe(outDir);
-    expect(cwdHelper.change).toHaveBeenCalledWith(outDir);
   });
 });

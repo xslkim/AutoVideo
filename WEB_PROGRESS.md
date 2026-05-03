@@ -8,8 +8,8 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `WP3.1 CLI 模块改造：onProgress / signal / force`
-- **last_updated**: `2026-05-03T18:45:00Z`
-- **next_action**: `读 WEB_TASKS.md WP3.1 并开始实现`
+- **last_updated**: `2026-05-03T19:00:00Z`
+- **next_action**: `实现 WP3.1 所有模块改造`
 - **completed**: `16 / 42`
 - **blockers**: `0`
 
@@ -77,7 +77,7 @@
 
 | ID | 标题 | 状态 | 开始 | 完成 | Commit | 备注 |
 |----|------|------|------|------|--------|------|
-| WP3.1 | CLI 模块改造：onProgress / signal / force | pending | — | — | — | — |
+| WP3.1 | CLI 模块改造：onProgress / signal / force | in_progress | 2026-05-03T19:00:00Z | — | — | — |
 | WP3.2 | 任务队列服务 | pending | — | — | — | — |
 | WP3.3 | 任务运行器 | pending | — | — | — | — |
 | WP3.4 | 任务 API + SSE | pending | — | — | — | — |

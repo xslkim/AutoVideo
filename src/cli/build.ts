@@ -13,7 +13,7 @@
 
 import { resolve, join } from "node:path";
 import { existsSync } from "node:fs";
-import type { Script } from "../types/script.js";
+import type { Script, ProgressEvent } from "../types/script.js";
 import { compile, type CompileOptions, type CompileResult } from "./compile.js";
 import { tts, type TtsOptions, type TtsResult } from "./tts.js";
 import { visuals, type VisualsOptions, type VisualsResult } from "./visuals.js";
@@ -25,9 +25,11 @@ import { loadConfig } from "../config/load.js";
 // ---------------------------------------------------------------------------
 
 export class BuildError extends Error {
-  constructor(message: string) {
+  code: string;
+  constructor(message: string, code = "ERR_BUILD_FAILED") {
     super(message);
     this.name = "BuildError";
+    this.code = code;
   }
 }
 
@@ -48,6 +50,10 @@ export interface BuildOptions {
   verbose?: boolean;
   /** Dry run mode */
   dryRun?: boolean;
+  /** Progress callback */
+  onProgress?: (event: ProgressEvent) => void;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
 }
 
 export interface BuildResult {
@@ -58,35 +64,21 @@ export interface BuildResult {
 }
 
 // ---------------------------------------------------------------------------
-// Cwd helper (injectable for testing — vitest workers don't support chdir)
-// ---------------------------------------------------------------------------
-
-/**
- * Cwd helper object. Tests can replace the methods to avoid process.chdir
- * in vitest workers.
- */
-export const cwdHelper = {
-  change(dir: string): void {
-    process.chdir(dir);
-  },
-  get(): string {
-    return process.cwd();
-  },
-};
-
-// ---------------------------------------------------------------------------
 // build()
 // ---------------------------------------------------------------------------
 
 export async function build(options: BuildOptions): Promise<BuildResult> {
-  const { projectPath, verbose = false, dryRun = false } = options;
+  const { projectPath, verbose = false, dryRun = false, onProgress, signal } = options;
 
   // Resolve project.json path
-  const resolvedProject = resolve(cwdHelper.get(), projectPath);
+  const resolvedProject = resolve(projectPath);
 
   if (!existsSync(resolvedProject)) {
     throw new BuildError(`Project file not found: ${resolvedProject}`);
   }
+
+  // Check abort before starting
+  if (signal?.aborted) throw new BuildError("Build cancelled", "ERR_CANCELLED");
 
   // Load configuration
   const { config } = loadConfig({
@@ -97,6 +89,8 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
 
   // ── Stage 1: compile ────────────────────────────────────────────────
 
+  onProgress?.({ percent: 0, step: "开始编译", stage: "compile" });
+
   console.log(`${stagePrefix("compile")} Starting compile...`);
   const compileOpts: CompileOptions = {
     projectPath: resolvedProject,
@@ -105,6 +99,11 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     metaArgs: options.metaArgs,
     dryRun,
     verbose,
+    onProgress: (event) => {
+      // Map compile progress to 0-25% of build
+      onProgress?.({ ...event, percent: event.percent * 0.25, stage: "compile" });
+    },
+    signal,
   };
 
   let compileResult: CompileResult;
@@ -113,19 +112,21 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   } catch (err: any) {
     throw new BuildError(
       `Stage 'compile' failed: ${err.message || err}\n` +
-      `Fix the issue and re-run: autovideo compile ${projectPath}`
+      `Fix the issue and re-run: autovideo compile ${projectPath}`,
+      err.code || "ERR_BUILD_COMPILE"
     );
   }
+
+  if (signal?.aborted) throw new BuildError("Build cancelled", "ERR_CANCELLED");
 
   const { outDir, script: compiledScript } = compileResult;
   const scriptPath = join(outDir, "script.json");
 
   console.log(`${stagePrefix("compile")} Done → ${scriptPath}`);
 
-  // ── Switch cwd to build out dir (PRD §10) ───────────────────────────
-  cwdHelper.change(outDir);
-
   // ── Stage 2: tts ────────────────────────────────────────────────────
+
+  onProgress?.({ percent: 25, step: "开始语音合成", stage: "tts" });
 
   console.log(`${stagePrefix("tts")} Starting tts...`);
   const ttsOpts: TtsOptions = {
@@ -133,6 +134,11 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     config,
     verbose,
     dryRun,
+    onProgress: (event) => {
+      // Map tts progress to 25-50% of build
+      onProgress?.({ ...event, percent: 25 + event.percent * 0.25, stage: "tts" });
+    },
+    signal,
   };
 
   let ttsResult: TtsResult;
@@ -141,13 +147,18 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   } catch (err: any) {
     throw new BuildError(
       `Stage 'tts' failed: ${err.message || err}\n` +
-      `Fix the issue and re-run: autovideo tts ${scriptPath}`
+      `Fix the issue and re-run: autovideo tts ${scriptPath}`,
+      err.code || "ERR_BUILD_TTS"
     );
   }
+
+  if (signal?.aborted) throw new BuildError("Build cancelled", "ERR_CANCELLED");
 
   console.log(`${stagePrefix("tts")} Done (${ttsResult.cacheHits} cache hits, ${ttsResult.apiCalls} API calls)`);
 
   // ── Stage 3: visuals ────────────────────────────────────────────────
+
+  onProgress?.({ percent: 50, step: "开始视觉生成", stage: "visuals" });
 
   console.log(`${stagePrefix("visuals")} Starting visuals...`);
   const visualsOpts: VisualsOptions = {
@@ -155,6 +166,11 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     config,
     verbose,
     dryRun,
+    onProgress: (event) => {
+      // Map visuals progress to 50-75% of build
+      onProgress?.({ ...event, percent: 50 + event.percent * 0.25, stage: "visuals" });
+    },
+    signal,
   };
 
   let visualsResult: VisualsResult;
@@ -163,13 +179,18 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   } catch (err: any) {
     throw new BuildError(
       `Stage 'visuals' failed: ${err.message || err}\n` +
-      `Fix the issue and re-run: autovideo visuals ${scriptPath}`
+      `Fix the issue and re-run: autovideo visuals ${scriptPath}`,
+      err.code || "ERR_BUILD_VISUALS"
     );
   }
+
+  if (signal?.aborted) throw new BuildError("Build cancelled", "ERR_CANCELLED");
 
   console.log(`${stagePrefix("visuals")} Done (${visualsResult.cacheHits} cache hits, ${visualsResult.apiCalls} API calls)`);
 
   // ── Stage 4: render ─────────────────────────────────────────────────
+
+  onProgress?.({ percent: 75, step: "开始渲染", stage: "render" });
 
   console.log(`${stagePrefix("render")} Starting render...`);
   const renderOpts: RenderOptions = {
@@ -177,6 +198,11 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
     config,
     verbose,
     dryRun,
+    onProgress: (event) => {
+      // Map render progress to 75-100% of build
+      onProgress?.({ ...event, percent: 75 + event.percent * 0.25, stage: "render" });
+    },
+    signal,
   };
 
   let renderResult: RenderResult;
@@ -185,13 +211,16 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   } catch (err: any) {
     throw new BuildError(
       `Stage 'render' failed: ${err.message || err}\n` +
-      `Fix the issue and re-run: autovideo render ${scriptPath}`
+      `Fix the issue and re-run: autovideo render ${scriptPath}`,
+      err.code || "ERR_BUILD_RENDER"
     );
   }
 
   console.log(`${stagePrefix("render")} Done (${renderResult.cacheHits} cache hits, ${renderResult.renders} renders)`);
 
   console.log(`\n✓ Build complete: ${outDir}`);
+
+  onProgress?.({ percent: 100, step: "构建完成", stage: "build" });
 
   return {
     script: renderResult.script,

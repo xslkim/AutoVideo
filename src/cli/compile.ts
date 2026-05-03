@@ -33,6 +33,7 @@ import type {
   Block,
   AnimationPreset,
   AspectRatio,
+  ProgressEvent,
 } from "../types/script.js";
 
 // ---------------------------------------------------------------------------
@@ -57,9 +58,11 @@ function loadSchema(): object {
 // ---------------------------------------------------------------------------
 
 export class CompileError extends Error {
-  constructor(message: string) {
+  code: string;
+  constructor(message: string, code = "ERR_COMPILE_FAILED") {
     super(message);
     this.name = "CompileError";
+    this.code = code;
   }
 }
 
@@ -80,6 +83,10 @@ export interface CompileOptions {
   dryRun?: boolean;
   /** Verbose logging */
   verbose?: boolean;
+  /** Progress callback */
+  onProgress?: (event: ProgressEvent) => void;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,11 +141,24 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
     metaArgs,
     dryRun,
     verbose,
+    onProgress,
+    signal,
   } = options;
+
+  const emit = (percent: number, step: string, blockId?: string) => {
+    onProgress?.({ percent, step, stage: "compile", blockId });
+  };
+
+  emit(0, "开始编译");
+
+  // Check abort before starting
+  if (signal?.aborted) throw new CompileError("Compile cancelled", "ERR_CANCELLED");
 
   // ── Step 1: Read project.json ──────────────────────────────────────────
   if (verbose) console.log("[compile] Reading project:", projectPath);
   const project: ResolvedProject = readProject(projectPath);
+
+  emit(10, "解析 meta.md");
 
   // ── Step 2: Parse meta.md (with --meta overrides) ──────────────────────
   if (verbose) console.log("[compile] Parsing meta:", project.metaPath);
@@ -148,9 +168,12 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   if (!existsSync(meta.voiceRef)) {
     throw new CompileError(
       `voiceRef file not found: ${meta.voiceRef}\n` +
-        `Please provide a 10-30s clear voice WAV file at this path.`
+        `Please provide a 10-30s clear voice WAV file at this path.`,
+      "ERR_VOICE_REF_NOT_FOUND"
     );
   }
+
+  emit(20, "解析块文件");
 
   // ── Step 3: Parse & merge blocks ───────────────────────────────────────
   if (verbose)
@@ -161,9 +184,15 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
     );
   const rawBlocks: RawBlock[] = parseAndMergeBlocks(project.blockPaths);
 
+  emit(40, "确定输出目录");
+
   // ── Step 4: Determine output directory ─────────────────────────────────
   const outDir = resolveOutDir(meta.title, outFlag, meta.slug);
   if (verbose) console.log("[compile] Output directory:", outDir);
+
+  if (signal?.aborted) throw new CompileError("Compile cancelled", "ERR_CANCELLED");
+
+  emit(50, "处理资源文件");
 
   // ── Step 5: Process assets ─────────────────────────────────────────────
   // Build BlockForAssets[] from RawBlock[]
@@ -184,6 +213,8 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
     project.projectDir,
     outDir
   );
+
+  emit(70, "组装 Script 对象");
 
   // ── Step 6: Compute subtitleSafeBottom ─────────────────────────────────
   const subtitleSafeBottom = Math.floor(meta.height * 0.15);
@@ -232,6 +263,8 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
     assets: assetResult.assets,
   };
 
+  emit(80, "验证 Schema");
+
   // ── Step 8: Validate with JSON Schema (Ajv) ────────────────────────────
   if (verbose) console.log("[compile] Validating script against JSON schema");
   const schemaObj = loadSchema();
@@ -254,7 +287,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
         return `  ${path} ${msg}`;
       })
       .join("\n");
-    throw new CompileError(`Script schema validation failed:\n${errors}`);
+    throw new CompileError(`Script schema validation failed:\n${errors}`, "ERR_SCHEMA_VALIDATION");
   }
 
   // ── Step 9: Write output ───────────────────────────────────────────────
@@ -262,8 +295,11 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
     console.log(
       `Would compile:\n  Project: ${project.projectPath}\n  Meta: ${project.metaPath}\n  Blocks: ${project.blockPaths.length} file(s)\n  Title: ${meta.title}\n  Aspect: ${meta.aspect} (${meta.width}×${meta.height})\n  FPS: ${meta.fps}\n  Theme: ${meta.theme}\n  subtitleSafeBottom: ${subtitleSafeBottom}\n  Output: ${outDir}`
     );
+    emit(100, "Dry run 完成");
     return { script, outDir, scriptPath: resolve(outDir, "script.json") };
   }
+
+  emit(90, "写入输出文件");
 
   // Create output directories
   mkdirSync(outDir, { recursive: true });
@@ -299,6 +335,8 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   }
 
   if (verbose) console.log("[compile] Done. Output:", outDir);
+
+  emit(100, "编译完成");
 
   return { script, outDir, scriptPath };
 }
