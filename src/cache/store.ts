@@ -20,7 +20,7 @@ import ms from "ms";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
-export type CacheType = "audio" | "component" | "partial";
+export type CacheType = "audio" | "component" | "partial" | "images";
 
 /** Manifest entry key → type-specific key details */
 export interface AudioKey {
@@ -54,7 +54,14 @@ export interface PartialKey {
   remotionVersion: string;
 }
 
-export type CacheKey = AudioKey | ComponentKey | PartialKey;
+export interface ImageKey {
+  prompt: string;
+  model: string;
+  size: string;
+  baseURL: string;
+}
+
+export type CacheKey = AudioKey | ComponentKey | PartialKey | ImageKey;
 
 export interface ManifestEntry {
   type: CacheType;
@@ -80,6 +87,7 @@ export interface CacheStats {
     audio: { count: number; sizeBytes: number };
     component: { count: number; sizeBytes: number };
     partial: { count: number; sizeBytes: number };
+    images: { count: number; sizeBytes: number };
   };
 }
 
@@ -107,6 +115,8 @@ function extForType(type: CacheType): string {
       return ".tsx";
     case "partial":
       return ".mp4";
+    case "images":
+      return ".png";
   }
 }
 
@@ -120,6 +130,8 @@ function dirForType(type: CacheType): string {
       return "components";
     case "partial":
       return "partials";
+    case "images":
+      return "images";
   }
 }
 
@@ -128,6 +140,7 @@ const EVICT_PRIORITY: Record<CacheType, number> = {
   partial: 0,
   component: 1,
   audio: 2,
+  images: 3,
 };
 
 // ── Helper: ensure directory exists ──────────────────────────────────────
@@ -156,7 +169,7 @@ export class CacheStore {
 
     // Ensure base directories exist
     ensureDir(this.cacheDir);
-    for (const t of ["audio", "components", "partials"] as const) {
+    for (const t of ["audio", "components", "partials", "images"] as const) {
       ensureDir(path.join(this.cacheDir, t));
     }
 
@@ -249,6 +262,7 @@ export class CacheStore {
           audio: { count: 0, sizeBytes: 0 },
           component: { count: 0, sizeBytes: 0 },
           partial: { count: 0, sizeBytes: 0 },
+          images: { count: 0, sizeBytes: 0 },
         },
       };
 

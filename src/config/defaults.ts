@@ -71,6 +71,21 @@ export interface RenderConfig {
   loudnorm: LoudnormConfig;
 }
 
+export interface ImageGenConfig {
+  /** API base URL (e.g. https://api.openai.com) */
+  baseURL?: string;
+  /** API key */
+  apiKey?: string;
+  /** Model identifier */
+  model: string;
+  /** Output image size (e.g. "1920x1080"); computed from meta.aspect if not set */
+  size?: string;
+  /** Request timeout in ms */
+  timeoutMs: number;
+  /** Max concurrent image generation calls */
+  concurrency: number;
+}
+
 export interface CacheConfig {
   /** Cache root directory (supports ~ expansion) */
   dir: string;
@@ -83,6 +98,7 @@ export interface CacheConfig {
 export interface AutoVideoConfig {
   voxcpm: VoxcpmConfig;
   anthropic: AnthropicConfig;
+  imageGen: ImageGenConfig;
   render: RenderConfig;
   cache: CacheConfig;
 }
@@ -107,6 +123,13 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     maxRetries: 3,
     concurrency: 1,
     baseURL: process.env.ANTHROPIC_BASE_URL,
+  },
+  imageGen: {
+    baseURL: process.env.IMAGE_GEN_BASE_URL,
+    apiKey: process.env.IMAGE_GEN_API_KEY,
+    model: "gpt-image-1",
+    timeoutMs: 120000,
+    concurrency: 2,
   },
   render: {
     blockConcurrency: 4,
