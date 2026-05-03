@@ -12,7 +12,11 @@
 - 明确 web 模式不读 `~/.claude/settings.json`，仅给一次性导入提示（§13.4）
 - Remotion bundle 必须显式传 `publicDir`（§7 / §8 / §A.5.4）
 - 单块清缓存同时清 cache/* + build/{slug}/ 实际产物 + 回写 script.json 字段（§5.1）
-- Phase 1 / Phase 6 验收脚本修正：先 build:server；/api/output 用 Content-Type 校验
+- Phase 1 / Phase 6 验收脚本修正：先 build:server；`/api/projects/:name/output` 用 Content-Type 校验
+- 修正 server 编译入口路径：`tsconfig.server.json` 使用 `rootDir: "."` 时启动入口为 `dist/server/server/index.js`
+- 文档示例项目名统一为当前仓库实际目录 `microgpt`
+- 所有会改写 `meta.md` / `script.md` 的接口都必须使用 ETag/If-Match，避免跨 Tab 覆盖
+- 取消 running 任务时 worker 不释放队列，直到实际运行 promise settle；超时只标记 `cancelling` 并暂停后续任务
 
 ---
 
@@ -68,7 +72,7 @@ Web 后端扫描 `<repo>/project/` 目录，每个**直接子目录**视为一�
 
 ```
 project/
-└── MicroGpt/                          ← 项目目录名即项目 ID
+└── microgpt/                          ← 项目目录名即项目 ID
     ├── project.json                   ← 项目入口（必须存在）
     ├── meta.md                        ← 项目元信息（YAML frontmatter 风格）
     ├── script.md                      ← 主脚本（含所有 Block）
@@ -148,7 +152,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 - 任务**入队**时（`POST /api/tasks` 收到请求那刻）即根据 live meta.md 计算并写入 `task.outputSlug`，持久化到 `tasks.jsonl`
 - 任务**运行**全程使用 `task.outputSlug`，期间用户即使改了 meta.md 的 slug 也不影响该任务输出位置
 - 当用户 `PUT /api/projects/:name/meta` 提交新内容且 slug 字段变更时，后端检查任务队列：
-  - 若有 `pending`/`running` 任务的 `outputSlug` 与新 slug 不一致 → 返回 `409 Conflict { code: "ERR_SLUG_LOCKED", runningTaskId, currentSlug, newSlug }`
+  - 若有 `pending`/`running`/`cancelling` 任务的 `outputSlug` 与新 slug 不一致 → 返回 `409 Conflict { code: "ERR_SLUG_LOCKED", runningTaskId, currentSlug, newSlug }`
   - UI 弹框：「有任务正在使用 slug `xxx`，请等待任务结束或取消任务后再修改」
 - 块状态判定（§4.2.1）使用 live `currentSlug`；新 slug 下没有 build 目录时，所有块状态都显示为「未生成」
 
@@ -238,7 +242,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 - CodeMirror 6，YAML 语法高亮
 - 已知字段：`title` / `aspect` / `theme` / `fps` / `slug` / `voiceRef`
 - `Ctrl+S` 或保存按钮触发保存（PUT 接口 + ETag 协议见 §5.1）
-- `voiceRef` 字段旁显示「上传语音」按钮：上传 `.wav` → 后端写入 `project/{name}/voice/{原文件名}` → 自动改写 meta.md 的 `voiceRef` 为 `./voice/{原文件名}` → 编辑器内容刷新（保留光标位置）
+- `voiceRef` 字段旁显示「上传语音」按钮：上传 `.wav` 时带当前 meta.md 的 `If-Match` → 后端写入 `project/{name}/voice/{原文件名}` → 自动改写 meta.md 的 `voiceRef` 为 `./voice/{原文件名}` → 编辑器内容刷新（保留光标位置）；若 ETag 冲突返回 409，UI 走同一套「覆盖 / 取消 / 查看 diff」交互
 - 兼容：读取时 `voiceRef` 若是 `../../xxx.wav` 等绝对/越界路径不报错，照常显示；用户可自行改写
 
 **Tab 2: script.md 编辑器**
@@ -272,7 +276,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 
 - Radio：动画 (`animation`) / 图片 (`image`)
 - 切换时：
-  1. 调用 `PUT /api/projects/:name/blocks/:id/visual-mode { mode }`
+  1. 调用 `PUT /api/projects/:name/blocks/:id/visual-mode { mode }`，请求头带当前 `script.md` 的 `If-Match`
   2. 后端在 script.md 该块块头下方插入或更新 `@visual: <mode>` 指令（缺省视为 `animation`）
   3. 切换后该块的旧产物（Component.tsx / image.png / partial.mp4）状态可能与新模式不一致；UI 提示「模式已切换，建议重新生成视觉」
 
@@ -304,7 +308,8 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 - 上下分栏：
   - 上：CodeMirror 只读模式，TSX 高亮，右上角「复制全文」「显示路径」
   - 下：帧预览
-    - 滑块上限 = `Math.round(block.audio.durationSec * meta.fps)`（无音频时显示「需先生成音频」）
+    - 滑块上限与后端一致：优先 `block.timing.frames - 1`；无 timing 时用 `Math.round((block.audio?.durationSec ?? 5) * meta.fps) - 1` 兜底
+    - 无音频时仍允许预览，UI 提示「未生成音频，时长按默认值估算」
     - 拖动滑块时仅显示帧号；松开（`mouseup`/`touchend`）后才发请求（300ms 防抖）
     - 渲染中显示 spinner，旧图保持不替换（防闪烁）；新图返回后切换
     - 同一块同时只允许一个 renderStill 进行中；新请求到来 abort 前一个未完成的请求
@@ -380,7 +385,8 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 
 每个任务条目右侧有「取消」按钮：
 - pending：直接从队列移除
-- running：通过 `AbortController.abort()` 通知 CLI；CLI 收到后清理临时文件、抛 `AbortError`，taskRunner 把状态标 `cancelled`
+- running：通过 `AbortController.abort()` 通知 CLI；CLI 收到后清理临时文件、抛 `AbortError`，taskRunner 在底层 promise settle 后把状态标 `cancelled`
+- running 取消过程中 worker 仍被该任务占用，**不得启动下一个队列任务**，直到当前 `runningPromise` 实际 settle；若超过 5s 仍未 settle，任务状态标为 `cancelling`，UI 显示「正在强制停止」，队列暂停并保留后续 pending 任务，避免旧 Remotion/ffmpeg 进程与新任务并发写同一 build 目录
 - 已完成的不显示取消
 
 ---
@@ -390,7 +396,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 #### 设计原则
 
 - 全局**单线程** FIFO 队列，同一时刻只运行一个任务
-- 任务状态：`pending` → `running` → `completed` / `failed` / `cancelled`
+- 任务状态：`pending` → `running` → `completed` / `failed` / `cancelled`；取消超时但底层进程尚未退出时为 `cancelling`（队列暂停，不启动后续任务）
 - 任务记录持久化到 `<repo>/.autovideo-web/tasks.jsonl`（每行一条 JSON），启动时加载最近 50 条
 
 **源文件快照策略**（按 stage 区分，**不要全部快照**）：
@@ -430,7 +436,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 
 **每条任务显示**:
 - 任务类型（如「生成音频 B03」）
-- 状态图标（pending / running / completed / failed / cancelled）
+- 状态图标（pending / running / cancelling / completed / failed / cancelled）
 - 进度条（百分比 + 当前步骤文字，如「正在渲染第 3/5 块」）
 - ETA：基于已用时间和当前 percent 线性外推；percent < 5% 时显示「估算中…」
 - 耗时（运行中实时计时 / 完成后显示总时长）
@@ -470,9 +476,11 @@ GET    /api/projects/:name/meta         → 读取 meta.md 内容；响应头 ET
 PUT    /api/projects/:name/meta         → 保存 meta.md { content }；请求头 If-Match
 GET    /api/projects/:name/script       → 读取 script.md；响应头 ETag
 PUT    /api/projects/:name/script       → 保存 script.md；请求头 If-Match
-PUT    /api/projects/:name/blocks/:id   → 保存单块（来自块详情面板 Tab A）{ content }；服务端按 §4.3 算法回写 script.md，整体 ETag 仍校验
+PUT    /api/projects/:name/blocks/:id   → 保存单块（来自块详情面板 Tab A）{ content }；请求头 If-Match（script.md ETag）
+                                           服务端按 §4.3 算法回写 script.md，整体 ETag 仍校验
 GET    /api/projects/:name/blocks       → 解析 script.md 返回 [{ id, title, line, visualMode, status, warnings }]
 PUT    /api/projects/:name/blocks/:id/visual-mode  → 切换块视觉模式 { mode: "animation" | "image" }
+                                                     请求头 If-Match（script.md ETag）
                                                      后端在该块块头下方插入/更新 `@visual: <mode>` 指令并写回 script.md
 POST   /api/projects/:name/blocks/:id/cache/clear  → 清空该块某类缓存 + 同时删除 build/{slug}/ 下对应实际产物
                                                      body: { kind: "audio" | "visual" | "partial" | "all" }
@@ -488,6 +496,7 @@ POST   /api/projects/:name/blocks/:id/cache/clear  → 清空该块某类缓存 
 **ETag/冲突协议**:
 - `GET` 响应头始终包含 `ETag: sha256:<hex>`（基于文件原始字节）
 - `PUT` 请求头必须带 `If-Match: sha256:<hex>`；不匹配返回 `409 Conflict`，body `{ currentContent, currentEtag }`
+- 任何会改写 `meta.md` / `script.md` 的非 PUT 接口也必须带对应文件的 `If-Match`（如上传语音会改 meta.md），冲突协议同上
 - UI 收到 409 弹三选一：覆盖 / 取消 / 查看 diff
 
 ### 5.2 资源 API
@@ -498,7 +507,7 @@ POST   /api/projects/:name/assets       → 上传图片（multipart/form-data, 
 DELETE /api/projects/:name/assets/:file → 删除文件（:file 仅文件名，禁止 / 或 ..）
 GET    /api/projects/:name/assets/:file → 文件内容（带 Content-Type）
 
-POST   /api/projects/:name/voice        → 上传参考语音（multipart/form-data, 字段名 file）
+POST   /api/projects/:name/voice        → 上传参考语音（multipart/form-data, 字段名 file；请求头 If-Match 为 meta.md ETag）
                                           后端写入 project/{name}/voice/，
                                           并同步更新 meta.md 的 voiceRef 字段；
                                           响应：{ voiceRef, metaContent, metaEtag }
@@ -528,7 +537,7 @@ GET    /api/projects/:name/output               → ★ final_normalized.mp4 文
 GET    /api/tasks                       → 任务列表（最近 50 条）?project=xxx 过滤
 GET    /api/tasks/:id                   → 任务详情
 POST   /api/tasks                       → 创建任务（见下方 body 说明）
-DELETE /api/tasks/:id                   → 取消任务（pending: 删除；running: abort）
+DELETE /api/tasks/:id                   → 取消任务（pending: 删除；running: abort；cancelling: 返回当前状态）
 GET    /api/tasks/:id/events            → SSE 进度流；不支持 Last-Event-ID（重连前先 GET /api/tasks/:id 同步状态）
 GET    /api/tasks/:id/log               → 完整日志文本（text/plain）
 ```
@@ -536,7 +545,7 @@ GET    /api/tasks/:id/log               → 完整日志文本（text/plain）
 **POST /api/tasks body**:
 ```json
 {
-  "project": "MicroGpt",
+  "project": "microgpt",
   "stage": "compile" | "tts" | "visuals" | "render" | "build" | "merge",
   "blockIds": ["B03"],
   "force": false
@@ -766,7 +775,7 @@ await tts({
 ```
 用户在 meta.md 编辑器点击「上传语音」
     ↓ 选择本地 WAV
-    ↓ POST /api/projects/:name/voice（multipart）
+    ↓ POST /api/projects/:name/voice（multipart，带当前 meta.md If-Match）
     ↓ 后端写到 project/{name}/voice/{filename}.wav
     ↓ 后端读取 meta.md，把 voiceRef 改写为 ./voice/{filename}.wav，写回
     ↓ 响应 { voiceRef, metaContent, metaEtag }
@@ -805,8 +814,8 @@ await tts({
 
 **验收**:
 1. `curl http://127.0.0.1:3030/api/health` 返回 `{ ok: true }`
-2. `curl /api/projects` 返回 `[{ name: "MicroGpt", ... }]`
-3. 浏览器访问 `/project/MicroGpt`，meta.md 内容显示，修改并保存后磁盘文件更新
+2. `curl /api/projects` 返回 `[{ name: "microgpt", ... }]`
+3. 浏览器访问 `/project/microgpt`，meta.md 内容显示，修改并保存后磁盘文件更新
 4. 两个浏览器 tab 同时编辑 meta，后保存的一方收到 409
 
 ### Phase 2 — 脚本编辑与资源管理
@@ -886,7 +895,7 @@ await tts({
 | 5 | CLI 改造 | 必须去除 `compile` 中的 `process.chdir`；所有 stage 增加 `onProgress` / `signal` / `force`（附录 A） |
 | 6 | merge 阶段 | 新增 `render --concat-only` 模式：仅 concat + loudnorm + qa，不重渲染 partials |
 | 7 | 块 ID 修改 | 块详情 Tab A 禁止修改块头 `#Bxx`；修改请回主脚本编辑器 |
-| 8 | 任务取消 | `DELETE /api/tasks/:id`；CLI 收 `AbortSignal` 中止；状态 `cancelled` |
+| 8 | 任务取消 | `DELETE /api/tasks/:id`；CLI 收 `AbortSignal` 中止；正常退出后状态 `cancelled`；取消超时但底层仍未退出时状态 `cancelling` 且队列暂停 |
 | 9 | 文件冲突 | ETag/If-Match 协议；冲突 409 + 当前内容；UI 三选一弹框 |
 | 10 | 项目名字符集 | `^[a-zA-Z0-9_-]{1,40}$` |
 | 11 | 平台支持 | 仅 Linux/macOS；Windows v1 不支持 |
@@ -913,8 +922,8 @@ await tts({
 | 32 | 任务快照 | 仅 compile/build 快照源文件；tts/visuals/render 直读 script.json，编辑后必须先 compile |
 | 33 | SSE 续传 | 不实现 Last-Event-ID；重连前先 GET /api/tasks/:id 拉状态再订阅新事件 |
 | 34 | merge 术语 | UI 显示「合并视频」；Web stage = `merge`；CLI flag = `render --concat-only`；模块函数 = `concatPartials + applyLoudnorm + runQA` |
-| 35 | 包结构 | 不引入 npm workspaces；root + web/ 双 package + 各自 lockfile；`tsconfig.server.json` 编译 server/ 到 dist/server/ |
-| 36 | 取消信号 | 必须传到 fetch/SDK/Remotion `cancelSignal`/ffmpeg `child.kill`；taskRunner 给 5s 宽限 |
+| 35 | 包结构 | 不引入 npm workspaces；root + web/ 双 package + 各自 lockfile；`tsconfig.server.json` 编译 server/ + src 依赖到 `dist/server/`，启动入口为 `dist/server/server/index.js` |
+| 36 | 取消信号 | 必须传到 fetch/SDK/Remotion `cancelSignal`/ffmpeg `child.kill`；taskRunner 5s 后进入 `cancelling` 并暂停队列，直到实际 settle 才释放 worker |
 | 37 | Anthropic 配置来源 | web 模式不读 `~/.claude/settings.json`，统一走 UI 设置 + env；首次启动若检测到 ~/.claude/settings.json 有 key 而 web/env 都没有，UI 弹一次性导入提示 |
 | 38 | 单块清缓存范围 | 同时清 cache/* 和 build/{slug}/ 下对应实际产物 + 回写 script.json 字段，确保块状态立即回退到「未生成」 |
 | 39 | 快照范围 | compile/build 快照必须包含 voice/ 目录（voiceRef 解析依赖），未来若引入新的 meta-relative 资源也需纳入 |
@@ -977,6 +986,7 @@ UI 设置面板优先级最高：UI 写入后立即覆盖；UI 显式置 null �
 
 - 现有 `src/ai/component-gen.ts` 在 CLI 模式下会自动读 `~/.claude/settings.json` 的 `apiKey` / `baseURL`
 - web 模式**不读** `~/.claude/settings.json`，仅按上表的"UI > env"优先级取配置；理由是 web 把配置统一收口到设置面板，避免两套来源相互覆盖
+- 因此 Web 调用链必须把已解析的 `apiKey` / `baseURL` / `model` 显式传入 `visuals` → `generateComponent`；`generateComponent` 需要支持“显式凭据模式”，该模式下不得调用 `resolveClaudeCredentials()` 或读取 `~/.claude/settings.json`
 - 服务首次启动时若同时满足：①`.autovideo-web/config.json` 中 `anthropic.apiKey` 为空 ②环境变量 `ANTHROPIC_API_KEY` 为空 ③`~/.claude/settings.json` 存在且包含可用 apiKey —— 则在日志和 UI 顶部 banner 显示「检测到 ~/.claude/settings.json 配置，是否一键导入到 Web 设置？」，用户点确认后由后端读该文件 → 写入 `config.json`
 - 该提示一次性，用户点忽略后下次启动不再弹
 
@@ -1022,7 +1032,7 @@ UI 设置面板优先级最高：UI 写入后立即覆盖；UI 显式置 null �
 ├── package.json                 ← 既有，再加 server 相关 deps + scripts
 ├── package-lock.json
 ├── tsconfig.json                ← 既有，保持不动（不 include server/，避免 npm run build 误编译 server）
-├── tsconfig.server.json         ← ★ 新增，专编 server → dist/server/
+├── tsconfig.server.json         ← ★ 新增，专编 server + src 依赖 → dist/server/
 ├── server/                      ← 后端源码
 ├── web/
 │   ├── package.json             ← 独立 package（前端依赖）
@@ -1030,7 +1040,9 @@ UI 设置面板优先级最高：UI 写入后立即覆盖；UI 显式置 null �
 │   ├── vite.config.ts
 │   └── src/
 └── dist/
-    └── server/                  ← tsc 输出
+    └── server/                  ← tsc 输出；入口为 server/index.js
+        ├── server/index.js
+        └── src/...
 ```
 
 `tsconfig.server.json`:
@@ -1053,7 +1065,7 @@ UI 设置面板优先级最高：UI 写入后立即覆盖；UI 显式置 null �
     "build:server": "tsc -p tsconfig.server.json",
     "build:client": "cd web && npm ci && npm run build",
     "build:web": "npm run build:server && npm run build:client",
-    "start:web": "node dist/server/index.js",
+    "start:web": "node dist/server/server/index.js",
     "dev:web": "concurrently -k \"tsx server/index.ts\" \"cd web && vite\""
   }
 }
@@ -1061,7 +1073,7 @@ UI 设置面板优先级最高：UI 写入后立即覆盖；UI 显式置 null �
 
 - `dev:web`：server 通过 tsx 直跑（监听 `:3030`），前端走 vite dev server（`:5173`），server 在 `NODE_ENV=development` 时把非 `/api/*` 请求反代到 `:5173`
 - `build:web`：先编译 server 到 `dist/server/`，再 `cd web && npm ci && npm run build` 输出到 `web/dist/`
-- `start:web`：生产启动，server 通过 serveStatic 托管 `web/dist/`，SPA fallback 到 `web/dist/index.html`
+- `start:web`：生产启动入口是 `dist/server/server/index.js`（因为 `rootDir: "."` 会保留 `server/` 目录层级），server 通过 serveStatic 托管 `web/dist/`，SPA fallback 到 `web/dist/index.html`
 
 ### 14.2 systemd 单元（Linux 部署样例）
 
@@ -1079,7 +1091,7 @@ EnvironmentFile=-/opt/AutoVideo/.env
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=3030
-ExecStart=/usr/bin/node dist/server/index.js
+ExecStart=/usr/bin/node dist/server/server/index.js
 Restart=on-failure
 RestartSec=5
 
@@ -1159,9 +1171,9 @@ CLI 抛错时附带稳定的 `code` 字段（如 `ERR_VOXCPM_OFFLINE` / `ERR_ANT
 `taskRunner` 取消流程：
 1. 用户 `DELETE /api/tasks/:id`
 2. taskRunner 调 `controller.abort()`
-3. 等待 `runningPromise` settle（最多 5s 宽限）
-4. 标记任务 `cancelled`，emit SSE `cancelled` 事件
-5. 5s 仍未 settle：强制标记 `cancelled` 并 log warning（任务实际可能仍在跑，但下一轮 abort 会清理）
+3. 等待 `runningPromise` settle；settle 前 worker 不释放，队列不得启动下一个任务
+4. 若 5s 后仍未 settle：状态改为 `cancelling`，emit SSE `progress`（step: "正在强制停止..."），队列暂停并持续等待
+5. `runningPromise` 最终 settle 后：标记任务 `cancelled`，emit SSE `cancelled` 事件，释放 worker 并恢复队列
 
 ### A.4.2 SSE 退出顺序
 
@@ -1288,6 +1300,8 @@ visualsOptions.imageGen = { baseURL, apiKey, model, size, timeoutMs, concurrency
 
 Web 服务在 taskRunner 启动任务前读 `.autovideo-web/config.json`（或环境变量回退），把配置注入 options。CLI 命令行启动时（保留兼容）由 `bin/autovideo.ts` 自行从环境变量装配。
 
+**Anthropic 凭据注入硬约束**：Web 模式传入 `visualsOptions.anthropic.apiKey` 后，`src/ai/component-gen.ts` 必须优先使用该显式 key；若 key 缺失则直接抛 `ERR_ANTHROPIC_KEY_MISSING`，不得 fallback 到 `resolveClaudeCredentials()` / `~/.claude/settings.json`。CLI 模式可继续使用原有 fallback。
+
 ---
 
 ## 附录 B — 核心类型定义
@@ -1297,7 +1311,7 @@ Web 服务在 taskRunner 启动任务前读 `.autovideo-web/config.json`（或�
 
 export type Stage = 'compile' | 'tts' | 'visuals' | 'render' | 'build' | 'merge';
 
-export type TaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus = 'pending' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
 
 export interface ProgressEvent {
   percent: number;          // 0-100
@@ -1458,7 +1472,7 @@ function replaceBlock(scriptMd: string, id: string, newContent: string): string 
 
 ### Phase 1
 ```bash
-# 先编译 server（首次执行 dist/server/index.js 不存在）
+# 先编译 server（首次执行 dist/server/server/index.js 不存在）
 npm ci
 npm run build:server
 
@@ -1471,41 +1485,41 @@ curl -fsS http://127.0.0.1:3030/api/health | jq -e '.ok == true'
 
 # 项目列表（含 nonStandard 标记）
 curl -fsS http://127.0.0.1:3030/api/projects \
-  | jq -e '.[] | select(.name == "MicroGpt") | has("nonStandard")'
+  | jq -e '.[] | select(.name == "microgpt") | has("nonStandard")'
 
 # ETag
-ETAG=$(curl -fsS -D - http://127.0.0.1:3030/api/projects/MicroGpt/meta -o /tmp/meta.md \
+ETAG=$(curl -fsS -D - http://127.0.0.1:3030/api/projects/microgpt/meta -o /tmp/meta.md \
   | awk '/^ETag/{print $2}' | tr -d '\r')
 curl -fsS -X PUT -H "Content-Type: application/json" -H "If-Match: $ETAG" \
   -d "{\"content\":\"$(cat /tmp/meta.md | sed 's/"/\\"/g')\"}" \
-  http://127.0.0.1:3030/api/projects/MicroGpt/meta | jq -e '.ok == true'
+  http://127.0.0.1:3030/api/projects/microgpt/meta | jq -e '.ok == true'
 
 # 冲突
-curl -fsS -o /dev/null -w "%{http_code}" -X PUT \
+curl -sS -o /dev/null -w "%{http_code}" -X PUT \
   -H "Content-Type: application/json" -H "If-Match: sha256:00" \
   -d '{"content":"x"}' \
-  http://127.0.0.1:3030/api/projects/MicroGpt/meta | grep -q 409
+  http://127.0.0.1:3030/api/projects/microgpt/meta | grep -q 409
 ```
 
 ### Phase 2
 ```bash
 # 块解析
-curl -fsS http://127.0.0.1:3030/api/projects/MicroGpt/blocks \
+curl -fsS http://127.0.0.1:3030/api/projects/microgpt/blocks \
   | jq -e '.blocks | length > 0 and all(.id | test("^B[0-9]+$"))'
 
 # 单块提取
-curl -fsS http://127.0.0.1:3030/api/projects/MicroGpt/blocks \
+curl -fsS http://127.0.0.1:3030/api/projects/microgpt/blocks \
   | jq -e '.blocks[0] | has("title") and has("audio") and has("visual") and has("rendered")'
 
 # 资源列表
-curl -fsS http://127.0.0.1:3030/api/projects/MicroGpt/assets | jq -e 'type == "array"'
+curl -fsS http://127.0.0.1:3030/api/projects/microgpt/assets | jq -e 'type == "array"'
 ```
 
 ### Phase 3
 ```bash
 # 提交任务
 TASK=$(curl -fsS -X POST -H "Content-Type: application/json" \
-  -d '{"project":"MicroGpt","stage":"compile"}' \
+  -d '{"project":"microgpt","stage":"compile"}' \
   http://127.0.0.1:3030/api/tasks | jq -r '.id')
 
 # SSE（前 5 秒应至少收到 progress 或 done）
@@ -1513,20 +1527,21 @@ timeout 30 curl -N -fsS http://127.0.0.1:3030/api/tasks/$TASK/events | grep -m1 
 
 # 取消
 TASK2=$(curl -fsS -X POST -H "Content-Type: application/json" \
-  -d '{"project":"MicroGpt","stage":"build"}' \
+  -d '{"project":"microgpt","stage":"build"}' \
   http://127.0.0.1:3030/api/tasks | jq -r '.id')
 sleep 2
-curl -fsS -X DELETE http://127.0.0.1:3030/api/tasks/$TASK2 | jq -e '.status == "cancelled"'
+curl -fsS -X DELETE http://127.0.0.1:3030/api/tasks/$TASK2 | jq -e '.status == "cancelled" or .status == "cancelling"'
+timeout 60 bash -c "until [ \"\$(curl -fsS http://127.0.0.1:3030/api/tasks/$TASK2 | jq -r '.status')\" = cancelled ]; do sleep 1; done"
 ```
 
 ### Phase 4
 ```bash
 # Range 请求
 curl -fsS -H "Range: bytes=0-1023" -o /dev/null -w "%{http_code}\n" \
-  http://127.0.0.1:3030/api/projects/MicroGpt/output | grep -q 206
+  http://127.0.0.1:3030/api/projects/microgpt/output | grep -q 206
 
 # 帧预览
-curl -fsS "http://127.0.0.1:3030/api/projects/MicroGpt/blocks/B01/preview?frame=0" \
+curl -fsS "http://127.0.0.1:3030/api/projects/microgpt/blocks/B01/preview?frame=0" \
   -o /tmp/frame.png
 file /tmp/frame.png | grep -q 'PNG image'
 ```
@@ -1534,11 +1549,13 @@ file /tmp/frame.png | grep -q 'PNG image'
 ### Phase 5
 ```bash
 # 切换块为图片模式
-curl -fsS -X PUT -H "Content-Type: application/json" \
+SCRIPT_ETAG=$(curl -fsS -D - http://127.0.0.1:3030/api/projects/microgpt/script -o /tmp/script.md \
+  | awk '/^ETag/{print $2}' | tr -d '\r')
+curl -fsS -X PUT -H "Content-Type: application/json" -H "If-Match: $SCRIPT_ETAG" \
   -d '{"mode":"image"}' \
-  http://127.0.0.1:3030/api/projects/MicroGpt/blocks/B01/visual-mode \
+  http://127.0.0.1:3030/api/projects/microgpt/blocks/B01/visual-mode \
   | jq -e '.ok == true'
-grep -q '@visual: image' project/MicroGpt/script.md
+grep -q '@visual: image' project/microgpt/script.md
 
 # 配置脱敏
 curl -fsS http://127.0.0.1:3030/api/config \
@@ -1553,12 +1570,12 @@ curl -fsS -X PUT -H "Content-Type: application/json" \
 # 单块清缓存
 curl -fsS -X POST -H "Content-Type: application/json" \
   -d '{"kind":"visual"}' \
-  http://127.0.0.1:3030/api/projects/MicroGpt/blocks/B01/cache/clear \
+  http://127.0.0.1:3030/api/projects/microgpt/blocks/B01/cache/clear \
   | jq -e '.ok == true'
 
 # 批量任务
 curl -fsS -X POST -H "Content-Type: application/json" \
-  -d '{"project":"MicroGpt","stage":"tts","blockIds":["B01","B02"]}' \
+  -d '{"project":"microgpt","stage":"tts","blockIds":["B01","B02"]}' \
   http://127.0.0.1:3030/api/tasks | jq -e '.id'
 ```
 
@@ -1569,13 +1586,15 @@ curl -fsS http://127.0.0.1:3030/api/doctor \
   | jq -e '.voxcpm and .anthropic and .imageGen and .ffmpeg and .remotion'
 
 # 验收前确保至少有一个图片模式块（验收点 1 要求"动画块和图片块各至少 1 个"）
-curl -fsS -X PUT -H "Content-Type: application/json" \
+SCRIPT_ETAG=$(curl -fsS -D - http://127.0.0.1:3030/api/projects/microgpt/script -o /tmp/script.md \
+  | awk '/^ETag/{print $2}' | tr -d '\r')
+curl -fsS -X PUT -H "Content-Type: application/json" -H "If-Match: $SCRIPT_ETAG" \
   -d '{"mode":"image"}' \
-  http://127.0.0.1:3030/api/projects/MicroGpt/blocks/B01/visual-mode
+  http://127.0.0.1:3030/api/projects/microgpt/blocks/B01/visual-mode
 
 # 全量构建（耗时较长）
 TASK=$(curl -fsS -X POST -H "Content-Type: application/json" \
-  -d '{"project":"MicroGpt","stage":"build"}' \
+  -d '{"project":"microgpt","stage":"build"}' \
   http://127.0.0.1:3030/api/tasks | jq -r '.id')
 while :; do
   S=$(curl -fsS http://127.0.0.1:3030/api/tasks/$TASK | jq -r '.status')
@@ -1584,20 +1603,20 @@ while :; do
   sleep 5
 done
 # 终稿是 final_normalized.mp4，路径必须在项目目录内
-test -f project/MicroGpt/build/*/output/final_normalized.mp4
+test -f project/microgpt/build/*/output/final_normalized.mp4
 # 仓库根不应出现孤儿 build/
 test ! -d build || ! ls build/*/output/final_normalized.mp4 2>/dev/null
 
-# /api/output 优先返回 final_normalized.mp4（Content-Type 必须是 video/mp4，且能下载到非空 mp4）
-curl -fsS -I http://127.0.0.1:3030/api/projects/MicroGpt/output \
+# /api/projects/:name/output 优先返回 final_normalized.mp4（Content-Type 必须是 video/mp4，且能下载到非空 mp4）
+curl -fsS -I http://127.0.0.1:3030/api/projects/microgpt/output \
   | grep -qi '^content-type:[[:space:]]*video/mp4'
-curl -fsS -o /tmp/out.mp4 http://127.0.0.1:3030/api/projects/MicroGpt/output
+curl -fsS -o /tmp/out.mp4 http://127.0.0.1:3030/api/projects/microgpt/output
 test -s /tmp/out.mp4
 file /tmp/out.mp4 | grep -qE 'ISO Media|MP4'
 
 # Range 请求返回 206 + 正确长度
 curl -fsS -D - -H "Range: bytes=0-1023" -o /tmp/range.bin \
-  http://127.0.0.1:3030/api/projects/MicroGpt/output \
+  http://127.0.0.1:3030/api/projects/microgpt/output \
   | grep -qi '^HTTP/.* 206'
 
 # Demo 项目创建（复用 POST /api/projects）

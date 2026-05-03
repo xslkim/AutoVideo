@@ -30,7 +30,7 @@ logger = logging.getLogger("voxcpm-server")
 
 MODEL_DIR = os.environ.get(
     "VOXCPM_MODEL_DIR",
-    "/home/ubuntu/model/voxcpm/VoxCPM2",
+    "/home/xsl/models/VoxCPM2",
 )
 
 logger.info(f"Loading VoxCPM2 model from {MODEL_DIR} ...")
@@ -47,7 +47,20 @@ model = VoxCPM(
     enable_denoiser=True,
     optimize=False,  # faster startup, slightly slower inference
 )
-logger.info("VoxCPM2 model loaded.")
+
+# Fix tokenizer: LlamaTokenizerFast.from_pretrained + mask_multichar_chinese_tokens
+# produces token IDs WITHOUT the BOS token, while the model was trained WITH BOS.
+# This 1-position shift causes garbled Chinese audio output.
+# Replace model.text_tokenizer with VoxCPM2Tokenizer.encode() which correctly
+# adds BOS and splits multi-character Chinese tokens.
+sys.path.insert(0, MODEL_DIR)
+from tokenization_voxcpm2 import VoxCPM2Tokenizer  # noqa: E402
+
+proper_tokenizer = VoxCPM2Tokenizer.from_pretrained(MODEL_DIR)
+# Use .encode as the callable — model code does self.text_tokenizer(text)
+# and expects List[int]; encode() returns List[int] with BOS.
+model.tts_model.text_tokenizer = proper_tokenizer.encode
+logger.info("VoxCPM2 model loaded (tokenizer fixed with BOS + CJK split).")
 
 # ── Voice store ─────────────────────────────────────────────────────────
 

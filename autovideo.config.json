@@ -1,0 +1,26 @@
+{
+  "voxcpm": {
+    "endpoint": "http://127.0.0.1:8000",
+    "modelDir": "/home/xsl/models/VoxCPM2",
+    "autoStart": true,
+    "cfgValue": 2.0,
+    "inferenceTimesteps": 10,
+    "denoise": false,
+    "concurrency": 4
+  },
+  "anthropic": {
+    "model": "claude-sonnet-4-6",
+    "concurrency": 4
+  },
+  "render": {
+    "blockConcurrency": 2,
+    "minHoldSec": 1.5,
+    "defaultEnterSec": 0.5,
+    "defaultExitSec": 0.3,
+    "browser": null
+  },
+  "cache": {
+    "dir": "~/.autovideo/cache",
+    "maxSizeGB": 20
+  }
+}

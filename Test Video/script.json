@@ -2,7 +2,7 @@
   "meta": {
     "schemaVersion": "1.0",
     "title": "Test Video",
-    "voiceRef": "/home/ubuntu/AutoVideo/tests/fixtures/compile-test/B00.wav",
+    "voiceRef": "/home/xsl/AutoVideo/tests/fixtures/compile-test/B00.wav",
     "aspect": "16:9",
     "width": 1920,
     "height": 1080,

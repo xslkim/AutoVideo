@@ -201,10 +201,13 @@ export function astStaticScan(tsxPath: string): ASTScanResult {
 
 // --- tsc type-check ---
 
+// Resolve AutoVideo project root from this source file's location
+const _projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+
 export async function validateStatic(tsxPath: string, tsconfigPath: string): Promise<TSCResult> {
-  const tscPath = path.join(process.cwd(), "node_modules", ".bin", "tsc");
+  const tscPath = path.join(_projectRoot, "node_modules", ".bin", "tsc");
   if (!fs.existsSync(tscPath)) {
-    return { pass: false, stderr: "tsc binary not found in node_modules/.bin" };
+    return { pass: false, stderr: `tsc binary not found in node_modules/.bin (looked at ${tscPath})` };
   }
   try {
     const { stdout, stderr } = await execFileAsync(tscPath, ["-p", tsconfigPath], {
