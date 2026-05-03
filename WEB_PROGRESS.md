@@ -9,7 +9,7 @@
 
 - **active_task**: `WP3.3 任务运行器`
 - **last_updated**: `2026-05-03T20:45:00Z`
-- **next_action**: `读 WEB_TASKS.md WP3.3 并开始实现`
+- **next_action**: `实现 taskRunner.ts 并注册到 index.ts`
 - **completed**: `18 / 42`
 - **blockers**: `0`
 
@@ -79,7 +79,7 @@
 |----|------|------|------|------|--------|------|
 | WP3.1 | CLI 模块改造：onProgress / signal / force | done | 2026-05-03T19:00:00Z | 2026-05-03T20:00:00Z | 753b1c5 | — |
 | WP3.2 | 任务队列服务 | done | 2026-05-03 | 2026-05-03 | 9400925 | — |
-| WP3.3 | 任务运行器 | pending | — | — | — | — |
+| WP3.3 | 任务运行器 | in_progress | 2026-05-03 | — | — | — |
 | WP3.4 | 任务 API + SSE | pending | — | — | — | — |
 | WP3.5 | 前端：任务栏 + 任务触发 | pending | — | — | — | — |
 | WP3.6 | Phase 3 验收 | pending | — | — | — | — |

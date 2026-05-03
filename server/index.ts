@@ -8,6 +8,7 @@ import { createProjectRoutes } from './routes/projects.js';
 import { createBlockRoutes } from './routes/blocks.js';
 import { createAssetRoutes } from './routes/assets.js';
 import { TaskQueue } from './services/taskQueue.js';
+import { createTaskRunner } from './services/taskRunner.js';
 
 const app = new Hono();
 
@@ -24,6 +25,9 @@ const projectsRoot = process.env.PROJECTS_ROOT || path.join(repoRoot, 'project')
 // --- Task queue (shared singleton) ---
 
 export const taskQueue = new TaskQueue(projectsRoot, repoRoot);
+
+// Register the real task runner (WP3.3)
+taskQueue.onRun(createTaskRunner(projectsRoot, repoRoot));
 
 // --- API routes ---
 

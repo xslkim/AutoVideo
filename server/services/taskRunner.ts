@@ -1,0 +1,387 @@
+/**
+ * AutoVideo Web — Task Runner
+ *
+ * Calls CLI modules (compile/tts/visuals/render/build) for each task stage.
+ * - Manages AbortController + cancel signal propagation
+ * - Source file snapshot for compile/build stages
+ * - Config snapshot at task start with cache.dir override
+ * - Build aggregate progress weighting
+ *
+ * PRD refs: §4.5 (task queue), §7 (taskRunner calling constraints)
+ */
+
+import fs from 'node:fs';
+import path from 'node:path';
+import { compile } from '../../src/cli/compile.js';
+import { tts } from '../../src/cli/tts.js';
+import { visuals } from '../../src/cli/visuals.js';
+import { render } from '../../src/cli/render.js';
+import { getDefaultConfig } from '../../src/config/load.js';
+import type { AutoVideoConfig } from '../../src/config/defaults.js';
+import type { ProgressEvent as CliProgressEvent } from '../../src/types/script.js';
+import type { TaskRecord, ProgressEvent, AppConfig } from '../types/api.js';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap a web ProgressEvent callback so it can be passed to CLI modules.
+ * (CLI modules use src/types/script.ProgressEvent with stage: string,
+ *  while the web uses server/types/api.ProgressEvent with stage: Stage.)
+ */
+function wrapProgress(
+  emit: (e: ProgressEvent) => void,
+): (e: CliProgressEvent) => void {
+  return (e: CliProgressEvent) => emit(e as unknown as ProgressEvent);
+}
+
+/**
+ * Recursively copy a directory.
+ */
+function copyDir(src: string, dest: string): void {
+  if (!fs.existsSync(src)) return;
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDir(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+/**
+ * Snapshot source files into outDir/_snapshot/ for compile/build stages.
+ *
+ * Copies: project.json, meta.md, script.md, assets/, voice/
+ *
+ * Also resolves voiceRef from meta.md relative to the original projectDir,
+ * copies the voice file into _snapshot/voice/, and rewrites the snapshot
+ * meta.md so voiceRef points to ./voice/{filename}.  This makes the snapshot
+ * self-contained regardless of where the source voiceRef points.
+ */
+function snapshotSourceFiles(projectDir: string, outDir: string): void {
+  const snapshotDir = path.join(outDir, '_snapshot');
+  fs.mkdirSync(snapshotDir, { recursive: true });
+
+  // Individual files
+  for (const file of ['project.json', 'meta.md', 'script.md']) {
+    const src = path.join(projectDir, file);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(snapshotDir, file));
+    }
+  }
+
+  // Directories (assets/ and voice/)
+  for (const dir of ['assets', 'voice']) {
+    const src = path.join(projectDir, dir);
+    if (fs.existsSync(src)) {
+      copyDir(src, path.join(snapshotDir, dir));
+    }
+  }
+
+  // ── Resolve voiceRef and copy voice file into snapshot ──────────────
+  const srcMetaPath = path.join(projectDir, 'meta.md');
+  const snapshotMetaPath = path.join(snapshotDir, 'meta.md');
+  if (!fs.existsSync(srcMetaPath) || !fs.existsSync(snapshotMetaPath)) return;
+
+  const metaContent = fs.readFileSync(srcMetaPath, 'utf-8');
+
+  // Parse voiceRef from meta.md (simple regex match — matches the
+  // `voiceRef:` key in the YAML frontmatter section).
+  const voiceRefMatch = metaContent.match(/^voiceRef:\s*(.+)$/m);
+  if (!voiceRefMatch) return;
+
+  const voiceRefRelative = voiceRefMatch[1].trim();
+  // Resolve relative to the *original* projectDir (where meta.md lives)
+  const resolvedVoice = path.resolve(projectDir, voiceRefRelative);
+
+  if (!fs.existsSync(resolvedVoice)) return;
+
+  // Copy into _snapshot/voice/ if not already there
+  const voiceSnapDir = path.join(snapshotDir, 'voice');
+  fs.mkdirSync(voiceSnapDir, { recursive: true });
+  const voiceFile = path.basename(resolvedVoice);
+  const voiceDest = path.join(voiceSnapDir, voiceFile);
+  if (!fs.existsSync(voiceDest)) {
+    fs.copyFileSync(resolvedVoice, voiceDest);
+  }
+
+  // Rewrite snapshot meta.md so voiceRef points to the local copy
+  const snapshotMeta = fs.readFileSync(snapshotMetaPath, 'utf-8');
+  const updatedMeta = snapshotMeta.replace(
+    /^voiceRef:\s*.+$/m,
+    `voiceRef: ./voice/${voiceFile}`,
+  );
+  fs.writeFileSync(snapshotMetaPath, updatedMeta, 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// Config loading (snapshot at task start)
+// ---------------------------------------------------------------------------
+
+/**
+ * Load web configuration from .autovideo-web/config.json merged on top of
+ * DEFAULT_CONFIG, with environment variable fallbacks for missing fields.
+ *
+ * Returns a complete AutoVideoConfig suitable for passing to CLI modules.
+ */
+function loadWebConfig(repoRoot: string): AutoVideoConfig {
+  const cfg = getDefaultConfig();
+
+  const configPath = path.join(repoRoot, '.autovideo-web', 'config.json');
+  if (fs.existsSync(configPath)) {
+    try {
+      const raw: AppConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+      if (raw.anthropic) {
+        if (raw.anthropic.baseURL) cfg.anthropic.baseURL = raw.anthropic.baseURL;
+        if (raw.anthropic.model) cfg.anthropic.model = raw.anthropic.model;
+        if (raw.anthropic.concurrency !== undefined) cfg.anthropic.concurrency = raw.anthropic.concurrency;
+      }
+
+      if (raw.voxcpm) {
+        if (raw.voxcpm.endpoint) cfg.voxcpm.endpoint = raw.voxcpm.endpoint;
+        if (raw.voxcpm.autoStart !== undefined) cfg.voxcpm.autoStart = raw.voxcpm.autoStart;
+        if (raw.voxcpm.concurrency !== undefined) cfg.voxcpm.concurrency = raw.voxcpm.concurrency;
+      }
+
+      if (raw.imageGen) {
+        // imageGen config is stored for later use by image-gen module (WP5.3)
+      }
+    } catch {
+      // Malformed config — use defaults
+    }
+  }
+
+  // Environment variable fallbacks (for fields not set in config.json)
+  if (process.env.ANTHROPIC_BASE_URL && !cfg.anthropic.baseURL) {
+    cfg.anthropic.baseURL = process.env.ANTHROPIC_BASE_URL;
+  }
+  if (process.env.VOXCPM_ENDPOINT) {
+    cfg.voxcpm.endpoint = process.env.VOXCPM_ENDPOINT;
+  }
+  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
+    // apiKey is stored on the config for later injection into component-gen
+    (cfg.anthropic as any).apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
+  }
+
+  return cfg;
+}
+
+// ---------------------------------------------------------------------------
+// Helper to get merged config with project-specific cache dir
+// ---------------------------------------------------------------------------
+
+function getTaskConfig(repoRoot: string, projectDir: string): AutoVideoConfig {
+  const cfg = loadWebConfig(repoRoot);
+  // Override cache dir to project-scoped cache (hard constraint per §3.3 / §4.5)
+  cfg.cache.dir = path.join(projectDir, 'cache');
+  return cfg;
+}
+
+// ---------------------------------------------------------------------------
+// Task-runner factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a task-runner function compatible with TaskQueue.onRun().
+ *
+ * The returned function delegates to the correct CLI module based on
+ * task.stage and handles snapshotting, config assembly, and progress mapping.
+ */
+export function createTaskRunner(projectsRoot: string, repoRoot: string) {
+  return async function runTask(
+    task: TaskRecord,
+    signal: AbortSignal,
+    onProgress: (event: ProgressEvent) => void,
+  ): Promise<void> {
+    const projectDir = path.join(projectsRoot, task.project);
+    const slug = task.outputSlug;
+    const outDir = path.join(projectDir, 'build', slug);
+
+    if (!fs.existsSync(projectDir)) {
+      throw new Error(`Project directory not found: ${projectDir}`);
+    }
+
+    const stage = task.stage;
+
+    // Config snapshot at task start (with project-scoped cache dir)
+    const config = getTaskConfig(repoRoot, projectDir);
+
+    switch (stage) {
+      // ── compile ──────────────────────────────────────────────────────
+      case 'compile': {
+        snapshotSourceFiles(projectDir, outDir);
+
+        await compile({
+          projectPath: path.join(outDir, '_snapshot', 'project.json'),
+          outDir,
+          onProgress: wrapProgress(onProgress),
+          signal,
+          verbose: true,
+        });
+        break;
+      }
+
+      // ── tts ──────────────────────────────────────────────────────────
+      case 'tts': {
+        const scriptPath = path.join(outDir, 'script.json');
+        if (!fs.existsSync(scriptPath)) {
+          throw Object.assign(
+            new Error(`script.json not found at ${scriptPath}. Run compile first.`),
+            { code: 'ERR_SCRIPT_NOT_FOUND' },
+          );
+        }
+
+        await tts({
+          scriptPath,
+          config,
+          blockIds: task.blockIds,
+          force: task.force,
+          onProgress: wrapProgress(onProgress),
+          signal,
+          verbose: true,
+        });
+        break;
+      }
+
+      // ── visuals ──────────────────────────────────────────────────────
+      case 'visuals': {
+        const scriptPath = path.join(outDir, 'script.json');
+        if (!fs.existsSync(scriptPath)) {
+          throw Object.assign(
+            new Error(`script.json not found at ${scriptPath}. Run compile first.`),
+            { code: 'ERR_SCRIPT_NOT_FOUND' },
+          );
+        }
+
+        await visuals({
+          scriptPath,
+          config,
+          blockIds: task.blockIds,
+          force: task.force,
+          onProgress: wrapProgress(onProgress),
+          signal,
+          verbose: true,
+        });
+        break;
+      }
+
+      // ── render ───────────────────────────────────────────────────────
+      case 'render': {
+        const scriptPath = path.join(outDir, 'script.json');
+        if (!fs.existsSync(scriptPath)) {
+          throw Object.assign(
+            new Error(`script.json not found at ${scriptPath}. Run compile first.`),
+            { code: 'ERR_SCRIPT_NOT_FOUND' },
+          );
+        }
+
+        await render({
+          scriptPath,
+          config,
+          blockIds: task.blockIds,
+          force: task.force,
+          onProgress: wrapProgress(onProgress),
+          signal,
+          verbose: true,
+        });
+        break;
+      }
+
+      // ── build (orchestrated: compile → tts → visuals → render) ───────
+      // Aggregate weights (WEB_PRD.md §4.5):
+      //   compile 5% / tts 25% / visuals 35% / render 30% / finish 5%
+      case 'build': {
+        snapshotSourceFiles(projectDir, outDir);
+
+        // Stage 1: compile (0–5%)
+        await compile({
+          projectPath: path.join(outDir, '_snapshot', 'project.json'),
+          outDir,
+          onProgress: wrapProgress((e) => onProgress({ ...e, percent: Math.round(e.percent * 0.05) })),
+          signal,
+          verbose: true,
+        });
+
+        const scriptPath = path.join(outDir, 'script.json');
+
+        // Stage 2: tts (5–30%)
+        if (signal.aborted) break;
+        await tts({
+          scriptPath,
+          config,
+          onProgress: wrapProgress((e) => onProgress({ ...e, percent: Math.round(5 + e.percent * 0.25), stage: 'tts' })),
+          signal,
+          verbose: true,
+        });
+
+        // Stage 3: visuals (30–65%)
+        if (signal.aborted) break;
+        await visuals({
+          scriptPath,
+          config,
+          onProgress: wrapProgress((e) => onProgress({ ...e, percent: Math.round(30 + e.percent * 0.35), stage: 'visuals' })),
+          signal,
+          verbose: true,
+        });
+
+        // Stage 4: render (65–95%)
+        if (signal.aborted) break;
+        await render({
+          scriptPath,
+          config,
+          onProgress: wrapProgress((e) => onProgress({ ...e, percent: Math.round(65 + e.percent * 0.30), stage: 'render' })),
+          signal,
+          verbose: true,
+        });
+
+        // Finish (95–100%)
+        onProgress({ percent: 100, step: '构建完成', stage: 'build' });
+        break;
+      }
+
+      // ── merge (concat-only: concat + loudnorm + qa) ──────────────────
+      case 'merge': {
+        const scriptPath = path.join(outDir, 'script.json');
+        if (!fs.existsSync(scriptPath)) {
+          throw Object.assign(
+            new Error(`script.json not found at ${scriptPath}. Run compile first.`),
+            { code: 'ERR_SCRIPT_NOT_FOUND' },
+          );
+        }
+
+        // merge progress mapping: concat 60 / loudnorm 30 / qa 10
+        await render({
+          scriptPath,
+          config,
+          concatOnly: true,
+          onProgress: wrapProgress((e) => {
+            // render with concatOnly emits progress for concat/loudnorm/qa phases
+            // Map to merge weights
+            const step = e.step;
+            let weightedPercent = e.percent;
+            if (step.includes('concat') || step.includes('拼接')) {
+              weightedPercent = Math.round(e.percent * 0.60);
+            } else if (step.includes('loudnorm') || step.includes('归一化') || step.includes('响度')) {
+              weightedPercent = Math.round(60 + e.percent * 0.30);
+            } else if (step.includes('QA') || step.includes('qa')) {
+              weightedPercent = Math.round(90 + e.percent * 0.10);
+            }
+            onProgress({ ...e, percent: weightedPercent, stage: 'merge' });
+          }),
+          signal,
+          verbose: true,
+        });
+        break;
+      }
+
+      default:
+        throw new Error(`Unknown stage: ${stage}`);
+    }
+  };
+}
