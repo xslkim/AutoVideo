@@ -3,6 +3,7 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { createProjectRoutes } from './routes/projects.js';
 import { createBlockRoutes } from './routes/blocks.js';
 import { createAssetRoutes } from './routes/assets.js';
@@ -10,7 +11,13 @@ import { createAssetRoutes } from './routes/assets.js';
 const app = new Hono();
 
 const isDev = process.env.NODE_ENV !== 'production';
-const repoRoot = path.resolve(import.meta.dirname, '../../..');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// In compiled output: dist/server/server/ → go up 3 to repo root
+// In source (tsx): server/ → go up 1 to repo root
+const DIST_SEGMENTS = path.join('dist', 'server', 'server');
+const repoRoot = __dirname.endsWith(DIST_SEGMENTS)
+  ? path.resolve(__dirname, '../../..')
+  : path.resolve(__dirname, '..');
 const projectsRoot = process.env.PROJECTS_ROOT || path.join(repoRoot, 'project');
 
 // --- API routes ---
