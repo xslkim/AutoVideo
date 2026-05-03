@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { apiGet } from '../utils/api'
+import { apiGet, apiPost, apiDelete } from '../utils/api'
 
 export interface ProjectSummary {
   name: string
@@ -28,5 +28,36 @@ export const useProjectStore = defineStore('projects', () => {
     loading.value = false
   }
 
-  return { projects, loading, error, fetchProjects }
+  async function createProject(name: string, title?: string, slug?: string) {
+    const result = await apiPost<ProjectSummary>('/api/projects', { name, title, slug })
+    if (result.ok) {
+      await fetchProjects()
+      return { ok: true as const, data: result.data }
+    }
+    return { ok: false as const, error: result.error }
+  }
+
+  async function deleteProject(name: string) {
+    const result = await apiDelete<{ ok: boolean }>(`/api/projects/${name}`)
+    if (result.ok) {
+      await fetchProjects()
+      return { ok: true as const }
+    }
+    return { ok: false as const, error: result.error }
+  }
+
+  async function clearProjectCache(name: string) {
+    const result = await apiPost<{ ok: boolean }>(`/api/projects/${name}/cache/clear`)
+    if (result.ok) {
+      await fetchProjects()
+      return { ok: true as const }
+    }
+    return { ok: false as const, error: result.error }
+  }
+
+  async function createDemo() {
+    return createProject('demo', 'Demo 项目')
+  }
+
+  return { projects, loading, error, fetchProjects, createProject, deleteProject, clearProjectCache, createDemo }
 })

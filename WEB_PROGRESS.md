@@ -8,8 +8,8 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `WP6.2 项目 CRUD`
-- **last_updated**: `2026-05-04T18:00:00Z`
-- **next_action**: `开始 WP6.2 项目 CRUD`
+- **last_updated**: `2026-05-04T19:00:00Z`
+- **next_action**: `实现 WP6.2 后端 CRUD + 前端 UI`
 - **completed**: `36 / 42`
 - **blockers**: `0`
 
@@ -112,7 +112,7 @@
 | ID | 标题 | 状态 | 开始 | 完成 | Commit | 备注 |
 |----|------|------|------|------|--------|------|
 | WP6.1 | 全局操作完善 | done | 2026-05-04 | 2026-05-04 | 4c19180 | — |
-| WP6.2 | 项目 CRUD | pending | — | — | — | — |
+| WP6.2 | 项目 CRUD | in_progress | 2026-05-04 | — | — | — |
 | WP6.3 | 健康指示灯 + Doctor | pending | — | — | — | — |
 | WP6.4 | 错误展示 + 日志查看 | pending | — | — | — | — |
 | WP6.5 | 部署脚本 | pending | — | — | — | — |
