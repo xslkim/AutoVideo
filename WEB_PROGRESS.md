@@ -8,9 +8,9 @@
 ## 当前状态（agent 每次更新后修改这一节）
 
 - **active_task**: `WP4.1 Range 中间件`
-- **last_updated**: `2026-05-03T23:20:00Z`
-- **next_action**: `实现 Range 中间件`
-- **completed**: `22 / 42`
+- **last_updated**: `2026-05-03T23:45:00Z`
+- **next_action**: `实现产物 API`
+- **completed**: `23 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -88,7 +88,7 @@
 
 | ID | 标题 | 状态 | 开始 | 完成 | Commit | 备注 |
 |----|------|------|------|------|--------|------|
-| WP4.1 | Range 中间件 | in_progress | 2026-05-03 | — | — | — |
+| WP4.1 | Range 中间件 | done | 2026-05-03 | 2026-05-03 | 10feb05 | — |
 | WP4.2 | 产物 API | pending | — | — | — | — |
 | WP4.3 | 帧渲染服务 | pending | — | — | — | — |
 | WP4.4 | 前端：产物预览组件 | pending | — | — | — | — |
