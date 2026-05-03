@@ -5,12 +5,14 @@
 
     <!-- Body: left sidebar + center + right panel -->
     <div class="project-body">
-      <!-- Left sidebar: block list (placeholder) -->
+      <!-- Left sidebar: block list -->
       <div class="sidebar-left">
-        <div class="sidebar-header">块列表</div>
-        <div class="sidebar-content">
-          <n-empty description="块列表（待实现）" size="small" />
-        </div>
+        <BlockSidebar
+          :project-name="projectName"
+          :parsed-blocks="parsedBlocks"
+          @block-selected="onBlockSelected"
+          @script-changed="onScriptChanged"
+        />
       </div>
 
       <!-- Center: main editor area -->
@@ -27,7 +29,7 @@
             <MetaEditor :project-name="projectName" />
           </n-tab-pane>
           <n-tab-pane name="script" tab="script.md" display-directive="show">
-            <ScriptEditor :project-name="projectName" @blocks-updated="onBlocksUpdated" />
+            <ScriptEditor :key="'script-' + scriptEditorKey" :project-name="projectName" @blocks-updated="onBlocksUpdated" />
           </n-tab-pane>
           <n-tab-pane name="assets" tab="资源" display-directive="show">
             <div class="placeholder-pane">资源管理（待实现）</div>
@@ -42,7 +44,15 @@
           <span class="collapse-icon">{{ rightCollapsed ? '◀' : '▶' }}</span>
         </div>
         <div v-show="!rightCollapsed" class="panel-content">
-          <n-empty description="点击块查看详情" size="small" />
+          <div v-if="selectedBlockId" class="selected-block-info">
+            <div class="block-panel-header">
+              <span class="block-panel-id">{{ selectedBlockId }}</span>
+              <span class="block-panel-title">{{ selectedBlockTitle || '(无标题)' }}</span>
+            </div>
+            <n-divider />
+            <n-empty description="块详情面板（待实现）" size="small" />
+          </div>
+          <n-empty v-else description="点击块查看详情" size="small" />
         </div>
       </div>
     </div>
