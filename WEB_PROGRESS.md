@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP2.6 资源管理 API + 前端`
+- **active_task**: `WP2.7 Phase 2 验收`
 - **last_updated**: `2026-05-03T18:00:00Z`
-- **next_action**: `实现资源管理 API (routes/assets.ts)`
-- **completed**: `14 / 42`
+- **next_action**: `运行 Phase 2 验收脚本`
+- **completed**: `15 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -70,7 +70,7 @@
 | WP2.3 | 前端：ScriptEditor + 自定义语法高亮 | done | 2026-05-03 | 2026-05-03 | 1c248fe | — |
 | WP2.4 | 前端：BlockSidebar 侧边栏 | done | 2026-05-03 | 2026-05-03 | 4c240ff | — |
 | WP2.5 | 前端：BlockPanel 块详情面板 Tab A | done | 2026-05-03 | 2026-05-03 | ea03100 | — |
-| WP2.6 | 资源管理 API + 前端 | in_progress | 2026-05-03T17:00:00Z | — | — | — |
+| WP2.6 | 资源管理 API + 前端 | done | 2026-05-03T17:00:00Z | 2026-05-03T18:00:00Z | db83a09 | — |
 | WP2.7 | Phase 2 验收 | pending | — | — | — | — |
 
 ### 阶段 WP3：任务队列与进度（Phase 3）
