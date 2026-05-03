@@ -27,7 +27,7 @@
             <MetaEditor :project-name="projectName" />
           </n-tab-pane>
           <n-tab-pane name="script" tab="script.md" display-directive="show">
-            <div class="placeholder-pane">脚本编辑器（待实现）</div>
+            <ScriptEditor :project-name="projectName" @blocks-updated="onBlocksUpdated" />
           </n-tab-pane>
           <n-tab-pane name="assets" tab="资源" display-directive="show">
             <div class="placeholder-pane">资源管理（待实现）</div>
@@ -65,6 +65,8 @@ import { ref, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import TopBar from '../components/layout/TopBar.vue'
 import MetaEditor from '../components/editors/MetaEditor.vue'
+import ScriptEditor from '../components/editors/ScriptEditor.vue'
+import type { ParseResult } from '../utils/scriptParser'
 
 const route = useRoute()
 const projectName = computed(() => route.params.name as string)
@@ -72,6 +74,13 @@ const projectName = computed(() => route.params.name as string)
 const activeTab = ref('meta')
 const rightCollapsed = ref(false)
 const taskBarExpanded = ref(false)
+
+// Parsed blocks from ScriptEditor (for BlockSidebar in WP2.4)
+const parsedBlocks = ref<ParseResult | null>(null)
+
+function onBlocksUpdated(result: ParseResult) {
+  parsedBlocks.value = result
+}
 </script>
 
 <style scoped>

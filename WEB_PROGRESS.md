@@ -7,9 +7,9 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `—`
-- **last_updated**: `2026-05-03T14:35:00Z`
-- **next_action**: `开始 WP2.3 前端：ScriptEditor + 自定义语法高亮`
+- **active_task**: `WP2.3 前端：ScriptEditor + 自定义语法高亮`
+- **last_updated**: `2026-05-03T15:00:00Z`
+- **next_action**: `开始 WP2.4 前端：BlockSidebar 侧边栏`
 - **completed**: `11 / 42`
 - **blockers**: `0`
 
@@ -67,7 +67,7 @@
 |----|------|------|------|------|--------|------|
 | WP2.1 | 服务端脚本解析器 | done | 2026-05-03 | 2026-05-03 | b2d8ccd | — |
 | WP2.2 | 块列表 API + 单块 API | done | 2026-05-03 | 2026-05-03 | 6861802 | — |
-| WP2.3 | 前端：ScriptEditor + 自定义语法高亮 | pending | — | — | — | — |
+| WP2.3 | 前端：ScriptEditor + 自定义语法高亮 | in_progress | 2026-05-03 | — | — | — |
 | WP2.4 | 前端：BlockSidebar 侧边栏 | pending | — | — | — | — |
 | WP2.5 | 前端：BlockPanel 块详情面板 Tab A | pending | — | — | — | — |
 | WP2.6 | 资源管理 API + 前端 | pending | — | — | — | — |
