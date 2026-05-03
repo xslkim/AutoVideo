@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.autovideo.web</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/node</string>
+        <string>/opt/AutoVideo/dist/server/server/index.js</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/opt/AutoVideo</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>NODE_ENV</key>
+        <string>production</string>
+        <key>HOST</key>
+        <string>127.0.0.1</string>
+        <key>PORT</key>
+        <string>3030</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/opt/AutoVideo/.autovideo-web/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/opt/AutoVideo/.autovideo-web/stderr.log</string>
+</dict>
+</plist>

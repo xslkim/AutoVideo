@@ -91,6 +91,19 @@ if (isDev) {
   });
 }
 
+// --- Startup checks ---
+
+// Warn if .autovideo-web/ is not in .gitignore
+const gitignorePath = path.join(repoRoot, '.gitignore');
+try {
+  const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
+  if (!gitignoreContent.split('\n').some((line) => line.trim() === '.autovideo-web/')) {
+    console.warn('[WARN] .autovideo-web/ is not listed in .gitignore. This directory contains runtime data and should not be committed to version control.');
+  }
+} catch {
+  // .gitignore not found — not an error, just skip the check
+}
+
 // --- Start server ---
 
 const port = parseInt(process.env.PORT || '3030', 10);

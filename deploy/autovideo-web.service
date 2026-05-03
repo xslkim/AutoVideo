@@ -1,0 +1,17 @@
+[Unit]
+Description=AutoVideo Web UI
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/AutoVideo
+EnvironmentFile=-/opt/AutoVideo/.env
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3030
+ExecStart=/usr/bin/node dist/server/server/index.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

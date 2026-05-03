@@ -11,7 +11,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "build:client": "cd web && npm ci && npm run build",
     "build:web": "npm run build:server && npm run build:client",
-    "start:web": "node dist/server/server/index.js",
+    "start:web": "NODE_ENV=production node dist/server/server/index.js",
     "dev:web": "concurrently -k \"tsx server/index.ts\" \"cd web && npx vite\"",
     "dev": "tsx bin/autovideo.ts"
   },
