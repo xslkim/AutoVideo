@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP3.6 Phase 3 验收`
-- **last_updated**: `2026-05-04T00:05:00Z`
-- **next_action**: `运行 Phase 3 验收脚本并修复问题`
-- **completed**: `21 / 42`
+- **active_task**: `WP4.1 Range 中间件`
+- **last_updated**: `2026-05-03T23:15:00Z`
+- **next_action**: `实现 Range 中间件`
+- **completed**: `22 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -82,7 +82,7 @@
 | WP3.3 | 任务运行器 | done | 2026-05-03 | 2026-05-03 | 7db0ef6 | — |
 | WP3.4 | 任务 API + SSE | done | 2026-05-03 | 2026-05-03 | 217dff1 | — |
 | WP3.5 | 前端：任务栏 + 任务触发 | done | 2026-05-03 | 2026-05-03 | d93b9dc | — |
-| WP3.6 | Phase 3 验收 | pending | — | — | — | — |
+| WP3.6 | Phase 3 验收 | done | 2026-05-03 | 2026-05-03 | 6f05952 | — |
 
 ### 阶段 WP4：产物预览（Phase 4）
 

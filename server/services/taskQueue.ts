@@ -161,16 +161,18 @@ export class TaskQueue extends EventEmitter {
     // status === 'running'
     this.cancelledIds.add(taskId);
 
+    task.status = 'cancelling';
+    this.persist(task);
+
     const controller = this.abortControllers.get(taskId);
     if (controller) {
       controller.abort();
     }
 
-    // Set 5s timeout: if the runFn promise hasn't settled by then, mark cancelling
+    // Set 5s timeout: if the runFn promise hasn't settled by then, persist cancelling
     const timeout = setTimeout(() => {
       const t = this.tasks.get(taskId);
-      if (t && t.status === 'running') {
-        t.status = 'cancelling';
+      if (t && t.status === 'cancelling') {
         this.persist(t);
         this.emit('task:cancel', t);
       }
@@ -178,6 +180,7 @@ export class TaskQueue extends EventEmitter {
 
     this.cancelTimeouts.set(taskId, timeout);
 
+    this.emit('task:cancel', task);
     return { ...task };
   }
 
@@ -312,7 +315,7 @@ export class TaskQueue extends EventEmitter {
       err instanceof Error && (err.name === 'AbortError' || err.name === 'CanceledError');
     const wasCancelled = this.cancelledIds.has(taskId);
 
-    if (err && !isAbortError) {
+    if (err && !isAbortError && !wasCancelled && task.status !== 'cancelling') {
       // Actual failure (not caused by user cancel or abort signal)
       task.status = 'failed';
       task.finishedAt = Date.now();
