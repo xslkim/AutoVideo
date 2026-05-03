@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP5.4 visuals.ts 模式分流`
-- **last_updated**: `2026-05-04T04:00:00Z`
-- **next_action**: `实现 WP5.4 visuals.ts 模式分流`
-- **completed**: `30 / 42`
+- **active_task**: `WP5.5 设置面板（后端 + 前端）`
+- **last_updated**: `2026-05-04T04:10:00Z`
+- **next_action**: `开始 WP5.5 设置面板（后端 + 前端）`
+- **completed**: `31 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -101,7 +101,7 @@
 | WP5.1 | 类型与 Schema 更新 | done | 2026-05-04 | 2026-05-04 | cfcd06e | — |
 | WP5.2 | compile.ts 解析 @visual 指令 | done | 2026-05-04 | 2026-05-04 | 2ca36a2 | — |
 | WP5.3 | image-gen.ts 文生图模块 | done | 2026-05-04 | 2026-05-04 | 0c9e923 | — |
-| WP5.4 | visuals.ts 模式分流 | in_progress | 2026-05-04 | — | — | — |
+| WP5.4 | visuals.ts 模式分流 | done | 2026-05-04 | 2026-05-04 | e47bb7f | — |
 | WP5.5 | 设置面板（后端 + 前端） | pending | — | — | — | — |
 | WP5.6 | 前端：视觉模式切换 + 图片产物展示 | pending | — | — | — | — |
 | WP5.7 | 单块缓存清理 + 批量操作 | pending | — | — | — | — |
