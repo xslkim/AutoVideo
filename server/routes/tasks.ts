@@ -76,12 +76,23 @@ export function createTaskRoutes(taskQueue: TaskQueue) {
       }
     }
 
-    const task = taskQueue.enqueue({
-      project: body.project,
-      stage: body.stage,
-      blockIds: body.blockIds,
-      force: body.force ?? false,
-    });
+    let task: TaskRecord;
+    try {
+      task = taskQueue.enqueue({
+        project: body.project,
+        stage: body.stage,
+        blockIds: body.blockIds,
+        force: body.force ?? false,
+      });
+    } catch (err: any) {
+      if (err?.code === 'ERR_SHUTTING_DOWN') {
+        return c.json(
+          { error: { code: 'ERR_SHUTTING_DOWN', message: 'Server is shutting down, not accepting new tasks' } },
+          503,
+        );
+      }
+      throw err;
+    }
 
     return c.json(task, 201);
   });

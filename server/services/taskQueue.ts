@@ -65,6 +65,9 @@ export class TaskQueue extends EventEmitter {
   /** Task IDs that the user explicitly requested to cancel. Used to distinguish
    *  user-triggered abort from other abort errors in handleTaskSettled. */
   private cancelledIds: Set<string> = new Set();
+  /** When true, reject new task submissions and don't start pending tasks.
+   *  Set during SIGINT/SIGTERM graceful shutdown. */
+  private shuttingDown = false;
 
   private projectsRoot: string;
   private tasksFile: string;
@@ -82,6 +85,7 @@ export class TaskQueue extends EventEmitter {
     fs.mkdirSync(this.logsDir, { recursive: true });
 
     this.loadHistory();
+    this.cleanupOldLogs();
   }
 
   // -----------------------------------------------------------------------
@@ -93,6 +97,42 @@ export class TaskQueue extends EventEmitter {
     this.taskRunFn = fn;
   }
 
+  /** Whether the queue is in shutdown mode (rejecting new tasks). */
+  isShuttingDown(): boolean {
+    return this.shuttingDown;
+  }
+
+  /**
+   * Graceful shutdown: stop accepting new tasks, abort the current running
+   * task, wait for it to settle (with a timeout), clean up old logs, then
+   * the caller is expected to exit the process.
+   */
+  async shutdown(): Promise<void> {
+    this.shuttingDown = true;
+    console.log('[taskQueue] Shutting down gracefully...');
+
+    // Abort the current running task
+    if (this.runningId) {
+      const controller = this.abortControllers.get(this.runningId);
+      if (controller) {
+        controller.abort();
+      }
+
+      // Wait up to 10s for the current task to settle
+      const taskId = this.runningId;
+      const settleStart = Date.now();
+      const maxWait = 10_000;
+      while (this.runningId === taskId && Date.now() - settleStart < maxWait) {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+
+    // Clean up old logs
+    this.cleanupOldLogs();
+
+    console.log('[taskQueue] Shutdown complete.');
+  }
+
   // -----------------------------------------------------------------------
   // Public API — enqueue / cancel / query
   // -----------------------------------------------------------------------
@@ -102,6 +142,13 @@ export class TaskQueue extends EventEmitter {
    * outputSlug is computed from live meta.md at enqueue time.
    */
   enqueue(input: CreateTaskInput): TaskRecord {
+    if (this.shuttingDown) {
+      throw Object.assign(
+        new Error('Server is shutting down, not accepting new tasks'),
+        { code: 'ERR_SHUTTING_DOWN' },
+      );
+    }
+
     const id = generateId();
     const outputSlug = computeOutputSlug(this.projectsRoot, input.project);
 
@@ -249,6 +296,7 @@ export class TaskQueue extends EventEmitter {
    * Only starts if nothing is currently running.
    */
   private processNext(): void {
+    if (this.shuttingDown) return; // Don't start new tasks during shutdown
     if (this.runningId) return; // Already running
 
     const nextId = this.pendingQueue.shift();
@@ -344,6 +392,10 @@ export class TaskQueue extends EventEmitter {
     this.cancelledIds.delete(taskId);
     this.runningId = null;
     this.abortControllers.delete(taskId);
+
+    // Clean up old logs (beyond 50 most recent, older than 7 days)
+    this.cleanupOldLogs();
+
     this.processNext();
   }
 
@@ -405,6 +457,58 @@ export class TaskQueue extends EventEmitter {
     } catch (err) {
       console.error('[taskQueue] Failed to load task history:', err);
     }
+  }
+
+  /**
+   * Clean up log files beyond 50 most recent tasks, retaining those up to 7 days old.
+   * After cleanup, the tasks.jsonl file keeps all history but old log files are pruned.
+   */
+  private cleanupOldLogs(): void {
+    if (!fs.existsSync(this.logsDir)) return;
+
+    try {
+      // Gather all task IDs from tasks.jsonl (sorted by createdAt descending)
+      const taskEntries: { id: string; createdAt: number }[] = [];
+      if (fs.existsSync(this.tasksFile)) {
+        const content = fs.readFileSync(this.tasksFile, 'utf-8');
+        for (const line of content.trim().split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const t = JSON.parse(line) as TaskRecord;
+            // Keep the latest entry for each ID
+            const idx = taskEntries.findIndex((e) => e.id === t.id);
+            if (idx >= 0) {
+              taskEntries[idx] = { id: t.id, createdAt: t.createdAt };
+            } else {
+              taskEntries.push({ id: t.id, createdAt: t.createdAt });
+            }
+          } catch { /* skip malformed lines */ }
+        }
+      }
+
+      taskEntries.sort((a, b) => b.createdAt - a.createdAt);
+
+      // Build the set of IDs for the 50 most recent tasks
+      const recentIds = new Set(taskEntries.slice(0, MAX_HISTORY).map((e) => e.id));
+
+      const now = Date.now();
+      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+      for (const entry of fs.readdirSync(this.logsDir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith('.log')) continue;
+
+        const taskId = entry.name.slice(0, -4); // remove ".log" suffix
+        if (recentIds.has(taskId)) continue; // Keep logs for recent 50 tasks
+
+        const logPath = path.join(this.logsDir, entry.name);
+        try {
+          const stat = fs.statSync(logPath);
+          if (now - stat.mtimeMs > SEVEN_DAYS_MS) {
+            fs.unlinkSync(logPath);
+          }
+        } catch { /* ignore stat/unlink errors */ }
+      }
+    } catch { /* ignore cleanup errors */ }
   }
 
   /**

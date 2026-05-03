@@ -111,4 +111,40 @@ const host = process.env.HOST || '127.0.0.1';
 
 console.log(`AutoVideo Web server starting on http://${host}:${port} (${isDev ? 'dev' : 'production'})`);
 
-serve({ fetch: app.fetch, port, hostname: host });
+const server = serve({ fetch: app.fetch, port, hostname: host });
+
+// --- Process-level error handlers (prevent crash on uncaught errors) ---
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err.message);
+  console.error(err.stack);
+  // Log but do NOT exit — keep the server running for other tasks
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled rejection:', reason);
+  // Log but do NOT exit — keep the server running for other tasks
+});
+
+// --- Graceful shutdown on SIGINT / SIGTERM ---
+
+let shuttingDown = false;
+
+async function gracefulShutdown(signal: string) {
+  if (shuttingDown) return; // Prevent duplicate shutdown
+  shuttingDown = true;
+
+  console.log(`\n[server] Received ${signal}, shutting down gracefully...`);
+
+  // Stop accepting new HTTP connections
+  server.close();
+
+  // Gracefully stop the task queue: reject new tasks, abort current, wait, cleanup
+  await taskQueue.shutdown();
+
+  console.log('[server] Goodbye.');
+  process.exit(0);
+}
+
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
