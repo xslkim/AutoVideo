@@ -87,9 +87,20 @@
       <!-- ── Image mode ────────────────────────────────────────────── -->
       <template v-else>
         <div v-if="imageExists" class="output-body">
-          <img :src="imageUrl" class="preview-image" @error="onImageError" />
+          <img
+            :src="imageUrl"
+            class="preview-image"
+            @load="onImageLoad"
+            @error="onImageError"
+            @click="showImageModal = true"
+            title="点击查看原图"
+          />
+          <div v-if="imageWidth > 0" class="image-info">
+            <span>{{ imageWidth }} × {{ imageHeight }}</span>
+          </div>
           <div class="image-actions">
-            <n-button size="tiny" text @click="openImage">新标签页打开</n-button>
+            <n-button size="tiny" text @click="showImageModal = true">查看大图</n-button>
+            <n-button size="tiny" text @click="copyImagePath">显示路径</n-button>
             <n-button size="tiny" text @click="downloadImage">下载</n-button>
           </div>
         </div>
@@ -99,6 +110,16 @@
             生成图片
           </n-button>
         </div>
+        <!-- Image lightbox modal -->
+        <n-modal
+          v-model:show="showImageModal"
+          preset="card"
+          title="图片预览"
+          style="max-width: 95vw; max-height: 95vh"
+          :segmented="true"
+        >
+          <img :src="imageUrl" class="lightbox-image" />
+        </n-modal>
       </template>
     </div>
 
@@ -160,7 +181,7 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
-import { NButton, NSpin, NSpace, NDropdown, createDiscreteApi } from 'naive-ui'
+import { NButton, NSpin, NSpace, NDropdown, NModal, createDiscreteApi } from 'naive-ui'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { javascript } from '@codemirror/lang-javascript'
@@ -352,13 +373,27 @@ async function fetchFrame(frame: number) {
 // ── ② Visual: Image mode ─────────────────────────────────────────────────
 
 const imageExists = ref(true)
+const showImageModal = ref(false)
+const imageWidth = ref(0)
+const imageHeight = ref(0)
+
+function onImageLoad(e: Event) {
+  const img = e.target as HTMLImageElement
+  imageWidth.value = img.naturalWidth
+  imageHeight.value = img.naturalHeight
+}
 
 function onImageError() {
   imageExists.value = false
 }
 
 function openImage() {
-  window.open(imageUrl.value, '_blank')
+  showImageModal.value = true
+}
+
+function copyImagePath() {
+  navigator.clipboard.writeText(imageUrl.value)
+  message.success('图片路径已复制到剪贴板', { duration: 1500 })
 }
 
 function downloadImage() {
@@ -515,6 +550,9 @@ watch(
     audioDurationSec.value = 0
     componentContent.value = undefined
     imageExists.value = true
+    imageWidth.value = 0
+    imageHeight.value = 0
+    showImageModal.value = false
     videoExists.value = true
     frameError.value = ''
     currentFrame.value = 0
@@ -701,6 +739,20 @@ watch(
   object-fit: contain;
   border-radius: 4px;
   display: block;
+  cursor: pointer;
+}
+
+.preview-image:hover {
+  opacity: 0.85;
+}
+
+.image-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #999;
 }
 
 .image-actions {
@@ -708,6 +760,13 @@ watch(
   gap: 8px;
   margin-top: 4px;
   justify-content: flex-end;
+}
+
+.lightbox-image {
+  width: 100%;
+  max-height: 80vh;
+  object-fit: contain;
+  display: block;
 }
 
 /* ── Video ───────────────────────────────────────────────────────────── */
