@@ -109,7 +109,7 @@ async function checkNode(): Promise<CheckResult> {
   };
 }
 
-async function checkFfmpeg(): Promise<CheckResult> {
+export async function checkFfmpeg(): Promise<CheckResult> {
   const res = await run("ffmpeg", ["-version"]).catch(() => null);
   if (!res || res.code !== 0) {
     return {
@@ -140,7 +140,7 @@ async function checkFfmpeg(): Promise<CheckResult> {
   };
 }
 
-async function checkChromium(): Promise<CheckResult> {
+export async function checkChromium(): Promise<CheckResult> {
   try {
     // Dynamic import for ESM-only @remotion/renderer
     const renderer = await import("@remotion/renderer");
@@ -178,7 +178,7 @@ async function checkCJKFonts(): Promise<CheckResult> {
   }
 }
 
-async function checkVoxCPMService(config: AutoVideoConfig): Promise<CheckResult> {
+export async function checkVoxCPMService(config: AutoVideoConfig): Promise<CheckResult> {
   const endpoint = config.voxcpm.endpoint;
   try {
     const code = await httpGetStatus(`${endpoint}/health`);

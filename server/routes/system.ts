@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
 import path from 'node:path';
 import fs from 'node:fs';
-import type { AppConfig, AppConfigPublic } from '../types/api.js';
+import type { AppConfig, AppConfigPublic, DoctorReport } from '../types/api.js';
+import { checkFfmpeg, checkChromium } from '../../src/cli/doctor.js';
 
 const CONFIG_FILE = '.autovideo-web/config.json';
 
@@ -221,6 +222,68 @@ export function createSystemRoutes(repoRoot: string): Hono {
         }
       }
     }
+  });
+
+  // GET /api/doctor — health check for all services
+  router.get('/api/doctor', async (c) => {
+    const full = resolveConfig(repoRoot);
+    const report: DoctorReport = {
+      voxcpm: { status: 'fail', message: '' },
+      anthropic: { status: 'missing' },
+      imageGen: { status: 'missing' },
+      ffmpeg: { status: 'missing' },
+      remotion: { status: 'ok', version: 'unknown' },
+    };
+
+    // ── ffmpeg ──────────────────────────────────────────────────────────
+    const ffmpegCheck = await checkFfmpeg();
+    report.ffmpeg = {
+      status: ffmpegCheck.status === 'PASS' ? 'ok' : 'missing',
+      version: ffmpegCheck.status === 'PASS' ? ffmpegCheck.detail.split('\n')[0]?.trim() : undefined,
+    };
+
+    // ── remotion / chromium ─────────────────────────────────────────────
+    const chromiumCheck = await checkChromium();
+    report.remotion = {
+      status: 'ok' as const,
+      version: chromiumCheck.status === 'PASS' ? 'available' : chromiumCheck.detail,
+    };
+
+    // ── anthropic ───────────────────────────────────────────────────────
+    if (full.anthropic?.apiKey) {
+      report.anthropic = { status: 'ok' as const };
+    } else {
+      report.anthropic = { status: 'missing' as const, message: '未配置 Anthropic API Key' };
+    }
+
+    // ── imageGen ────────────────────────────────────────────────────────
+    if (full.imageGen?.apiKey && full.imageGen?.baseURL) {
+      report.imageGen = { status: 'ok' as const };
+    } else if (!full.imageGen?.baseURL) {
+      report.imageGen = { status: 'missing' as const, message: '未配置文生图服务' };
+    } else {
+      report.imageGen = { status: 'missing' as const, message: '未配置文生图 API Key' };
+    }
+
+    // ── voxcpm ──────────────────────────────────────────────────────────
+    const voxcpmEndpoint = full.voxcpm?.endpoint || 'http://127.0.0.1:8000';
+    try {
+      const resp = await fetch(voxcpmEndpoint, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        report.voxcpm = { status: 'ok' as const };
+      } else {
+        report.voxcpm = { status: 'fail' as const, message: `HTTP ${resp.status}` };
+      }
+    } catch (err) {
+      report.voxcpm = {
+        status: 'fail' as const,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    return c.json(report);
   });
 
   return router;
