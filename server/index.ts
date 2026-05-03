@@ -11,6 +11,7 @@ import { createTaskRoutes } from './routes/tasks.js';
 import { createOutputRoutes } from './routes/output.js';
 import { TaskQueue } from './services/taskQueue.js';
 import { createTaskRunner } from './services/taskRunner.js';
+import { FrameRenderer } from './services/frameRenderer.js';
 
 const app = new Hono();
 
@@ -31,6 +32,8 @@ export const taskQueue = new TaskQueue(projectsRoot, repoRoot);
 // Register the real task runner (WP3.3)
 taskQueue.onRun(createTaskRunner(projectsRoot, repoRoot));
 
+const frameRenderer = new FrameRenderer(projectsRoot, repoRoot);
+
 // --- API routes ---
 
 app.get('/api/health', (c) => {
@@ -38,7 +41,7 @@ app.get('/api/health', (c) => {
 });
 
 app.route('/api/projects', createProjectRoutes(projectsRoot));
-app.route('/api/projects', createBlockRoutes(projectsRoot));
+app.route('/api/projects', createBlockRoutes(projectsRoot, frameRenderer));
 app.route('/api/projects', createAssetRoutes(projectsRoot));
 app.route('/api/projects', createOutputRoutes(projectsRoot));
 app.route('/api/tasks', createTaskRoutes(taskQueue));

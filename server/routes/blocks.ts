@@ -11,6 +11,7 @@ import {
   NotFoundError,
   ValidationError,
 } from '../services/scriptEditor.js';
+import { FrameRenderer } from '../services/frameRenderer.js';
 import type { VisualMode } from '../types/api.js';
 
 // Allowed visual modes
@@ -64,7 +65,7 @@ function patchVisualMode(blockContent: string, mode: VisualMode): string {
 // Route factory
 // ---------------------------------------------------------------------------
 
-export function createBlockRoutes(projectsRoot: string) {
+export function createBlockRoutes(projectsRoot: string, frameRenderer: FrameRenderer) {
   const app = new Hono();
 
   // -------------------------------------------------------------------------
@@ -256,6 +257,46 @@ export function createBlockRoutes(projectsRoot: string) {
     const slug = resolveSlug(projectsRoot, name);
     const filePath = path.join(projectsRoot, name, 'build', slug, 'output', 'partials', `${id}.mp4`);
     return serveFileWithRange(c, filePath, 'video/mp4');
+  });
+
+  // ---------------------------------------------------------------------------
+  // GET /api/projects/:name/blocks/:id/preview?frame=N → PNG frame preview
+  // ---------------------------------------------------------------------------
+  app.get('/:name/blocks/:id/preview', projectGuard(projectsRoot), async (c) => {
+    const { name, id } = c.req.param();
+    const frameStr = c.req.query('frame') || '0';
+    const frame = parseInt(frameStr, 10);
+
+    if (isNaN(frame) || frame < 0) {
+      return c.json(
+        { error: { code: 'ERR_INVALID_FRAME', message: 'frame must be a non-negative integer' } },
+        400,
+      );
+    }
+
+    try {
+      const pngBuffer = await frameRenderer.renderFrame(name, id, frame);
+      return new Response(new Uint8Array(pngBuffer), {
+        status: 200,
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch (err: any) {
+      // FrameError has status/code/reason
+      if (err.status && err.code) {
+        const body: any = { error: { code: err.code, message: err.message } };
+        if (err.reason) body.reason = err.reason;
+        return c.json(body, err.status);
+      }
+      // Unexpected errors
+      console.error(`[preview] Unhandled error for ${name}/${id} frame ${frame}:`, err);
+      return c.json(
+        { error: { code: 'ERR_INTERNAL', message: 'Internal server error' } },
+        500,
+      );
+    }
   });
 
   return app;
