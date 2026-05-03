@@ -7,10 +7,10 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `WP4.4 前端：产物预览组件`
-- **last_updated**: `2026-05-04T01:00:00Z`
-- **next_action**: `实现前端产物预览组件 (BlockOutputs.vue)`
-- **completed**: `25 / 42`
+- **active_task**: `WP4.5 Phase 4 验收`
+- **last_updated**: `2026-05-04T01:30:00Z`
+- **next_action**: `进入 Phase 4 验收`
+- **completed**: `26 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
@@ -91,7 +91,7 @@
 | WP4.1 | Range 中间件 | done | 2026-05-03 | 2026-05-03 | 10feb05 | — |
 | WP4.2 | 产物 API | done | 2026-05-03 | 2026-05-03 | d3cd01e | — |
 | WP4.3 | 帧渲染服务 | done | 2026-05-03 | 2026-05-03 | fd312d2 | — |
-| WP4.4 | 前端：产物预览组件 | in_progress | 2026-05-04 | — | — | — |
+| WP4.4 | 前端：产物预览组件 | done | 2026-05-04 | 2026-05-04 | 3f6b2f7 | — |
 | WP4.5 | Phase 4 验收 | pending | — | — | — | — |
 
 ### 阶段 WP5：视觉模式 / 文生图 / 设置面板（Phase 5）
