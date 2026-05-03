@@ -187,7 +187,8 @@ import { EditorView } from '@codemirror/view'
 import { javascript } from '@codemirror/lang-javascript'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { useTaskStore } from '../../stores/taskStore'
-import type { Stage } from '../../../../server/types/api'
+import { apiPost } from '../../utils/api'
+import type { Stage, CacheClearKind } from '../../../../server/types/api'
 
 const { message } = createDiscreteApi(['message'])
 const taskStore = useTaskStore()
@@ -415,16 +416,25 @@ const actionLoading = ref<string | null>(null)
 function makeMenuOpts(label: string) {
   return [
     { key: `${label}-force`, label: '强制重跑（忽略缓存）' },
-    { key: `${label}-clear-cache`, label: '清缓存（即将推出）', disabled: true },
+    { key: `${label}-clear-cache`, label: `清${label === 'audio' ? '音频' : label === 'visual' ? '视觉' : label === 'render' ? '渲染' : ''}缓存` },
   ]
 }
 
 const audioMenuOpts   = computed(() => makeMenuOpts('audio'))
 const visualMenuOpts  = computed(() => makeMenuOpts('visual'))
 const renderMenuOpts  = computed(() => makeMenuOpts('render'))
-const compileMenuOpts = computed(() => makeMenuOpts('compile'))
+const compileMenuOpts = computed(() => [
+  { key: 'compile-force', label: '强制重跑（忽略缓存）' },
+  { key: 'compile-clear-cache', label: '清编译缓存' },
+])
 
 async function onBlockAction(key: string, stage: Stage) {
+  // Handle cache clear actions
+  if (key.endsWith('-clear-cache')) {
+    await onCacheClear(key.replace('-clear-cache', '') as 'audio' | 'visual' | 'render' | 'compile')
+    return
+  }
+
   const force = key.includes('-force')
   actionLoading.value = stage
 
@@ -440,6 +450,30 @@ async function onBlockAction(key: string, stage: Stage) {
       compile: '编译',
     }
     message.success(`${labels[stage] || stage}任务已提交`)
+  }
+}
+
+async function onCacheClear(scope: 'audio' | 'visual' | 'render' | 'compile') {
+  const kindMap: Record<string, CacheClearKind> = {
+    audio: 'audio',
+    visual: 'visual',
+    render: 'partial',
+    compile: 'all',
+  }
+  const kind = kindMap[scope] as CacheClearKind
+  if (!kind) return
+
+  actionLoading.value = scope === 'render' ? 'render' : scope === 'audio' ? 'tts' : 'visuals'
+  const result = await apiPost<{ ok: boolean }>(
+    `/api/projects/${props.projectName}/blocks/${props.blockId}/cache/clear`,
+    { kind },
+    { silent: true },
+  )
+  actionLoading.value = null
+
+  if (result.ok) {
+    message.success(`已清除${scope === 'audio' ? '音频' : scope === 'visual' ? '视觉' : scope === 'render' ? '渲染' : '编译'}缓存`)
+    refreshAll()
   }
 }
 

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import path from 'node:path';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { projectGuard } from '../middleware/pathGuard.js';
 import { serveFileWithRange } from '../middleware/range.js';
 import { readFileWithEtag, writeFileWithEtag, parseMetaFields, computeSlug } from '../services/projectService.js';
@@ -12,10 +13,18 @@ import {
   ValidationError,
 } from '../services/scriptEditor.js';
 import { FrameRenderer } from '../services/frameRenderer.js';
-import type { VisualMode } from '../types/api.js';
+import type { VisualMode, CacheClearKind } from '../types/api.js';
 
 // Allowed visual modes
 const VISUAL_MODES: VisualMode[] = ['animation', 'image'];
+
+// Allowed cache clear kinds
+const CACHE_CLEAR_KINDS: CacheClearKind[] = ['audio', 'visual', 'partial', 'all'];
+
+/** Type guard for CacheClearKind */
+function isCacheClearKind(v: unknown): v is CacheClearKind {
+  return typeof v === 'string' && (CACHE_CLEAR_KINDS as string[]).includes(v);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -208,6 +217,155 @@ export function createBlockRoutes(projectsRoot: string, frameRenderer: FrameRend
     }
 
     return c.json({ ok: true, etag: result.etag, mode });
+  });
+
+  // ---------------------------------------------------------------------------
+  // POST /api/projects/:name/blocks/:id/cache/clear
+  // Clear block-level cache + build products + script.json fields
+  // ---------------------------------------------------------------------------
+  app.post('/:name/blocks/:id/cache/clear', projectGuard(projectsRoot), async (c) => {
+    const { name, id } = c.req.param();
+    const body = await c.req.json<{ kind: unknown }>();
+
+    if (!isCacheClearKind(body.kind)) {
+      return c.json(
+        { error: { code: 'ERR_INVALID_KIND', message: `kind must be one of: ${CACHE_CLEAR_KINDS.join(', ')}` } },
+        400,
+      );
+    }
+
+    const kind = body.kind;
+    const projDir = path.join(projectsRoot, name);
+
+    // Resolve current slug
+    const slug = resolveSlug(projectsRoot, name);
+    const buildDir = path.join(projDir, 'build', slug);
+    const scriptJsonPath = path.join(buildDir, 'script.json');
+    const cacheDir = path.join(projDir, 'cache');
+    const manifestPath = path.join(cacheDir, 'manifest.json');
+
+    // --- Parse block content from script.md for cache matching ---
+    const scriptPath = path.join(projDir, 'script.md');
+    let narrationText = '';
+    let visualDesc = '';
+
+    if (fs.existsSync(scriptPath)) {
+      try {
+        const scriptMd = fs.readFileSync(scriptPath, 'utf-8');
+        const { content: blockContent } = extractBlock(scriptMd, id);
+        // Extract narration section text
+        const narrMatch = blockContent.match(/---\s+narration\s+---\s*\n([\s\S]*?)(?=\n(?:---\s+(?:visual|narration)|$))/);
+        if (narrMatch) narrationText = narrMatch[1].trim();
+        // Extract visual section text
+        const visMatch = blockContent.match(/---\s+visual\s+---\s*\n([\s\S]*?)(?=\n(?:---\s+(?:visual|narration)|$))/);
+        if (visMatch) visualDesc = visMatch[1].trim();
+      } catch {
+        // Block not found in script.md — proceed with cache and build cleanup only
+      }
+    }
+
+    // --- Clear cache manifest entries ---
+    let clearedCache = 0;
+
+    if (fs.existsSync(manifestPath)) {
+      try {
+        const manifestRaw = fs.readFileSync(manifestPath, 'utf-8');
+        const manifest = JSON.parse(manifestRaw) as Record<string, any>;
+        const manifestDirty = { ...manifest };
+
+        // Map kind → cache types to look for
+        const typeMap: Record<CacheClearKind, string[]> = {
+          audio: ['audio'],
+          visual: ['component', 'images'],
+          partial: ['partial'],
+          all: ['audio', 'component', 'images', 'partial'],
+        };
+        const targetTypes = typeMap[kind];
+
+        for (const [entryId, entry] of Object.entries(manifestDirty)) {
+          if (!targetTypes.includes(entry.type)) continue;
+
+          let matched = false;
+
+          if (entry.type === 'audio' && narrationText) {
+            // Match by ttsText in the cache key
+            matched = entry.key?.ttsText === narrationText;
+          } else if (entry.type === 'component' && visualDesc) {
+            // Match by descriptionHash
+            const descHash = crypto.createHash('md5').update(visualDesc).digest('hex');
+            matched = entry.key?.descriptionHash === descHash;
+          } else if (entry.type === 'images' && visualDesc) {
+            // Match by prompt in the cache key
+            matched = entry.key?.prompt === visualDesc;
+          } else if (entry.type === 'partial') {
+            // Partials are hard to match precisely; skip cache matching for partials
+            // Build product and script.json clearing still resets block status
+            matched = false;
+          }
+
+          if (matched) {
+            // Delete the cache file
+            const filePath = path.join(cacheDir, entry.file);
+            try { fs.unlinkSync(filePath); } catch { /* already gone */ }
+            delete manifestDirty[entryId];
+            clearedCache++;
+          }
+        }
+
+        fs.writeFileSync(manifestPath, JSON.stringify(manifestDirty, null, 2), 'utf-8');
+      } catch {
+        // Manifest corrupted — skip cache clearing, continue with build cleanup
+      }
+    }
+
+    // --- Clear build products ---
+    if (kind === 'audio' || kind === 'all') {
+      const p = path.join(buildDir, 'public', 'audio', `${id}.wav`);
+      try { fs.unlinkSync(p); } catch { /* not found */ }
+    }
+    if (kind === 'visual' || kind === 'all') {
+      const compPath = path.join(buildDir, 'src', 'blocks', id, 'Component.tsx');
+      const imgPath = path.join(buildDir, 'public', 'images', `${id}.png`);
+      try { fs.unlinkSync(compPath); } catch { /* not found */ }
+      try { fs.unlinkSync(imgPath); } catch { /* not found */ }
+    }
+    if (kind === 'partial' || kind === 'all') {
+      const partialPath = path.join(buildDir, 'output', 'partials', `${id}.mp4`);
+      try { fs.unlinkSync(partialPath); } catch { /* not found */ }
+    }
+
+    // --- Clear script.json fields ---
+    if (fs.existsSync(scriptJsonPath)) {
+      try {
+        const raw = fs.readFileSync(scriptJsonPath, 'utf-8');
+        const scriptJson = JSON.parse(raw);
+        const blocks: any[] = scriptJson.blocks ?? [];
+        const block = blocks.find((b: any) => b.id === id);
+
+        if (block) {
+          if (kind === 'audio' || kind === 'all') {
+            delete block.audio;
+          }
+          if (kind === 'visual' || kind === 'all') {
+            if (block.visual) {
+              delete block.visual.componentPath;
+              delete block.visual.imagePath;
+            }
+          }
+          if (kind === 'partial' || kind === 'all') {
+            delete block.render;
+          }
+          if (kind === 'all') {
+            delete block.timing;
+          }
+          fs.writeFileSync(scriptJsonPath, JSON.stringify(scriptJson, null, 2), 'utf-8');
+        }
+      } catch {
+        // script.json corrupted — skip
+      }
+    }
+
+    return c.json({ ok: true, clearedCache, kind });
   });
 
   // ---------------------------------------------------------------------------

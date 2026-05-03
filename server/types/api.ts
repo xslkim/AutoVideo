@@ -32,6 +32,8 @@ export interface TaskRecord {
 
 export type VisualMode = 'animation' | 'image';
 
+export type CacheClearKind = 'audio' | 'visual' | 'partial' | 'all';
+
 export interface BlockStatus {
   id: string;               // 'B01'
   title: string;            // 块头标题（不含 #Bxx）

@@ -11,13 +11,36 @@
     <!-- Batch operations bar -->
     <div v-if="checkedIds.size > 0" class="batch-bar">
       <span class="batch-count">已选 {{ checkedIds.size }} 项</span>
-      <n-space size="small" :wrap="false">
-        <n-button size="tiny" disabled>批量音频</n-button>
-        <n-button size="tiny" disabled>批量视觉</n-button>
-        <n-button size="tiny" disabled>批量渲染</n-button>
-        <n-button size="tiny" disabled>批量清缓存</n-button>
+      <div class="batch-row">
+        <n-button
+          size="tiny"
+          :disabled="taskStore.hasActiveStage('tts') || batchLoading === 'tts'"
+          :loading="batchLoading === 'tts'"
+          @click="batchCreate('tts')"
+        >批量音频</n-button>
+        <n-button
+          size="tiny"
+          :disabled="taskStore.hasActiveStage('visuals') || batchLoading === 'visuals'"
+          :loading="batchLoading === 'visuals'"
+          @click="batchCreate('visuals')"
+        >批量视觉</n-button>
+        <n-button
+          size="tiny"
+          :disabled="taskStore.hasActiveStage('render') || batchLoading === 'render'"
+          :loading="batchLoading === 'render'"
+          @click="batchCreate('render')"
+        >批量渲染</n-button>
+        <n-button
+          size="tiny"
+          :disabled="batchLoading === 'clear'"
+          :loading="batchLoading === 'clear'"
+          @click="batchClearCache"
+        >批量清缓存</n-button>
+        <n-button size="tiny" quaternary :type="batchForce ? 'primary' : 'default'" @click="batchForce = !batchForce">
+          强制{{ batchForce ? ' ✓' : '' }}
+        </n-button>
         <n-button size="tiny" @click="clearSelection">取消选择</n-button>
-      </n-space>
+      </div>
     </div>
 
     <!-- Warnings -->
@@ -72,11 +95,13 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { NButton, NCheckbox, NSpin, NSpace, NEmpty, createDiscreteApi } from 'naive-ui'
-import { apiGet, apiPut, getEtag, setEtag } from '../../utils/api'
+import { apiGet, apiPut, apiPost, getEtag, setEtag } from '../../utils/api'
 import { parseScript, type ParseResult, type ParsedBlock } from '../../utils/scriptParser'
-import type { BlockStatus } from '../../../../server/types/api'
+import { useTaskStore } from '../../stores/taskStore'
+import type { BlockStatus, Stage, CacheClearKind } from '../../../../server/types/api'
 
 const { message } = createDiscreteApi(['message'])
+const taskStore = useTaskStore()
 
 // ---------------------------------------------------------------------------
 // Props / Emits
@@ -189,6 +214,73 @@ function toggleCheck(id: string, checked: boolean) {
 
 function clearSelection() {
   checkedIds.value = new Set()
+}
+
+// ---------------------------------------------------------------------------
+// Batch operations
+// ---------------------------------------------------------------------------
+
+const batchForce = ref(false)
+const batchLoading = ref<string | null>(null)
+
+const checkedIdsArray = computed(() => Array.from(checkedIds.value))
+
+async function batchCreate(stage: Stage) {
+  if (checkedIdsArray.value.length === 0) return
+
+  batchLoading.value = stage
+  const task = await taskStore.createTask(
+    props.projectName,
+    stage,
+    checkedIdsArray.value,
+    batchForce.value,
+  )
+  batchLoading.value = null
+
+  if (task) {
+    const labels: Record<string, string> = {
+      tts: '批量生成音频',
+      visuals: '批量生成视觉',
+      render: '批量渲染',
+    }
+    message.success(`${labels[stage] || stage}任务已提交`)
+    clearSelection()
+    batchForce.value = false
+  }
+}
+
+async function batchClearCache() {
+  if (checkedIdsArray.value.length === 0) return
+
+  batchLoading.value = 'clear'
+  let success = 0
+  let fail = 0
+
+  for (const id of checkedIdsArray.value) {
+    const result = await apiPost<{ ok: boolean }>(
+      `/api/projects/${props.projectName}/blocks/${id}/cache/clear`,
+      { kind: 'all' },
+      { silent: true },
+    )
+    if (result.ok) {
+      success++
+    } else {
+      fail++
+    }
+  }
+
+  batchLoading.value = null
+
+  if (fail === 0) {
+    message.success(`已清除 ${success} 个块的缓存`)
+  } else {
+    message.warning(`清除完成：${success} 成功，${fail} 失败`)
+  }
+
+  // Refresh block status
+  clearSelection()
+  batchForce.value = false
+  await fetchBlocks()
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +416,13 @@ watch(
   font-size: 12px;
   color: #666;
   font-weight: 500;
+}
+
+.batch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
 }
 
 /* Warnings */
