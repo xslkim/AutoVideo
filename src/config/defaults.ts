@@ -37,6 +37,8 @@ export interface AnthropicConfig {
   maxRetries: number;
   /** Optional base URL for API proxy (e.g. "https://open.bigmodel.cn/api/anthropic") */
   baseURL?: string;
+  /** Explicit API key (web mode) — if set, skips env/settings resolution */
+  apiKey?: string;
   /** Max concurrent block generation calls */
   concurrency: number;
 }

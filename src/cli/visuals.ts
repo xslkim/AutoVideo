@@ -23,6 +23,7 @@ import {
   type ComponentGenInput,
   type ComponentGenResult,
 } from "../ai/component-gen.js";
+import { generateImage } from "../ai/image-gen.js";
 import {
   validateComponent,
   type ValidateComponentOptions,
@@ -269,11 +270,12 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
     evictTrigger: config.cache.evictTrigger,
   });
 
-  // Anthropic config for generateComponent
+  // Anthropic config for generateComponent (animation mode)
   const anthropicConfig: AnthropicConfig = {
     model: config.anthropic.model,
     maxRetries: config.anthropic.maxRetries,
     baseURL: config.anthropic.baseURL,
+    apiKey: config.anthropic.apiKey,
   };
 
   if (dryRun) {
@@ -301,15 +303,58 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
   let cacheHits = 0;
   let apiCalls = 0;
 
-  const concurrency = config.anthropic.concurrency;
+  const concurrency = Math.max(config.anthropic.concurrency, config.imageGen.concurrency);
   const limit = pLimit(concurrency);
 
-  // Process each block concurrently
+  // Process each block concurrently — branch by visualMode
   const tasks = targetBlocks.map((block) =>
     limit(async () => {
       if (hasFailed || abortController.signal.aborted) return;
 
       const blockLabel = block.id;
+
+      // ── Image mode: call generateImage ───────────────────────────────
+      if (block.visualMode === 'image') {
+        console.log(`Processing block ${blockLabel} (image mode)...`);
+
+        try {
+          const result = await generateImage(block, {
+            config: {
+              baseURL: config.imageGen.baseURL,
+              apiKey: config.imageGen.apiKey,
+              model: config.imageGen.model,
+              size: config.imageGen.size,
+              timeoutMs: config.imageGen.timeoutMs,
+              concurrency: config.imageGen.concurrency,
+            },
+            buildOutDir,
+            meta: { aspect: script.meta.aspect, width: script.meta.width, height: script.meta.height },
+            cacheStore,
+            force,
+            signal: abortController.signal,
+            onProgress,
+          });
+
+          if (result.cacheHit) {
+            cacheHits++;
+          } else {
+            apiCalls++;
+          }
+
+          console.log(`  Block ${blockLabel}: image done`);
+        } catch (err: any) {
+          const errMsg = err?.message ?? String(err);
+          console.error(`✗ Block ${blockLabel}: image generation failed: ${errMsg.slice(0, 200)}`);
+          failedBlocks.push({ id: block.id, error: errMsg });
+          hasFailed = true;
+          abortController.abort();
+          return;
+        }
+
+        return;
+      }
+
+      // ── Animation mode: existing Claude generation path ──────────────
       console.log(`Processing block ${blockLabel}...`);
 
       const componentDir = path.join(blocksDir, block.id);
