@@ -1326,6 +1326,7 @@ export interface TaskRecord {
   stage: Stage;
   blockIds?: string[];
   force: boolean;
+  outputSlug: string;       // 入队时由 live meta.md 计算，运行全程固定（§3.3）
   status: TaskStatus;
   createdAt: number;
   startedAt?: number;

@@ -62,6 +62,7 @@
       └── utils/          # 空目录
   ```
 - `web/package.json` 依赖：`vue ^3.4`, `vue-router ^4.3`, `pinia ^2.1`, `naive-ui ^2.38`, `@codemirror/state`, `@codemirror/view`, `@codemirror/lang-yaml`, `@codemirror/lang-javascript`
+- `web/package.json` devDependencies：`vite ^5.0`, `@vitejs/plugin-vue`, `typescript ^5.0`, `vue-tsc`
 - `web/vite.config.ts` 配置 dev proxy：`/api` → `http://127.0.0.1:3030`
 - 安装依赖：`cd web && npm install`
 
@@ -306,9 +307,9 @@
 - Tab B（产物预览）先占位
 
 **验收**：
-- 点击侧边栏 B03 → 右侧面板显示 B03 的内容
-- 在 Tab A 修改 B03 保存 → script.md 中仅 B03 区段变化
-- 篡改 B03 块头 ID 保存 → 收到 422 错误提示
+- 点击侧边栏 B01 → 右侧面板显示 B01 的内容
+- 在 Tab A 修改 B01 保存 → script.md 中仅 B01 区段变化
+- 篡改 B01 块头 ID 保存 → 收到 422 错误提示
 
 ---
 
@@ -361,7 +362,7 @@
 - 配置通过 options 注入，不直接读 `process.env`（A.7）
 
 **验收**：
-- 现有 CLI 测试仍通过（`npm test`）
+- `npx tsc --noEmit` 零错误（现有类型不被破坏）
 - `compile` 不再调用 `process.chdir`
 - `render({ concatOnly: true })` 在所有 partial 存在时仅做 concat + loudnorm + qa
 - 传入 `signal` 后 abort 能中止运行
@@ -383,8 +384,9 @@
 
 **验收**：
 - 队列添加 3 个任务 → 依次串行执行
+- 每条 task 持久化记录包含 `outputSlug` 字段（入队时由 live meta.md 计算）
 - 取消 pending 任务 → 从队列移除
-- 杀进程重启 → `tasks.jsonl` 恢复历史
+- 杀进程重启 → `tasks.jsonl` 恢复历史，`outputSlug` 字段完整
 
 ---
 
@@ -401,11 +403,13 @@
 - 任务启动时读取配置快照（@WEB_PRD.md §13.4）
 - 进度事件转发给 SSE
 - build 聚合权重：compile 5% / tts 25% / visuals 35% / render 30% / 收尾 5%
+- **缓存目录注入**：taskRunner 调用任何 CLI stage 前必须将 `config.cache.dir` 设为 `path.join(projectDir, "cache")`，确保缓存落在项目目录内（CLI 默认用 `~/.autovideo/cache`，web 模式必须覆盖）；否则后续清缓存 API（§5.1）清不到实际缓存
 
 **验收**：
 - 提交 compile 任务 → `build/{slug}/script.json` 生成
 - 提交 tts 任务（指定 blockIds）→ 对应 WAV 生成
 - 快照目录 `_snapshot/` 包含 voice/ 目录
+- tts/visuals 产出的缓存文件落在 `project/{name}/cache/` 内（而非 `~/.autovideo/cache`）
 
 ---
 
@@ -425,9 +429,10 @@
 - SSE 事件退出顺序：`progress(100) → done|error|cancelled → close`
 
 **验收**：
-- POST 创建 compile 任务 → 返回 task id
+- POST 创建 compile 任务 → 返回 task id，响应体含 `outputSlug`
 - SSE 至少收到一个 progress + done/error
 - DELETE 正在 running 的任务 → 状态变为 cancelled（或 cancelling 后 cancelled）
+- `GET /api/tasks/:id` 返回的 record 包含 `outputSlug` 字段
 
 ---
 

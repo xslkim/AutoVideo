@@ -10,7 +10,7 @@
 - **active_task**: `—`
 - **last_updated**: `2026-05-03T00:00:00Z`
 - **next_action**: `开始 WP0.1 后端目录结构`
-- **completed**: `0 / 30`
+- **completed**: `0 / 42`
 - **blockers**: `0`
 
 恢复检查清单（agent 启动时按顺序确认）：
