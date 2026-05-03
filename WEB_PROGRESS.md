@@ -7,9 +7,9 @@
 
 ## 当前状态（agent 每次更新后修改这一节）
 
-- **active_task**: `—`
-- **last_updated**: `2026-05-03T11:10:00Z`
-- **next_action**: `开始 WP1.5 前端：项目页三栏布局 + MetaEditor`
+- **active_task**: `WP1.5`
+- **last_updated**: `2026-05-03T12:00:00Z`
+- **next_action**: `实现 WP1.5 前端：项目页三栏布局 + MetaEditor`
 - **completed**: `7 / 42`
 - **blockers**: `0`
 
@@ -58,7 +58,7 @@
 | WP1.2 | 项目服务 + 项目列表 API | done | 2026-05-03 | 2026-05-03 | — | — |
 | WP1.3 | Meta / Script 读写 API（含 ETag） | done | 2026-05-03 | 2026-05-03 | — | — |
 | WP1.4 | 前端：项目列表页 | done | 2026-05-03 | 2026-05-03 | 9aa5d6a | — |
-| WP1.5 | 前端：项目页三栏布局 + MetaEditor | pending | — | — | — | — |
+| WP1.5 | 前端：项目页三栏布局 + MetaEditor | in_progress | 2026-05-03 | — | — | — |
 | WP1.6 | Phase 1 验收 | pending | — | — | — | — |
 
 ### 阶段 WP2：脚本编辑与资源管理（Phase 2）
