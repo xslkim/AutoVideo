@@ -34,6 +34,7 @@ import { renderBlocks, type RenderBlocksResult } from "../render/render-blocks.j
 import { concatPartials } from "../render/concat.js";
 import { applyLoudnorm, type LoudnormResult } from "../render/loudnorm.js";
 import { runQA, type QAResult } from "../render/qa.js";
+import { extractAudio, generateLipsync, overlayLipsync, LipsyncError } from "../render/lipsync.js";
 
 // ── Error class ───────────────────────────────────────────────────────
 
@@ -273,8 +274,48 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
     if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
 
-    emit(60, "响度归一化");
+    // Lip-sync overlay in concatOnly mode too
     const concatFinalPath = path.join(buildDir, "output", "final.mp4");
+    if (meta.avatarRef) {
+      emit(45, "生成口型同步");
+      const concatOutputDir = path.join(buildDir, "output");
+      const concatAudioPath = path.join(concatOutputDir, "full_audio.wav");
+      const concatLipsyncRaw = path.join(concatOutputDir, "lipsync_raw.mp4");
+      const concatLipsyncOut = path.join(concatOutputDir, "final_lipsync.mp4");
+
+      await extractAudio(concatFinalPath, concatAudioPath, signal);
+      if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+      const musetalkUrl = (config as any).musetalk?.url ?? "http://localhost:8001";
+      try {
+        await generateLipsync({
+          avatarPath: meta.avatarRef,
+          audioPath: concatAudioPath,
+          outputPath: concatLipsyncRaw,
+          fps: meta.fps,
+          serviceUrl: musetalkUrl,
+          signal,
+        });
+      } catch (err) {
+        if (err instanceof LipsyncError) {
+          throw new RenderError(err.message, "ERR_LIPSYNC_FAILED");
+        }
+        throw err;
+      }
+
+      await overlayLipsync(
+        concatFinalPath, concatLipsyncRaw, concatLipsyncOut,
+        { size: 192, margin: 5, radius: 16, position: "bottom-left" },
+        signal,
+      );
+      fs.renameSync(concatLipsyncOut, concatFinalPath);
+      try { fs.unlinkSync(concatAudioPath); } catch {}
+      try { fs.unlinkSync(concatLipsyncRaw); } catch {}
+    }
+
+    if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+    emit(60, "响度归一化");
     const loudnormCfg = renderConfig.loudnorm ?? {
       i: -16, tp: -1.5, lra: 11, twoPass: true, audioBitrate: "192k",
     };
@@ -475,11 +516,70 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   console.log(`[render] Concat complete → output/final.mp4`);
 
+  const finalAbsPath = path.join(buildDir, "output", "final.mp4");
+
+  // ── Step 7.5: Lip-sync overlay (only if avatarRef is configured) ──────
+
+  if (meta.avatarRef) {
+    emit(68, "生成口型同步");
+
+    const outputDir = path.join(buildDir, "output");
+    const fullAudioPath = path.join(outputDir, "full_audio.wav");
+    const lipsyncRawPath = path.join(outputDir, "lipsync_raw.mp4");
+    const finalWithLipsyncPath = path.join(outputDir, "final_lipsync.mp4");
+
+    // a. Extract audio from final.mp4
+    console.log(`[render] Extracting audio for lip-sync...`);
+    await extractAudio(finalAbsPath, fullAudioPath, signal);
+
+    if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+    // b. Call MuseTalk API
+    const musetalkUrl = (config as any).musetalk?.url ?? "http://localhost:8001";
+    console.log(`[render] Calling MuseTalk at ${musetalkUrl}...`);
+    try {
+      await generateLipsync({
+        avatarPath: meta.avatarRef,
+        audioPath: fullAudioPath,
+        outputPath: lipsyncRawPath,
+        fps: meta.fps,
+        serviceUrl: musetalkUrl,
+        signal,
+      });
+    } catch (err) {
+      if (err instanceof LipsyncError) {
+        throw new RenderError(err.message, "ERR_LIPSYNC_FAILED");
+      }
+      throw err;
+    }
+
+    if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+
+    // c. Overlay lipsync video onto final.mp4
+    emit(72, "叠加口型画中画");
+    console.log(`[render] Overlaying lip-sync PiP...`);
+    await overlayLipsync(
+      finalAbsPath,
+      lipsyncRawPath,
+      finalWithLipsyncPath,
+      { size: 192, margin: 5, radius: 16, position: "bottom-left" },
+      signal,
+    );
+
+    // d. Replace final.mp4 with the overlaid version
+    fs.renameSync(finalWithLipsyncPath, finalAbsPath);
+
+    // Clean up temp files
+    try { fs.unlinkSync(fullAudioPath); } catch {}
+    try { fs.unlinkSync(lipsyncRawPath); } catch {}
+
+    console.log(`[render] Lip-sync overlay complete`);
+  }
+
   // ── Step 8: Loudnorm ────────────────────────────────────────────────
 
   emit(75, "响度归一化");
 
-  const finalAbsPath = path.join(buildDir, "output", "final.mp4");
   const loudnormConfig = renderConfig.loudnorm ?? {
     i: -16,
     tp: -1.5,

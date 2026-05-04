@@ -165,6 +165,7 @@ export interface Script {
     fps: number;
     theme: string;
     subtitleSafeBottom: number;
+    avatarRef?: string; // absolute path to avatar loop video for lip-sync overlay
   };
   blocks: Block[];
   assets: Record<string, string>; // relative POSIX path → "assets/{hash}.ext"

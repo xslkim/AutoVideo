@@ -111,6 +111,24 @@
           </n-form-item>
         </n-form>
       </n-tab-pane>
+
+      <!-- MuseTalk -->
+      <n-tab-pane name="musetalk" tab="MuseTalk">
+        <n-form label-placement="left" label-width="90" :style="{ paddingTop: '12px' }">
+          <n-form-item label="服务地址">
+            <n-input v-model:value="form.musetalk.url" placeholder="http://localhost:8001" clearable />
+          </n-form-item>
+          <n-form-item>
+            <n-button size="small" :loading="testing.musetalk" @click="testService('musetalk')">
+              测试连通性
+            </n-button>
+            <span v-if="testResult.musetalk" :style="{ marginLeft: '12px', fontSize: '13px' }">
+              <span v-if="testResult.musetalk.ok" style="color: #18a058">连接成功 ({{ testResult.musetalk.latencyMs }}ms)</span>
+              <span v-else style="color: #d03050">{{ testResult.musetalk.message }}</span>
+            </span>
+          </n-form-item>
+        </n-form>
+      </n-tab-pane>
     </n-tabs>
 
     <template #footer>
@@ -174,6 +192,9 @@ const form = reactive({
     autoStart: true as boolean,
     concurrency: 2 as number | null,
   },
+  musetalk: {
+    url: '' as string,
+  },
 })
 
 // ── Test state ──────────────────────────────────────────────────────────
@@ -182,12 +203,14 @@ const testing = reactive({
   anthropic: false,
   imageGen: false,
   voxcpm: false,
+  musetalk: false,
 })
 
 const testResult = reactive<Record<string, { ok: boolean; latencyMs?: number; message?: string } | null>>({
   anthropic: null,
   imageGen: null,
   voxcpm: null,
+  musetalk: null,
 })
 
 // ── Load config ─────────────────────────────────────────────────────────
@@ -212,6 +235,8 @@ async function loadConfig() {
   form.voxcpm.endpoint = c.voxcpm.endpoint ?? ''
   form.voxcpm.autoStart = c.voxcpm.autoStart ?? true
   form.voxcpm.concurrency = c.voxcpm.concurrency ?? 2
+
+  form.musetalk.url = c.musetalk?.url ?? ''
 
   // Preserve key "set" status — if set, show placeholder text
   if (!c.anthropic.apiKey.set) form.anthropic.apiKey = ''
@@ -251,6 +276,11 @@ async function onSave() {
       concurrency: form.voxcpm.concurrency,
     }
 
+    // MuseTalk
+    patch.musetalk = {
+      url: form.musetalk.url || null,
+    }
+
     const res = await apiPut<{ ok: boolean; config: AppConfigPublic }>('/api/config', patch)
     if (res.ok) {
       message.success('设置已保存')
@@ -267,7 +297,7 @@ function onCancel() {
 
 // ── Connectivity test ───────────────────────────────────────────────────
 
-async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm') {
+async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'musetalk') {
   testing[service] = true
   testResult[service] = null
   try {

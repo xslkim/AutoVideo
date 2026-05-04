@@ -176,6 +176,30 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
     `voiceRef: ./voice/${voiceFile}`,
   );
   fs.writeFileSync(snapshotMetaPath, updatedMeta, 'utf-8');
+
+  // ── Resolve avatarRef and copy avatar video into snapshot ──────────
+  const avatarRefMatch = metaContent.match(/^avatarRef:\s*(.+)$/m);
+  if (avatarRefMatch) {
+    const avatarRefRelative = avatarRefMatch[1].trim();
+    const resolvedAvatar = path.resolve(projectDir, avatarRefRelative);
+
+    if (fs.existsSync(resolvedAvatar)) {
+      // Copy avatar file to snapshot root
+      const avatarFile = path.basename(resolvedAvatar);
+      const avatarDest = path.join(snapshotDir, avatarFile);
+      if (!fs.existsSync(avatarDest)) {
+        fs.copyFileSync(resolvedAvatar, avatarDest);
+      }
+
+      // Rewrite snapshot meta.md so avatarRef points to the local copy
+      const snapMeta2 = fs.readFileSync(snapshotMetaPath, 'utf-8');
+      const updatedMeta2 = snapMeta2.replace(
+        /^avatarRef:\s*.+$/m,
+        `avatarRef: ./${avatarFile}`,
+      );
+      fs.writeFileSync(snapshotMetaPath, updatedMeta2, 'utf-8');
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +241,10 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
         if (raw.imageGen.timeoutMs !== undefined) cfg.imageGen.timeoutMs = raw.imageGen.timeoutMs;
         if (raw.imageGen.concurrency !== undefined) cfg.imageGen.concurrency = raw.imageGen.concurrency;
       }
+
+      if (raw.musetalk) {
+        (cfg as any).musetalk = { ...(cfg as any).musetalk, ...raw.musetalk };
+      }
     } catch {
       // Malformed config — use defaults
     }
@@ -232,6 +260,11 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
   // Env var fallback for apiKey — only used if NOT already set via config.json (UI)
   if (!cfg.anthropic.apiKey && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
     (cfg.anthropic as any).apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
+  }
+
+  // MuseTalk URL env var fallback
+  if (process.env.MUSETALK_URL) {
+    (cfg as any).musetalk = { ...(cfg as any).musetalk, url: process.env.MUSETALK_URL };
   }
 
   return cfg;

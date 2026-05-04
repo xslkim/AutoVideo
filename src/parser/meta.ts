@@ -27,6 +27,8 @@ export interface ParsedMeta {
   fps: number;
   /** Optional slug override for output directory naming */
   slug?: string;
+  /** Optional avatar loop video for lip-sync overlay (absolute path to mp4) */
+  avatarRef?: string;
 }
 
 /** Parsed meta with dimensions computed */
@@ -259,6 +261,24 @@ export function readMeta(
   // slug — optional
   const slug = kv.get("slug");
 
+  // avatarRef — optional, lip-sync avatar video
+  let avatarRef: string | undefined;
+  const avatarRefRaw = kv.get("avatarRef");
+  if (avatarRefRaw && avatarRefRaw.trim() !== "") {
+    const avatarPath = resolve(metaDir, avatarRefRaw);
+    if (!existsSync(avatarPath)) {
+      throw new MetaError(
+        `avatarRef file not found: ${avatarPath} (specified as "${avatarRefRaw}" in meta.md)`,
+      );
+    }
+    if (!avatarPath.toLowerCase().endsWith(".mp4")) {
+      throw new MetaError(
+        `avatarRef must be an .mp4 file, got: ${avatarRefRaw}`,
+      );
+    }
+    avatarRef = avatarPath;
+  }
+
   return {
     title,
     voiceRef,
@@ -266,6 +286,7 @@ export function readMeta(
     theme,
     fps,
     ...(slug ? { slug } : {}),
+    ...(avatarRef ? { avatarRef } : {}),
   };
 }
 

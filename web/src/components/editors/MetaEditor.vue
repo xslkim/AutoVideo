@@ -1,5 +1,48 @@
 <template>
   <div class="meta-editor">
+    <!-- Avatar upload section -->
+    <div class="avatar-section">
+      <div class="avatar-header">
+        <span class="avatar-label">口型同步 Avatar</span>
+        <n-button
+          v-if="avatarExists"
+          size="tiny"
+          type="error"
+          :loading="avatarDeleting"
+          @click="deleteAvatar"
+        >
+          删除
+        </n-button>
+      </div>
+      <div class="avatar-body">
+        <div v-if="avatarExists" class="avatar-preview">
+          <video
+            :src="`/api/projects/${projectName}/avatar`"
+            class="avatar-video"
+            muted
+            loop
+            autoplay
+            @mouseenter="($event.target as HTMLVideoElement)?.play()"
+            @mouseleave="($event.target as HTMLVideoElement)?.pause()"
+          />
+          <span class="avatar-filename">avatar.mp4</span>
+        </div>
+        <div v-else class="avatar-empty">
+          <n-upload
+            :max="1"
+            accept=".mp4"
+            :show-file-list="false"
+            :custom-request="uploadAvatar"
+          >
+            <n-button size="small" :loading="avatarUploading">
+              上传 Avatar 视频
+            </n-button>
+          </n-upload>
+          <span class="avatar-hint">192x192, 30fps, mp4</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Toolbar -->
     <div class="editor-toolbar">
       <span v-if="isDirty" class="dirty-badge">● 未保存</span>
@@ -57,8 +100,8 @@ import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { yaml } from '@codemirror/lang-yaml'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { apiGet, apiPut, getEtag, setEtag } from '../../utils/api'
-import { createDiscreteApi } from 'naive-ui'
+import { apiGet, apiPut, apiPost, getEtag, setEtag } from '../../utils/api'
+import { createDiscreteApi, type UploadCustomRequestOptions } from 'naive-ui'
 
 const { message } = createDiscreteApi(['message'])
 
@@ -72,6 +115,11 @@ const editorEl = ref<HTMLDivElement | null>(null)
 const loading = ref(false)
 const saving = ref(false)
 const isDirty = ref(false)
+
+// Avatar state
+const avatarExists = ref(false)
+const avatarUploading = ref(false)
+const avatarDeleting = ref(false)
 
 // Conflict state
 const conflictVisible = ref(false)
@@ -120,6 +168,60 @@ function buildExtensions(onSave: () => void) {
     exts.push(oneDark)
   }
   return exts
+}
+
+// Check if avatar.mp4 exists
+async function checkAvatar() {
+  try {
+    const res = await fetch(`/api/projects/${props.projectName}/avatar`, { method: 'HEAD' })
+    avatarExists.value = res.ok
+  } catch {
+    avatarExists.value = false
+  }
+}
+
+// Upload avatar video
+async function uploadAvatar(options: UploadCustomRequestOptions) {
+  const { file } = options
+  avatarUploading.value = true
+  try {
+    const formData = new FormData()
+    formData.append('file', file.file as File)
+    const res = await fetch(`/api/projects/${props.projectName}/avatar`, {
+      method: 'POST',
+      body: formData,
+    })
+    const data = await res.json()
+    if (res.ok && data.ok) {
+      avatarExists.value = true
+      message.success('Avatar 上传成功')
+      // Reload editor to reflect updated meta.md
+      await initEditor()
+    } else {
+      message.error(data.error?.message ?? '上传失败')
+    }
+  } catch {
+    message.error('上传失败')
+  } finally {
+    avatarUploading.value = false
+  }
+}
+
+// Delete avatar
+async function deleteAvatar() {
+  avatarDeleting.value = true
+  try {
+    const res = await fetch(`/api/projects/${props.projectName}/avatar`, { method: 'DELETE' })
+    if (res.ok) {
+      avatarExists.value = false
+      message.success('Avatar 已删除')
+      await initEditor()
+    }
+  } catch {
+    message.error('删除失败')
+  } finally {
+    avatarDeleting.value = false
+  }
 }
 
 // Initialize or re-initialize the editor
@@ -253,6 +355,7 @@ function handleColorSchemeChange() {
 
 onMounted(async () => {
   await initEditor()
+  await checkAvatar()
   window.addEventListener('beforeunload', handleBeforeUnload)
   darkMQ = window.matchMedia('(prefers-color-scheme: dark)')
   darkMQ.addEventListener('change', handleColorSchemeChange)
@@ -279,6 +382,61 @@ watch(
   flex-direction: column;
   height: 100%;
   position: relative;
+}
+
+.avatar-section {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--n-border-color, #e0e0e6);
+  flex-shrink: 0;
+}
+
+.avatar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.avatar-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--n-text-color, #333);
+}
+
+.avatar-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar-video {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: #000;
+}
+
+.avatar-filename {
+  font-size: 12px;
+  color: var(--n-text-color-3, #999);
+}
+
+.avatar-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar-hint {
+  font-size: 11px;
+  color: var(--n-text-color-3, #999);
 }
 
 .editor-toolbar {

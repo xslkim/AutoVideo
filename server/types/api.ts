@@ -74,6 +74,9 @@ export interface AppConfig {
     autoStart?: boolean;
     concurrency?: number;
   };
+  musetalk?: {
+    url?: string;
+  };
 }
 
 export interface AppConfigPublic {
@@ -97,6 +100,9 @@ export interface AppConfigPublic {
     autoStart?: boolean;
     concurrency?: number;
   };
+  musetalk: {
+    url?: string;
+  };
 }
 
 export interface ApiError {
@@ -113,4 +119,5 @@ export interface DoctorReport {
   imageGen: { status: 'ok' | 'missing' | 'fail'; message?: string };
   ffmpeg: { status: 'ok' | 'missing'; version?: string };
   remotion: { status: 'ok'; version: string };
+  musetalk: { status: 'ok' | 'fail' | 'missing'; message?: string };
 }

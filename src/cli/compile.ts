@@ -307,6 +307,7 @@ export default Component;
       fps: meta.fps,
       theme: meta.theme,
       subtitleSafeBottom,
+      ...(meta.avatarRef ? { avatarRef: meta.avatarRef } : {}),
     },
     blocks: scriptBlocks,
     artifacts: {

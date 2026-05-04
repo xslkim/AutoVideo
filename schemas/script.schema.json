@@ -46,6 +46,10 @@
         "subtitleSafeBottom": {
           "type": "number",
           "minimum": 0
+        },
+        "avatarRef": {
+          "type": "string",
+          "description": "Absolute path to avatar loop video for lip-sync overlay"
         }
       }
     },

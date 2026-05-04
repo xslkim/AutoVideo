@@ -69,11 +69,29 @@ voiceRef: ../../B00.wav
 | `fps` | number | `30` | 帧率 |
 | `voiceRef` | string | 自动 | 参考音色 WAV 文件路径（10–30s 清晰人声） |
 | `slug` | string | 由 title 推导 | 强制指定输出目录名（英文，连字符） |
+| `avatarRef` | string | — | 口型同步 avatar 视频路径（192x192, 30fps, mp4, 首尾帧循环） |
 
 **注意事项：**
 - `slug` 用英文连字符命名（如 `microgpt-py-survival-guide`），它决定 `build/<slug>/...` 的目录名
 - `voiceRef` 路径相对 `meta.md` 自身。可以指向项目内的 WAV，也可以指向公共音色（如 `../../B00.wav`）
 - `aspect` 决定输出视频的实际像素尺寸，不要再单独指定宽高
+
+### 口型同步（可选）
+
+在 `meta.md` 中指定 `avatarRef` 可启用数字人口型同步功能：
+
+```yaml
+avatarRef: ./avatar.mp4
+```
+
+要求：
+- 视频分辨率 192x192，帧率 30fps，格式 mp4
+- 视频首尾帧相接（可无缝循环）
+- 人物头像居中，面部清晰
+
+效果：最终视频左下角会出现一个 192x192 的圆角矩形画中画，人物嘴型与旁白音频同步。如不需要此功能，不写该字段即可。
+
+前置条件：MuseTalk 服务需运行在本机（默认 `http://localhost:8001`），可在 Web 设置面板中配置服务地址。
 
 ---
 

@@ -57,6 +57,9 @@ function resolveConfig(repoRoot: string): AppConfig {
       autoStart: stored.voxcpm?.autoStart ?? undefined,
       concurrency: stored.voxcpm?.concurrency ?? undefined,
     },
+    musetalk: {
+      url: stored.musetalk?.url || process.env.MUSETALK_URL || 'http://localhost:8001',
+    },
   };
 }
 
@@ -90,6 +93,9 @@ function publicConfig(full: AppConfig): AppConfigPublic {
       autoStart: full.voxcpm?.autoStart,
       concurrency: full.voxcpm?.concurrency,
     },
+    musetalk: {
+      url: full.musetalk?.url,
+    },
   };
 }
 
@@ -100,7 +106,7 @@ function publicConfig(full: AppConfig): AppConfigPublic {
 function mergeConfig(stored: AppConfig, patch: Partial<AppConfig>): AppConfig {
   const merged: AppConfig = { ...stored, version: 1 };
 
-  for (const svc of ['anthropic', 'imageGen', 'voxcpm'] as const) {
+  for (const svc of ['anthropic', 'imageGen', 'voxcpm', 'musetalk'] as const) {
     const patchSvc = patch[svc];
     if (!patchSvc) continue;
     merged[svc] = { ...(stored[svc] || {}) };
@@ -142,10 +148,10 @@ export function createSystemRoutes(repoRoot: string): Hono {
 
   // POST /api/config/test — connectivity test
   router.post('/api/config/test', async (c) => {
-    const body = await c.req.json() as { service: 'anthropic' | 'imageGen' | 'voxcpm' };
+    const body = await c.req.json() as { service: string };
     const service = body.service;
 
-    if (!['anthropic', 'imageGen', 'voxcpm'].includes(service)) {
+    if (!['anthropic', 'imageGen', 'voxcpm', 'musetalk'].includes(service)) {
       return c.json({ error: { code: 'ERR_BAD_REQUEST', message: `Unknown service: ${service}` } }, 400);
     }
 
@@ -221,10 +227,25 @@ export function createSystemRoutes(repoRoot: string): Hono {
           return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) });
         }
       }
+
+      case 'musetalk': {
+        const musetalkUrl = full.musetalk?.url || 'http://localhost:8001';
+        const start = Date.now();
+        try {
+          const resp = await fetch(musetalkUrl, {
+            signal: AbortSignal.timeout(5000),
+          });
+          const latencyMs = Date.now() - start;
+          if (resp.ok) {
+            return c.json({ ok: true, latencyMs });
+          }
+          return c.json({ ok: false, latencyMs, message: `HTTP ${resp.status}` });
+        } catch (err) {
+          return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) });
+        }
+      }
     }
   });
-
-  // GET /api/doctor — health check for all services
   router.get('/api/doctor', async (c) => {
     const full = resolveConfig(repoRoot);
     const report: DoctorReport = {
@@ -233,6 +254,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
       imageGen: { status: 'missing' },
       ffmpeg: { status: 'missing' },
       remotion: { status: 'ok', version: 'unknown' },
+      musetalk: { status: 'missing' },
     };
 
     // ── ffmpeg ──────────────────────────────────────────────────────────
@@ -278,6 +300,24 @@ export function createSystemRoutes(repoRoot: string): Hono {
       }
     } catch (err) {
       report.voxcpm = {
+        status: 'fail' as const,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    // ── musetalk ──────────────────────────────────────────────────────────
+    const musetalkUrl = full.musetalk?.url || 'http://localhost:8001';
+    try {
+      const resp = await fetch(musetalkUrl, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        report.musetalk = { status: 'ok' as const };
+      } else {
+        report.musetalk = { status: 'fail' as const, message: `HTTP ${resp.status}` };
+      }
+    } catch (err) {
+      report.musetalk = {
         status: 'fail' as const,
         message: err instanceof Error ? err.message : String(err),
       };

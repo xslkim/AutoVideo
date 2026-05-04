@@ -125,6 +125,22 @@ export function createAssetRoutes(projectsRoot: string) {
     return c.body(buf as unknown as string);
   });
 
+  // GET /api/projects/:name/avatar — serve avatar video
+  app.get('/:name/avatar', projectGuard(projectsRoot), (c) => {
+    const name = c.req.param('name')!;
+    const avatarPath = path.join(projectsRoot, name, 'avatar.mp4');
+
+    if (!fs.existsSync(avatarPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'Avatar not found' } }, 404);
+    }
+
+    const stat = fs.statSync(avatarPath);
+    c.header('Content-Type', 'video/mp4');
+    c.header('Content-Length', String(stat.size));
+    const buf = fs.readFileSync(avatarPath);
+    return c.body(buf as unknown as string);
+  });
+
   // POST /api/projects/:name/upload-root — upload file to project root dir
   // Accepts optional form field `savePath` (e.g. "generated_images/image1.png")
   // to place the file in a subdirectory under the project root.
@@ -286,6 +302,79 @@ export function createAssetRoutes(projectsRoot: string) {
     } catch {
       return c.json({ error: { code: 'ERR_UPLOAD_FAILED', message: 'Failed to process voice upload' } }, 400);
     }
+  });
+
+  // POST /api/projects/:name/avatar — upload avatar video for lip-sync
+  app.post('/:name/avatar', projectGuard(projectsRoot), async (c) => {
+    const name = c.req.param('name')!;
+    const projectDir = path.join(projectsRoot, name);
+    const metaPath = path.join(projectDir, 'meta.md');
+
+    try {
+      const formData = await c.req.raw.formData();
+      const fileEntry = formData.get('file');
+
+      if (!fileEntry || !(fileEntry instanceof File)) {
+        return c.json({ error: { code: 'ERR_BAD_REQUEST', message: 'No file provided' } }, 400);
+      }
+
+      const file = fileEntry;
+
+      if (!file.name.toLowerCase().endsWith('.mp4')) {
+        return c.json({ error: { code: 'ERR_INVALID_FILE', message: 'Only .mp4 files are accepted for avatar upload' } }, 400);
+      }
+
+      if (file.size > 50 * 1024 * 1024) { // 50MB limit for video
+        return c.json({ error: { code: 'ERR_FILE_TOO_LARGE', message: 'Avatar video must be under 50MB' } }, 400);
+      }
+
+      // Save as avatar.mp4 in project root
+      const targetPath = path.join(projectDir, 'avatar.mp4');
+      const buf = Buffer.from(await file.arrayBuffer());
+      fs.writeFileSync(targetPath, buf);
+
+      // Update meta.md to include avatarRef if not already present
+      if (fs.existsSync(metaPath)) {
+        let metaContent = fs.readFileSync(metaPath, 'utf-8');
+        const avatarRefMatch = metaContent.match(/^avatarRef:\s*.+$/m);
+        if (avatarRefMatch) {
+          // Update existing avatarRef
+          metaContent = metaContent.replace(/^avatarRef:\s*.+$/m, 'avatarRef: ./avatar.mp4');
+        } else {
+          // Add avatarRef before closing ---
+          metaContent = metaContent.replace(
+            /^---\s*$/m,
+            'avatarRef: ./avatar.mp4\n---',
+          );
+        }
+        fs.writeFileSync(metaPath, metaContent, 'utf-8');
+      }
+
+      return c.json({ ok: true, filename: 'avatar.mp4', size: file.size });
+    } catch {
+      return c.json({ error: { code: 'ERR_UPLOAD_FAILED', message: 'Failed to process avatar upload' } }, 400);
+    }
+  });
+
+  // DELETE /api/projects/:name/avatar — remove avatar video
+  app.delete('/:name/avatar', projectGuard(projectsRoot), async (c) => {
+    const name = c.req.param('name')!;
+    const projectDir = path.join(projectsRoot, name);
+    const avatarPath = path.join(projectDir, 'avatar.mp4');
+    const metaPath = path.join(projectDir, 'meta.md');
+
+    if (fs.existsSync(avatarPath)) {
+      fs.unlinkSync(avatarPath);
+    }
+
+    // Remove avatarRef from meta.md
+    if (fs.existsSync(metaPath)) {
+      let metaContent = fs.readFileSync(metaPath, 'utf-8');
+      metaContent = metaContent.replace(/^avatarRef:\s*.+\n?/m, '');
+      fs.writeFileSync(metaPath, metaContent, 'utf-8');
+    }
+
+    return c.json({ ok: true });
   });
 
   return app;
