@@ -35,6 +35,7 @@ voiceRef: ../../B00.wav
 >>> 开场 #B01
 @enter: fade-up
 @exit: fade
+@visual: animation
 
 --- visual ---
 （这里写视觉描述，AI 会据此生成 React 动画组件）
@@ -124,9 +125,20 @@ voiceRef: ../../B00.wav
 
 | 指令 | 格式 | 默认值 | 说明 |
 |------|------|--------|------|
+| `@visual` | `@visual: <mode>` | `animation` | 视觉模式：见下表 |
 | `@enter` | `@enter: <preset>` | `fade` | 入场动画 |
 | `@exit` | `@exit: <preset>` | `fade` | 退场动画 |
 | `@duration` | `@duration: <number>s` | 自动（按旁白时长） | 强制指定总时长（秒），如 `@duration: 8s` |
+
+**`@visual` 模式值**：
+
+| 值 | 说明 |
+|------|------|
+| `animation`（默认） | AI 根据 `--- visual ---` 描述生成 React/Remotion 动画组件 |
+| `image` | AI 根据 `--- visual ---` 描述调用文生图 API 生成图片 |
+| `image(./path)` | 使用本地图片文件，**不需要调用 API**，`--- visual ---` 描述仅作文档用途 |
+
+> 详细说明见 §3。新建块默认带 `@enter: fade` / `@exit: fade` / `@visual: animation`。
 
 **动画预设值**（`@enter` / `@exit` 必须用以下之一）：
 
@@ -145,9 +157,17 @@ voiceRef: ../../B00.wav
 
 ## 3. `--- visual ---` 视觉描述
 
-这段文本会**原样发送给 Claude AI**，由 AI 生成完整的 React/Remotion 动画组件。**写得越具体，AI 生成的组件越精准**。
+视觉描述的行为取决于 `@visual` 指令的模式：
 
-### 3.1 写法要点
+| 模式 | `--- visual ---` 的作用 | 产物 |
+|------|------------------------|------|
+| `@visual: animation`（默认） | **原样发送给 Claude AI**，生成 React/Remotion 动画组件 | `src/blocks/{id}/Component.tsx` |
+| `@visual: image` | **原样发送给文生图 API**，作为图片生成的 prompt | `public/images/{id}.png`（API 生成） |
+| `@visual: image(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/images/{id}.png`（直接复制本地文件） |
+
+### 3.1 动画模式（默认）写法要点
+
+> 这是默认模式。这段文本会**原样发送给 Claude AI**，由 AI 生成完整的 React/Remotion 动画组件。**写得越具体，AI 生成的组件越精准**。
 
 #### 描述要具体
 
@@ -225,7 +245,41 @@ voiceRef: ../../B00.wav
 展示 microgpt.py lines 30-50 的代码，语法高亮
 ```
 
-### 3.2 AI 生成的组件可用的 props
+### 3.2 图片模式写法要点
+
+#### API 生成模式 (`@visual: image`)
+
+`--- visual ---` 描述作为文生图 API 的 **prompt** 输入。写 prompt 时注意：
+
+- **描述画面内容**：用自然语言描述想要的画面（如"一张科技风格的架构图，深色背景，蓝色连线"）
+- **指定风格**：可写"扁平化风格""写实风格""极简风格"等
+- **不需要写字号/布局**：图片模式下这些不起作用
+- **不需要引用代码文件**：图片模式下代码内联不适用
+
+```
+--- visual ---
+一张科技风格的软件架构图，深色背景，蓝色 (#58a6ff) 连线连接各个模块，
+模块用圆角矩形表示，白色文字标签，整体干净简洁
+```
+
+#### 本地文件模式 (`@visual: image(./path)`)
+
+指定项目中已有的图片文件，编译时自动复制到产物目录。`--- visual ---` 描述仅作文档用途，不参与生成。
+
+```
+@visual: image(./hero.png)
+
+--- visual ---
+（此描述仅作文档参考，实际使用 ./hero.png 图片文件）
+显示产品架构图，居中展示
+
+--- narration ---
+这是我们的系统架构图
+```
+
+> ⚠️ 本地图片模式**不需要调用任何 AI 服务**，编译后即可直接预览和渲染。路径相对于 `script.md` 所在目录。
+
+### 3.3 AI 生成的组件可用的 props
 
 写描述时可以引用这些值（如「使用 theme.colors.accent」）：
 
@@ -258,7 +312,7 @@ voiceRef: ../../B00.wav
 }
 ```
 
-### 3.3 可用的 Remotion API
+### 3.4 可用的 Remotion API
 
 AI 生成的组件可以使用 `remotion` 包的：
 
@@ -341,8 +395,17 @@ AI 生成的组件可以使用 `remotion` 包的：
 
 ### 图片
 
-放在项目目录下，用相对路径在 `--- visual ---` 中引用（如 `./hero.png`）。
-构建时会按 SHA-256 哈希复制到 `build/<slug>/public/assets/<hash>.png`，无需手动管理。
+两种使用方式：
+
+**方式一：在动画模式的 visual 描述中引用**
+
+在 `--- visual ---` 中用 `./` 相对路径引用图片（如 `./hero.png`）。AI 生成的组件可能使用该图片。构建时按哈希复制到 `build/<slug>/public/assets/<hash>.png`。
+
+**方式二：图片模式下直接使用（推荐）**
+
+用 `@visual: image(./hero.png)` 直接将图片作为块的视觉内容。编译后即可预览和渲染，**不需要调用 AI 服务**。图片会出现在画面中央（contain 适配，黑底）。
+
+> 两种方式的路径都相对于 `script.md` 所在目录。
 
 ### 参考音色
 
@@ -401,6 +464,7 @@ voiceRef: ../../B00.wav
 >>> 开场标题 #B01
 @enter: fade-up
 @exit: fade
+@visual: animation
 
 --- visual ---
 居中显示大标题 "GPT 入门"，白色粗体 96px，深色背景 #0d1117，整体内容占画布约 80% 宽度。
@@ -416,6 +480,7 @@ voiceRef: ../../B00.wav
 >>> 什么是语言模型 #B02
 @enter: fade-up
 @exit: fade
+@visual: animation
 
 --- visual ---
 分步动画演示，整体内容占画布约 85% 区域，背景 #0d1117：
@@ -434,6 +499,7 @@ voiceRef: ../../B00.wav
 >>> 训练过程 #B03
 @enter: fade
 @exit: fade
+@visual: animation
 
 --- visual ---
 顶部居中标题 "训练三步循环"，字号 64px，粗体，颜色 #e6edf3，距顶 80px。
@@ -460,17 +526,20 @@ voiceRef: ../../B00.wav
 2. **块 ID 全局唯一**：跨文件不可重号
 3. **每个块必须包含** `--- visual ---` 和 `--- narration ---` 两个 section
 4. **section 顺序固定**：`>>>` 标题 → 指令行（可选）→ `--- visual ---` → `--- narration ---`
-5. **动画预设值**必须是：`fade` `fade-up` `fade-down` `slide-left` `slide-right` `zoom-in` `zoom-out` `none`
-6. **`@duration` 格式**：必须是 `<数字>s`，如 `8s`、`1.5s`
-7. **视觉描述用自然语言**：写得越具体（布局、颜色、时序、文字内容），AI 生成的组件越精准
-8. ⚠️ **视觉字号下限（1080p）**：主标题 ≥ 76px、副标题 ≥ 50px、正文 ≥ 28px、代码 ≥ 24px（详见 §3.1）
-9. ⚠️ **视觉布局占比**：内容区域占画布 ≥ 70%；外边距 ≤ 画布短边 6%（详见 §3.1）
-10. **旁白每行一句**：TTS 逐行生成，空行忽略
-11. ⚠️ **字幕单行长度上限**：中文 ≤ 30 字 / 英文 ≤ 60 字符；超长按标点拆行（详见 §4.4）
-12. **高亮语法**：`**文字**` 在字幕高亮，TTS 只读文字本身；字面 `**` 用 `\*\*`
-13. **资产路径**：图片用 `./` 开头的相对路径
-14. **文件编码**：UTF-8
-15. **`meta.md` 必填字段**：`title`；其余有默认值
+5. **`@visual` 模式**：`animation`（默认，AI 生成组件）/ `image`（AI 生成图片）/ `image(./path)`（本地图片）
+6. **动画预设值**必须是：`fade` `fade-up` `fade-down` `slide-left` `slide-right` `zoom-in` `zoom-out` `none`
+7. **`@duration` 格式**：必须是 `<数字>s`，如 `8s`、`1.5s`
+8. **新建块默认指令**：`@enter: fade` / `@exit: fade` / `@visual: animation`
+9. **动画模式视觉描述用自然语言**：写得越具体（布局、颜色、时序、文字内容），AI 生成的组件越精准
+10. ⚠️ **视觉字号下限（1080p）**：主标题 ≥ 76px、副标题 ≥ 50px、正文 ≥ 28px、代码 ≥ 24px（详见 §3.1）
+11. ⚠️ **视觉布局占比**：内容区域占画布 ≥ 70%；外边距 ≤ 画布短边 6%（详见 §3.1）
+12. **图片模式 prompt**：API 生成时 visual 描述作为 prompt；本地文件时 visual 描述仅作文档（详见 §3.2）
+13. **旁白每行一句**：TTS 逐行生成，空行忽略
+14. ⚠️ **字幕单行长度上限**：中文 ≤ 30 字 / 英文 ≤ 60 字符；超长按标点拆行（详见 §4.4）
+15. **高亮语法**：`**文字**` 在字幕高亮，TTS 只读文字本身；字面 `**` 用 `\*\*`
+16. **资产路径**：图片用 `./` 开头的相对路径
+17. **文件编码**：UTF-8
+18. **`meta.md` 必填字段**：`title`；其余有默认值
 
 ---
 

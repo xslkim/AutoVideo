@@ -39,6 +39,9 @@ export interface BlockStatus {
   title: string;            // 块头标题（不含 #Bxx）
   line: number;             // 块头在 script.md 中的行号（1-based）
   visualMode: VisualMode;   // 默认 'animation'
+  imageSource?: string;     // if set, image mode uses local file (no API needed)
+  enter: string;            // 入场动画，默认 'fade'
+  exit: string;             // 出场动画，默认 'fade'
   audio: boolean;           // 来自 block.audio?.wavPath + 文件存在
   visual: boolean;          // animation: block.visual.componentPath；image: block.visual.imagePath
   rendered: boolean;        // 来自 block.render?.partialPath + 文件存在

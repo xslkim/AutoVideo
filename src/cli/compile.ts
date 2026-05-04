@@ -14,7 +14,7 @@ import {
   existsSync,
   copyFileSync,
 } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import AjvModule from "ajv";
 const Ajv = AjvModule.default ?? AjvModule;
 
@@ -200,6 +200,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
     id: b.id,
     visualDescription: b.visualDescription,
     sourceFilePath: b.sourceFilePath,
+    ...(b.imageSource !== undefined ? { imageSource: b.imageSource } : {}),
   }));
 
   if (verbose)
@@ -231,6 +232,9 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       enter: raw.enter,
       exit: raw.exit,
       visualMode: raw.visualMode,
+      ...(processedBlock?.imageSource !== undefined
+        ? { imageSource: processedBlock.imageSource }
+        : {}),
       visual: {
         description: processedBlock
           ? processedBlock.visualDescription
@@ -244,6 +248,53 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       },
     };
   });
+
+  // ── Step 7.5: Set up local image blocks ────────────────────────────────
+  // For image-mode blocks with imageSource, the image file already exists
+  // locally. Copy it to public/images/{id}.png and write the wrapper
+  // Component.tsx so the block is fully ready for preview and render
+  // without needing the visuals stage.
+  const WRAPPER_TSX = (id: string) => `import React from "react";
+import { AbsoluteFill, Img, staticFile } from "remotion";
+
+interface AnimationProps {
+  frame: number; durationInFrames: number; width: number; height: number;
+  subtitleSafeBottom: number; theme: any; fps: number;
+}
+
+const Component: React.FC<AnimationProps> = () => (
+  <AbsoluteFill style={{ backgroundColor: "#000" }}>
+    <Img
+      src={staticFile("images/${id}.png")}
+      style={{ width: "100%", height: "100%", objectFit: "contain" }}
+    />
+  </AbsoluteFill>
+);
+
+export default Component;
+`;
+
+  for (const block of scriptBlocks) {
+    if (block.visualMode === 'image' && block.imageSource) {
+      const imagesDir = join(outDir, 'public', 'images');
+      mkdirSync(imagesDir, { recursive: true });
+      const srcPath = join(outDir, 'public', block.imageSource);
+      const destPath = join(imagesDir, `${block.id}.png`);
+      if (existsSync(srcPath)) {
+        copyFileSync(srcPath, destPath);
+        block.visual.imagePath = `public/images/${block.id}.png`;
+      } else if (verbose) {
+        console.warn(`[compile] Local image not found for ${block.id}: ${srcPath}`);
+      }
+
+      // Write wrapper Component.tsx so rendering works without visuals stage
+      const blockDir = join(outDir, 'src', 'blocks', block.id);
+      mkdirSync(blockDir, { recursive: true });
+      const componentFile = join(blockDir, 'Component.tsx');
+      writeFileSync(componentFile, WRAPPER_TSX(block.id), 'utf-8');
+      block.visual.componentPath = `src/blocks/${block.id}/Component.tsx`;
+    }
+  }
 
   const script: Script = {
     meta: {

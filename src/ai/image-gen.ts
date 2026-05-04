@@ -119,7 +119,56 @@ export default Component;
 `;
 }
 
-// ── Main function ──────────────────────────────────────────────────────────
+// ── Local image function ────────────────────────────────────────────────────
+
+/**
+ * Use a local image file (already processed by compile stage to
+ * public/assets/{hash}.ext) as the block's visual output.
+ *
+ * Copies the image to public/images/{id}.png and writes the wrapper
+ * Component.tsx — no API calls involved.
+ */
+export async function generateLocalImage(
+  block: Block,
+  options: { buildOutDir: string },
+): Promise<ImageGenResult> {
+  const { buildOutDir } = options;
+
+  const imagesDir = path.join(buildOutDir, "public", "images");
+  const blockDir = path.join(buildOutDir, "src", "blocks", block.id);
+  const imageFile = path.join(imagesDir, `${block.id}.png`);
+  const componentFile = path.join(blockDir, "Component.tsx");
+
+  const relativeImagePath = `public/images/${block.id}.png`;
+  const relativeComponentPath = `src/blocks/${block.id}/Component.tsx`;
+
+  // Locate the source image in public/assets/
+  const srcImagePath = path.join(buildOutDir, "public", block.imageSource!);
+
+  if (!fs.existsSync(srcImagePath)) {
+    throw new ImageGenError(
+      `Local image not found: ${srcImagePath}`,
+      "ERR_LOCAL_IMAGE_MISSING",
+    );
+  }
+
+  // Copy to public/images/
+  fs.mkdirSync(imagesDir, { recursive: true });
+  fs.copyFileSync(srcImagePath, imageFile);
+
+  // Write wrapper Component.tsx
+  const wrapperCode = buildWrapperComponent(block.id);
+  fs.mkdirSync(blockDir, { recursive: true });
+  fs.writeFileSync(componentFile, wrapperCode, "utf-8");
+
+  // Update block in place
+  block.visual.imagePath = relativeImagePath;
+  block.visual.componentPath = relativeComponentPath;
+
+  return { imagePath: relativeImagePath, componentPath: relativeComponentPath, cacheHit: false };
+}
+
+// ── API image generation ─────────────────────────────────────────────────────
 
 /**
  * Generate a PNG image from a block's visual description using an

@@ -14,6 +14,9 @@ export interface ParsedBlock {
   title: string
   line: number          // 1-based
   visualMode: 'animation' | 'image'
+  imageSource?: string
+  enter: string
+  exit: string
 }
 
 export interface ParseWarning {
@@ -45,6 +48,9 @@ export function parseScript(scriptMd: string): ParseResult {
     title: string
     line: number
     visualMode: 'animation' | 'image'
+    imageSource?: string
+    enter: string
+    exit: string
   }
 
   const rawBlocks: RawBlock[] = []
@@ -70,22 +76,33 @@ export function parseScript(scriptMd: string): ParseResult {
         seenIds.set(id, lineNum)
       }
 
-      current = { id, title, line: lineNum, visualMode: 'animation' }
+      current = { id, title, line: lineNum, visualMode: 'animation', enter: 'fade', exit: 'fade' }
       continue
     }
 
     if (current) {
       const dm = DIRECTIVE.exec(line)
-      if (dm && dm.groups!.key === 'visual') {
+      if (dm) {
+        const key = dm.groups!.key
         const value = dm.groups!.value.trim()
-        if (value === 'animation' || value === 'image') {
-          current.visualMode = value
-        } else {
-          warnings.push({
-            line: lineNum,
-            message: `@visual 值非法: "${value}"，将降级为 animation`,
-          })
-          current.visualMode = 'animation'
+        if (key === 'visual') {
+          const imgMatch = value.match(/^image\((.+?)\)$/)
+          if (imgMatch) {
+            current.visualMode = 'image'
+            current.imageSource = imgMatch[1].trim()
+          } else if (value === 'animation' || value === 'image') {
+            current.visualMode = value
+          } else {
+            warnings.push({
+              line: lineNum,
+              message: `@visual 值非法: "${value}"，将降级为 animation`,
+            })
+            current.visualMode = 'animation'
+          }
+        } else if (key === 'enter') {
+          current.enter = value
+        } else if (key === 'exit') {
+          current.exit = value
         }
       }
     }
@@ -99,6 +116,9 @@ export function parseScript(scriptMd: string): ParseResult {
       title: rb.title,
       line: rb.line,
       visualMode: rb.visualMode,
+      ...(rb.imageSource !== undefined ? { imageSource: rb.imageSource } : {}),
+      enter: rb.enter,
+      exit: rb.exit,
     })),
     warnings,
   }

@@ -9,7 +9,7 @@
 
     <!-- Visual mode switcher -->
     <div class="visual-mode-bar">
-      <span class="mode-label">视觉模式</span>
+      <span class="mode-label">视觉</span>
       <n-radio-group
         :value="currentMode"
         size="small"
@@ -20,6 +20,28 @@
         <n-radio-button value="image">图片</n-radio-button>
       </n-radio-group>
       <n-spin v-if="modeSwitching" size="small" />
+    </div>
+
+    <!-- Animation presets: enter / exit -->
+    <div class="anim-bar">
+      <span class="mode-label">入场</span>
+      <n-select
+        :value="currentEnter"
+        size="small"
+        :options="animOptions"
+        :disabled="disabled"
+        style="width: 100px"
+        @update:value="onEnterChange"
+      />
+      <span class="mode-label">出场</span>
+      <n-select
+        :value="currentExit"
+        size="small"
+        :options="animOptions"
+        :disabled="disabled"
+        style="width: 100px"
+        @update:value="onExitChange"
+      />
     </div>
 
     <n-divider style="margin: 0" />
@@ -47,6 +69,7 @@
           :project-name="projectName"
           :block-id="blockId"
           :visual-mode="currentMode"
+          :image-source="imageSource"
         />
       </n-tab-pane>
     </n-tabs>
@@ -54,14 +77,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { NButton, NDivider, NRadioGroup, NRadioButton, NSpin, NTabs, NTabPane, createDiscreteApi } from 'naive-ui'
+import { ref, watch, computed } from 'vue'
+import { NButton, NDivider, NRadioGroup, NRadioButton, NSelect, NSpin, NTabs, NTabPane, createDiscreteApi } from 'naive-ui'
 import { apiPut, getEtag } from '../../utils/api'
 import BlockScriptEditor from './BlockScriptEditor.vue'
 import BlockOutputs from './BlockOutputs.vue'
 import type { VisualMode } from '../../../../server/types/api'
 
 const { message } = createDiscreteApi(['message'])
+
+const ANIM_OPTIONS = [
+  { label: '渐入', value: 'fade' },
+  { label: '渐入↑', value: 'fade-up' },
+  { label: '渐入↓', value: 'fade-down' },
+  { label: '左滑', value: 'slide-left' },
+  { label: '右滑', value: 'slide-right' },
+  { label: '放大', value: 'zoom-in' },
+  { label: '缩小', value: 'zoom-out' },
+  { label: '无', value: 'none' },
+]
 
 // ---------------------------------------------------------------------------
 // Props / Emits
@@ -72,6 +106,9 @@ const props = defineProps<{
   blockId: string
   blockTitle: string
   visualMode: VisualMode
+  imageSource?: string
+  enter: string
+  exit: string
   disabled?: boolean
 }>()
 
@@ -87,18 +124,27 @@ const emit = defineEmits<{
 
 const activeTab     = ref('script')
 const currentMode   = ref<VisualMode>(props.visualMode)
+const currentEnter  = ref(props.enter)
+const currentExit   = ref(props.exit)
 const modeSwitching = ref(false)
 const editorKey     = ref(0)
+const animOptions   = ANIM_OPTIONS
 
 // ---------------------------------------------------------------------------
-// Sync visualMode from props (when switching to a different block)
+// Sync from props (when switching to a different block)
 // ---------------------------------------------------------------------------
 
 watch(
   () => props.visualMode,
-  (mode) => {
-    currentMode.value = mode
-  },
+  (mode) => { currentMode.value = mode },
+)
+watch(
+  () => props.enter,
+  (v) => { currentEnter.value = v },
+)
+watch(
+  () => props.exit,
+  (v) => { currentExit.value = v },
 )
 
 // ---------------------------------------------------------------------------
@@ -129,6 +175,32 @@ async function onModeChange(mode: VisualMode) {
   }
 
   modeSwitching.value = false
+}
+
+async function onEnterChange(v: string) {
+  if (v === currentEnter.value) return
+  const result = await apiPut<{ ok: boolean }>(
+    `/api/projects/${props.projectName}/blocks/${props.blockId}/visual-mode`,
+    { enter: v },
+    getEtag(`/api/projects/${props.projectName}/script`),
+  )
+  if (result.ok) {
+    currentEnter.value = v
+    emit('block-saved')
+  }
+}
+
+async function onExitChange(v: string) {
+  if (v === currentExit.value) return
+  const result = await apiPut<{ ok: boolean }>(
+    `/api/projects/${props.projectName}/blocks/${props.blockId}/visual-mode`,
+    { exit: v },
+    getEtag(`/api/projects/${props.projectName}/script`),
+  )
+  if (result.ok) {
+    currentExit.value = v
+    emit('block-saved')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -194,6 +266,15 @@ function onBlockSaved() {
 .mode-label {
   font-size: 11px;
   color: #999;
+  flex-shrink: 0;
+}
+
+/* Animation bar */
+.anim-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
   flex-shrink: 0;
 }
 

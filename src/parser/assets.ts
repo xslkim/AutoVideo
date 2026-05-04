@@ -29,12 +29,14 @@ export interface BlockForAssets {
   visualDescription: string;
   /** Absolute path to the .md file this block came from */
   sourceFilePath: string;
+  /** Image source path for image mode (e.g. "./assets/hero.png"), relative to source .md */
+  imageSource?: string;
 }
 
 /** Result of processing assets for all blocks */
 export interface AssetProcessResult {
-  /** Updated blocks with visual descriptions rewritten */
-  blocks: Array<{ id: string; visualDescription: string; sourceFilePath: string }>;
+  /** Updated blocks with visual descriptions and imageSource rewritten */
+  blocks: Array<{ id: string; visualDescription: string; sourceFilePath: string; imageSource?: string }>;
   /** Assets manifest: relative POSIX path (to project.json dir) → "assets/{hash}.ext" */
   assets: Record<string, string>;
 }
@@ -234,15 +236,22 @@ export function processAssets(
 
   const updatedBlocks = blocks.map((block) => {
     let description = block.visualDescription;
+    let imageSource = block.imageSource;
     const sourceDir = dirname(block.sourceFilePath);
 
-    // Find all local path references
-    // Group 1 = prefix (^ or whitespace char), Group 2 = path
+    // Collect paths from both visualDescription and imageSource
+    const allRawPaths: string[] = [];
     const pathRegex = new RegExp(LOCAL_PATH_REGEX.source, "gm");
-    const allMatches = [...description.matchAll(pathRegex)];
+    const descMatches = [...description.matchAll(pathRegex)];
+    for (const m of descMatches) {
+      allRawPaths.push(m[2]); // group 2 = the path
+    }
+    if (imageSource && /^\.\.?\//.test(imageSource)) {
+      allRawPaths.push(imageSource);
+    }
 
-    if (allMatches.length === 0) {
-      return { id: block.id, visualDescription: description, sourceFilePath: block.sourceFilePath };
+    if (allRawPaths.length === 0) {
+      return { id: block.id, visualDescription: description, sourceFilePath: block.sourceFilePath, imageSource };
     }
 
     // Build unique file references for this block (dedup by absPath)
@@ -251,8 +260,7 @@ export function processAssets(
     // Track all (rawPath → hashName) for replacement, even duplicates
     const rawPathToHashName = new Map<string, string>();
 
-    for (const match of allMatches) {
-      const rawPath = match[2]; // group 2 = the path
+    for (const rawPath of allRawPaths) {
       const absPath = resolve(sourceDir, rawPath);
 
       // Verify file exists
@@ -331,10 +339,17 @@ export function processAssets(
       }
     }
 
+    // Rewrite imageSource if it was a local path
+    let processedImageSource = imageSource;
+    if (imageSource && rawPathToHashName.has(imageSource)) {
+      processedImageSource = rawPathToHashName.get(imageSource);
+    }
+
     return {
       id: block.id,
       visualDescription: description,
       sourceFilePath: block.sourceFilePath,
+      ...(processedImageSource !== undefined ? { imageSource: processedImageSource } : {}),
     };
   });
 

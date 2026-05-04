@@ -81,6 +81,9 @@ export function parseScript(scriptMd: string, buildDir: string): ParseResult {
     title: string;
     line: number; // 1-based
     visualMode: VisualMode;
+    imageSource?: string;
+    enter: string;
+    exit: string;
   }
 
   const rawBlocks: RawBlock[] = [];
@@ -106,22 +109,33 @@ export function parseScript(scriptMd: string, buildDir: string): ParseResult {
         seenIds.set(id, lineNum);
       }
 
-      currentBlock = { id, title, line: lineNum, visualMode: 'animation' };
+      currentBlock = { id, title, line: lineNum, visualMode: 'animation', enter: 'fade', exit: 'fade' };
       continue;
     }
 
     if (currentBlock) {
       const directiveMatch = DIRECTIVE.exec(line);
-      if (directiveMatch && directiveMatch.groups!.key === 'visual') {
+      if (directiveMatch) {
+        const key = directiveMatch.groups!.key;
         const value = directiveMatch.groups!.value.trim();
-        if (value === 'animation' || value === 'image') {
-          currentBlock.visualMode = value as VisualMode;
-        } else {
-          warnings.push({
-            line: lineNum,
-            message: `@visual 值非法: "${value}"，将降级为 animation`,
-          });
-          currentBlock.visualMode = 'animation';
+        if (key === 'visual') {
+          const imgMatch = value.match(/^image\((.+?)\)$/);
+          if (imgMatch) {
+            currentBlock.visualMode = 'image';
+            currentBlock.imageSource = imgMatch[1].trim();
+          } else if (value === 'animation' || value === 'image') {
+            currentBlock.visualMode = value as VisualMode;
+          } else {
+            warnings.push({
+              line: lineNum,
+              message: `@visual 值非法: "${value}"，将降级为 animation`,
+            });
+            currentBlock.visualMode = 'animation';
+          }
+        } else if (key === 'enter') {
+          currentBlock.enter = value;
+        } else if (key === 'exit') {
+          currentBlock.exit = value;
         }
       }
     }
@@ -178,6 +192,9 @@ export function parseScript(scriptMd: string, buildDir: string): ParseResult {
       title: rb.title,
       line: rb.line,
       visualMode,
+      ...(rb.imageSource !== undefined ? { imageSource: rb.imageSource } : {}),
+      enter: rb.enter,
+      exit: rb.exit,
       audio,
       visual,
       rendered,

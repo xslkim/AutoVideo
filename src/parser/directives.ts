@@ -18,6 +18,8 @@ export interface ParsedDirectives {
   exit: AnimationPreset;
   explicitDurationSec?: number;
   visualMode: VisualMode;
+  /** Image source path for image mode (e.g. "./assets/hero.png"). Set → use local file; absent → call API. */
+  imageSource?: string;
 }
 
 export class DirectiveError extends Error {
@@ -66,6 +68,7 @@ export function parseDirectives(lines: string[]): ParsedDirectives {
   let exit: AnimationPreset = DEFAULT_EXIT;
   let explicitDurationSec: number | undefined;
   let visualMode: VisualMode = DEFAULT_VISUAL_MODE;
+  let imageSource: string | undefined;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -114,7 +117,12 @@ export function parseDirectives(lines: string[]): ParsedDirectives {
         break;
       }
       case "visual": {
-        if (VALID_VISUAL_MODES.includes(value)) {
+        // Match "image(./path)" syntax for local image mode
+        const imgMatch = value.match(/^image\((.+?)\)$/);
+        if (imgMatch) {
+          visualMode = "image";
+          imageSource = imgMatch[1].trim();
+        } else if (VALID_VISUAL_MODES.includes(value)) {
           visualMode = value as VisualMode;
         } else {
           console.warn(
@@ -132,5 +140,6 @@ export function parseDirectives(lines: string[]): ParsedDirectives {
     exit,
     visualMode,
     ...(explicitDurationSec !== undefined ? { explicitDurationSec } : {}),
+    ...(imageSource !== undefined ? { imageSource } : {}),
   };
 }

@@ -43,38 +43,6 @@
           </div>
           <div ref="cmEl" class="cm-readonly" />
 
-          <!-- Frame preview -->
-          <div class="frame-preview">
-            <div class="frame-controls">
-              <span class="frame-label">帧预览</span>
-              <input
-                type="range"
-                class="frame-slider"
-                :min="0"
-                :max="maxFrame"
-                :value="currentFrame"
-                @input="onFrameInput"
-                @mouseup="onFrameMouseUp"
-                @touchend="onFrameMouseUp"
-              />
-              <span class="frame-number">帧 {{ currentFrame }}</span>
-            </div>
-            <div class="frame-display" :class="{ loading: frameLoading }">
-              <div v-if="frameSrc" class="frame-img-wrap">
-                <img
-                  :src="frameSrc"
-                  class="frame-img"
-                  :class="{ dimmed: frameLoading }"
-                />
-                <n-spin v-if="frameLoading" size="medium" class="frame-spinner" />
-              </div>
-              <span v-else-if="!frameLoading" class="frame-empty">
-                拖动滑块预览帧
-              </span>
-              <n-spin v-if="frameLoading && !frameSrc" size="medium" />
-            </div>
-            <div v-if="frameError" class="frame-error">{{ frameError }}</div>
-          </div>
         </div>
         <div v-else class="output-empty">
           <span class="empty-text">未生成</span>
@@ -105,8 +73,8 @@
           </div>
         </div>
         <div v-else class="output-empty">
-          <span class="empty-text">未生成</span>
-          <n-button size="tiny" quaternary @click="onBlockAction('visual', 'visuals')">
+          <span class="empty-text">{{ imageSource ? '请先编译' : '未生成' }}</span>
+          <n-button v-if="!imageSource" size="tiny" quaternary @click="onBlockAction('visual', 'visuals')">
             生成图片
           </n-button>
         </div>
@@ -157,7 +125,7 @@
           </n-button>
         </n-dropdown>
 
-        <n-dropdown trigger="click" :options="visualMenuOpts" @select="(k: string) => onBlockAction(k, 'visuals')">
+        <n-dropdown v-if="!imageSource" trigger="click" :options="visualMenuOpts" @select="(k: string) => onBlockAction(k, 'visuals')">
           <n-button size="small" block :disabled="taskStore.hasActiveStage('visuals')" :loading="actionLoading === 'visuals'">
             {{ visualMode === 'image' ? '生成图片' : '生成视觉' }}
           </n-button>
@@ -199,6 +167,7 @@ const props = defineProps<{
   projectName: string
   blockId: string
   visualMode: 'animation' | 'image'
+  imageSource?: string
 }>()
 
 // No emits needed — component handles all task creation internally
@@ -210,8 +179,6 @@ const audioUrl   = computed(() => `${base.value}/audio`)
 const componentUrl = computed(() => `${base.value}/component`)
 const imageUrl   = computed(() => `${base.value}/image`)
 const videoUrl   = computed(() => `${base.value}/video`)
-const previewUrl = computed(() => `${base.value}/preview`)
-
 // ── ① Audio ──────────────────────────────────────────────────────────────
 
 const audioEl = ref<HTMLAudioElement | null>(null)
@@ -221,10 +188,6 @@ const audioDurationSec = ref(0)
 function onAudioMeta() {
   if (audioEl.value) {
     audioDurationSec.value = audioEl.value.duration
-    // Update maxFrame if we have audio duration and fps
-    if (audioDurationSec.value > 0) {
-      updateMaxFrame()
-    }
   }
 }
 
@@ -243,23 +206,6 @@ function formatDuration(sec: number): string {
 const cmEl = ref<HTMLDivElement | null>(null)
 const componentContent = ref<string | null | undefined>(undefined) // undefined=not checked, null=fetched but missing, string=available
 let cmView: EditorView | null = null
-
-const currentFrame = ref(0)
-const maxFrame = ref(299) // default ~10s @ 30fps
-const frameSrc = ref('')
-const frameLoading = ref(false)
-const frameError = ref('')
-let frameAbort: AbortController | null = null
-let frameTimer: ReturnType<typeof setTimeout> | null = null
-
-function updateMaxFrame() {
-  // Use audio duration as hint; cap at a reasonable range
-  if (audioDurationSec.value > 0) {
-    const fps = 30
-    const frames = Math.round(audioDurationSec.value * fps) - 1
-    maxFrame.value = Math.max(29, Math.min(frames, 1200))
-  }
-}
 
 async function fetchComponent() {
   try {
@@ -306,68 +252,6 @@ function copyComponent() {
   if (componentContent.value) {
     navigator.clipboard.writeText(componentContent.value)
     message.success('已复制到剪贴板', { duration: 1500 })
-  }
-}
-
-// Frame preview
-function onFrameInput(e: Event) {
-  const target = e.target as HTMLInputElement
-  currentFrame.value = parseInt(target.value, 10)
-  frameError.value = ''
-}
-
-function onFrameMouseUp() {
-  // Debounce 300ms
-  if (frameTimer) clearTimeout(frameTimer)
-  frameTimer = setTimeout(() => {
-    fetchFrame(currentFrame.value)
-  }, 300)
-}
-
-async function fetchFrame(frame: number) {
-  // Abort previous in-flight request
-  if (frameAbort) {
-    frameAbort.abort()
-    frameAbort = null
-  }
-
-  frameLoading.value = true
-  frameError.value = ''
-
-  const ctrl = new AbortController()
-  frameAbort = ctrl
-
-  try {
-    const resp = await fetch(`${previewUrl.value}?frame=${frame}`, { signal: ctrl.signal })
-
-    if (resp.status === 422) {
-      // Frame out of range
-      try {
-        const err = await resp.json() as { error?: { message?: string } }
-        frameError.value = err.error?.message ?? '帧超出范围'
-      } catch {
-        frameError.value = '帧超出范围'
-      }
-      return
-    }
-
-    if (!resp.ok) {
-      frameError.value = `请求失败 (${resp.status})`
-      return
-    }
-
-    const blob = await resp.blob()
-    // Revoke old URL to avoid memory leaks
-    if (frameSrc.value) URL.revokeObjectURL(frameSrc.value)
-    frameSrc.value = URL.createObjectURL(blob)
-  } catch (err: any) {
-    if (err.name === 'AbortError') return // expected on re-trigger
-    frameError.value = err.message ?? '加载帧失败'
-  } finally {
-    if (frameAbort === ctrl) {
-      frameAbort = null
-    }
-    frameLoading.value = false
   }
 }
 
@@ -567,9 +451,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (cmView) { cmView.destroy(); cmView = null }
-  if (frameAbort) { frameAbort.abort(); frameAbort = null }
-  if (frameTimer) clearTimeout(frameTimer)
-  if (frameSrc.value) URL.revokeObjectURL(frameSrc.value)
   darkMQ?.removeEventListener('change', handleColorSchemeChange)
 })
 
@@ -578,8 +459,6 @@ watch(
   () => `${props.projectName}/${props.blockId}`,
   () => {
     if (cmView) { cmView.destroy(); cmView = null }
-    if (frameAbort) { frameAbort.abort(); frameAbort = null }
-    if (frameSrc.value) { URL.revokeObjectURL(frameSrc.value); frameSrc.value = '' }
     audioExists.value = true
     audioDurationSec.value = 0
     componentContent.value = undefined
@@ -588,8 +467,6 @@ watch(
     imageHeight.value = 0
     showImageModal.value = false
     videoExists.value = true
-    frameError.value = ''
-    currentFrame.value = 0
     lastCompletedId = ''
 
     if (props.visualMode === 'animation') {
@@ -683,86 +560,6 @@ watch(
   border: 1px solid var(--n-border-color, #e0e0e6);
   border-radius: 4px;
   overflow: hidden;
-}
-
-/* ── Frame preview ───────────────────────────────────────────────────── */
-
-.frame-preview {
-  margin-top: 8px;
-}
-
-.frame-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.frame-label {
-  font-size: 11px;
-  color: #666;
-  white-space: nowrap;
-}
-
-.frame-slider {
-  flex: 1;
-  height: 4px;
-  cursor: pointer;
-}
-
-.frame-number {
-  font-size: 10px;
-  color: #999;
-  font-variant-numeric: tabular-nums;
-  min-width: 36px;
-  text-align: right;
-}
-
-.frame-display {
-  position: relative;
-  min-height: 80px;
-  background: var(--n-color-embedded, #f5f5f5);
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.frame-img-wrap {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.frame-img {
-  width: 100%;
-  max-height: 180px;
-  object-fit: contain;
-  display: block;
-  border-radius: 4px;
-}
-
-.frame-img.dimmed {
-  opacity: 0.4;
-}
-
-.frame-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.frame-empty {
-  font-size: 11px;
-  color: #aaa;
-}
-
-.frame-error {
-  font-size: 10px;
-  color: #d03050;
-  margin-top: 4px;
-  padding: 0 2px;
 }
 
 /* ── Image mode ──────────────────────────────────────────────────────── */

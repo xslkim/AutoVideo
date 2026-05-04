@@ -16,63 +16,75 @@
       项目的 project.json 包含非标准字段（如自定义 meta 路径或多脚本文件），在此模式下不支持写入操作。请将 project.json 恢复为标准格式后方可编辑。
     </n-alert>
 
-    <!-- Body: left sidebar + center + right panel -->
+    <!-- Body: left sidebar + center + right panel (resizable) -->
     <div class="project-body">
-      <!-- Left sidebar: block list -->
-      <div class="sidebar-left">
-        <BlockSidebar
-          :project-name="projectName"
-          :parsed-blocks="parsedBlocks"
-          :disabled="nonStandard"
-          @block-selected="onBlockSelected"
-          @script-changed="onScriptChanged"
-        />
-      </div>
-
-      <!-- Center: main editor area -->
-      <div class="main-area">
-        <n-tabs
-          v-model:value="activeTab"
-          type="line"
-          size="small"
-          :style="{ height: '100%', display: 'flex', flexDirection: 'column' }"
-          :pane-wrapper-style="{ flex: 1, overflow: 'hidden', minHeight: 0 }"
-          :pane-style="{ height: '100%', overflow: 'hidden', padding: 0 }"
-        >
-          <n-tab-pane name="meta" tab="meta.md" display-directive="show">
-            <MetaEditor :project-name="projectName" :disabled="nonStandard" />
-          </n-tab-pane>
-          <n-tab-pane name="script" tab="script.md" display-directive="show">
-            <ScriptEditor :key="'script-' + scriptEditorKey" :project-name="projectName" :disabled="nonStandard" @blocks-updated="onBlocksUpdated" />
-          </n-tab-pane>
-          <n-tab-pane name="assets" tab="资源" display-directive="show">
-            <AssetManager :project-name="projectName" />
-          </n-tab-pane>
-        </n-tabs>
-      </div>
-
-      <!-- Right panel: block details (collapsible) -->
-      <div class="panel-right" :class="{ 'panel-right--collapsed': rightCollapsed }">
-        <div class="panel-header" @click="rightCollapsed = !rightCollapsed">
-          <span>块详情</span>
-          <span class="collapse-icon">{{ rightCollapsed ? '◀' : '▶' }}</span>
-        </div>
-        <div v-show="!rightCollapsed" class="panel-content">
-          <BlockPanel
-            v-if="selectedBlockId"
-            :key="'bp-' + selectedBlockId"
-            :project-name="projectName"
-            :block-id="selectedBlockId"
-            :block-title="selectedBlockTitle"
-            :visual-mode="selectedBlockVisualMode"
-            :disabled="nonStandard"
-            @close="onBlockSelected('')"
-            @block-saved="onScriptChanged"
-            @visual-mode-changed="onVisualModeChanged"
-          />
-          <n-empty v-else description="点击块查看详情" size="small" />
-        </div>
-      </div>
+      <n-split direction="horizontal" default-size="220px" :min="120" :max="400">
+        <template #1>
+          <div class="sidebar-left">
+            <BlockSidebar
+              :project-name="projectName"
+              :parsed-blocks="parsedBlocks"
+              :disabled="nonStandard"
+              @block-selected="onBlockSelected"
+              @script-changed="onScriptChanged"
+            />
+          </div>
+        </template>
+        <template #2>
+          <div class="right-side">
+            <n-split direction="horizontal" :default-size="0.72" :min="0.35" :max="0.9">
+              <template #1>
+                <div class="main-area">
+                  <n-tabs
+                    v-model:value="activeTab"
+                    type="line"
+                    size="small"
+                    :style="{ height: '100%', display: 'flex', flexDirection: 'column' }"
+                    :pane-wrapper-style="{ flex: 1, overflow: 'hidden', minHeight: 0 }"
+                    :pane-style="{ height: '100%', overflow: 'hidden', padding: 0 }"
+                  >
+                    <n-tab-pane name="meta" tab="meta.md" display-directive="show">
+                      <MetaEditor :project-name="projectName" :disabled="nonStandard" />
+                    </n-tab-pane>
+                    <n-tab-pane name="script" tab="script.md" display-directive="show">
+                      <ScriptEditor :key="'script-' + scriptEditorKey" :project-name="projectName" :disabled="nonStandard" @blocks-updated="onBlocksUpdated" />
+                    </n-tab-pane>
+                    <n-tab-pane name="assets" tab="资源" display-directive="show">
+                      <AssetManager :project-name="projectName" />
+                    </n-tab-pane>
+                  </n-tabs>
+                </div>
+              </template>
+              <template #2>
+                <div class="panel-right" :class="{ 'panel-right--collapsed': rightCollapsed }">
+                  <div class="panel-header" @click="rightCollapsed = !rightCollapsed">
+                    <span>块详情</span>
+                    <span class="collapse-icon">{{ rightCollapsed ? '◀' : '▶' }}</span>
+                  </div>
+                  <div v-show="!rightCollapsed" class="panel-content">
+                    <BlockPanel
+                      v-if="selectedBlockId"
+                      :key="'bp-' + selectedBlockId"
+                      :project-name="projectName"
+                      :block-id="selectedBlockId"
+                      :block-title="selectedBlockTitle"
+                      :visual-mode="selectedBlockVisualMode"
+                      :enter="selectedBlockEnter"
+                      :exit="selectedBlockExit"
+                      :image-source="selectedBlockImageSource"
+                      :disabled="nonStandard"
+                      @close="onBlockSelected('')"
+                      @block-saved="onScriptChanged"
+                      @visual-mode-changed="onVisualModeChanged"
+                    />
+                    <n-empty v-else description="点击块查看详情" size="small" />
+                  </div>
+                </div>
+              </template>
+            </n-split>
+          </div>
+        </template>
+      </n-split>
     </div>
 
     <!-- Bottom task bar -->
@@ -92,6 +104,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { NSplit } from 'naive-ui'
 import TopBar from '../components/layout/TopBar.vue'
 import BlockSidebar from '../components/layout/BlockSidebar.vue'
 import BlockPanel from '../components/block/BlockPanel.vue'
@@ -120,6 +133,9 @@ const parsedBlocks = ref<ParseResult | null>(null)
 const selectedBlockId = ref<string | null>(null)
 const selectedBlockTitle = ref('')
 const selectedBlockVisualMode = ref<VisualMode>('animation')
+const selectedBlockImageSource = ref<string | undefined>(undefined)
+const selectedBlockEnter = ref('fade')
+const selectedBlockExit = ref('fade')
 
 // Fetch project detail (for nonStandard flag)
 async function fetchProjectDetail() {
@@ -151,6 +167,9 @@ function onBlockSelected(id: string) {
   const block = parsedBlocks.value?.blocks.find(b => b.id === id)
   selectedBlockTitle.value = block?.title ?? ''
   selectedBlockVisualMode.value = block?.visualMode ?? 'animation'
+  selectedBlockImageSource.value = (block as any)?.imageSource ?? undefined
+  selectedBlockEnter.value = (block as any)?.enter ?? 'fade'
+  selectedBlockExit.value = (block as any)?.exit ?? 'fade'
 }
 
 function onVisualModeChanged(mode: VisualMode) {
@@ -211,13 +230,19 @@ function onUploadDone() {
   min-height: 0;
 }
 
+/* Right side wrapper (contains main-area + panel-right split) */
+.right-side {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-width: 0;
+}
+
 /* Left sidebar */
 .sidebar-left {
-  width: 220px;
-  flex-shrink: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--n-border-color, #e0e0e6);
   overflow: hidden;
 }
 
@@ -261,12 +286,10 @@ function onUploadDone() {
 
 /* Right panel */
 .panel-right {
-  width: 300px;
-  flex-shrink: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--n-border-color, #e0e0e6);
-  transition: width 0.2s;
   overflow: hidden;
 }
 

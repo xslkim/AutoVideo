@@ -12,11 +12,17 @@ import {
   NotFoundError,
   ValidationError,
 } from '../services/scriptEditor.js';
-import { FrameRenderer } from '../services/frameRenderer.js';
 import type { VisualMode, CacheClearKind } from '../types/api.js';
 
 // Allowed visual modes
 const VISUAL_MODES: VisualMode[] = ['animation', 'image'];
+
+// Allowed animation presets
+const ANIMATION_PRESETS = [
+  'fade', 'fade-up', 'fade-down',
+  'slide-left', 'slide-right',
+  'zoom-in', 'zoom-out', 'none',
+];
 
 // Allowed cache clear kinds
 const CACHE_CLEAR_KINDS: CacheClearKind[] = ['audio', 'visual', 'partial', 'all'];
@@ -70,11 +76,31 @@ function patchVisualMode(blockContent: string, mode: VisualMode): string {
   return lines.join('\n');
 }
 
+/**
+ * Update or insert `@<key>: <value>` in a block's content string.
+ * Used for @enter and @exit directives.
+ */
+function patchDirective(blockContent: string, key: string, value: string): string {
+  const lines = blockContent.split('\n');
+  const directiveRe = new RegExp(`^@${key}:\\s*`);
+
+  for (let i = 1; i < lines.length; i++) {
+    if (directiveRe.test(lines[i])) {
+      lines[i] = `@${key}: ${value}`;
+      return lines.join('\n');
+    }
+  }
+
+  // Not found — insert after block header (line 0)
+  lines.splice(1, 0, `@${key}: ${value}`);
+  return lines.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
 
-export function createBlockRoutes(projectsRoot: string, frameRenderer: FrameRenderer) {
+export function createBlockRoutes(projectsRoot: string) {
   const app = new Hono();
 
   // -------------------------------------------------------------------------
@@ -161,7 +187,7 @@ export function createBlockRoutes(projectsRoot: string, frameRenderer: FrameRend
 
   // -------------------------------------------------------------------------
   // PUT /api/projects/:name/blocks/:id/visual-mode
-  // Toggle @visual directive inside a block (ETag-protected)
+  // Update block directives: @visual / @enter / @exit (ETag-protected)
   // -------------------------------------------------------------------------
   app.put('/:name/blocks/:id/visual-mode', projectGuard(projectsRoot), async (c) => {
     const name = c.req.param('name')!;
@@ -178,11 +204,26 @@ export function createBlockRoutes(projectsRoot: string, frameRenderer: FrameRend
       return c.json({ error: { code: 'ERR_MISSING_IF_MATCH', message: 'If-Match header required' } }, 400);
     }
 
-    const body = await c.req.json<{ mode: string }>();
-    const mode = body.mode as VisualMode;
-    if (!VISUAL_MODES.includes(mode)) {
+    const body = await c.req.json<{ mode?: string; enter?: string; exit?: string }>();
+
+    // Validate mode if provided
+    if (body.mode !== undefined && !VISUAL_MODES.includes(body.mode as VisualMode)) {
       return c.json(
         { error: { code: 'ERR_INVALID_MODE', message: `mode must be one of: ${VISUAL_MODES.join(', ')}` } },
+        400,
+      );
+    }
+    // Validate enter if provided
+    if (body.enter !== undefined && !ANIMATION_PRESETS.includes(body.enter)) {
+      return c.json(
+        { error: { code: 'ERR_INVALID_ENTER', message: `enter must be one of: ${ANIMATION_PRESETS.join(', ')}` } },
+        400,
+      );
+    }
+    // Validate exit if provided
+    if (body.exit !== undefined && !ANIMATION_PRESETS.includes(body.exit)) {
+      return c.json(
+        { error: { code: 'ERR_INVALID_EXIT', message: `exit must be one of: ${ANIMATION_PRESETS.join(', ')}` } },
         400,
       );
     }
@@ -193,11 +234,20 @@ export function createBlockRoutes(projectsRoot: string, frameRenderer: FrameRend
       return c.json({ currentContent: scriptMd, currentEtag }, 409);
     }
 
-    // Extract block, patch @visual directive, replace block
+    // Extract block, patch directives, replace block
     let newScriptMd: string;
     try {
       const { content: blockContent } = extractBlock(scriptMd, id);
-      const patchedBlock = patchVisualMode(blockContent, mode);
+      let patchedBlock = blockContent;
+      if (body.mode !== undefined) {
+        patchedBlock = patchVisualMode(patchedBlock, body.mode as VisualMode);
+      }
+      if (body.enter !== undefined) {
+        patchedBlock = patchDirective(patchedBlock, 'enter', body.enter);
+      }
+      if (body.exit !== undefined) {
+        patchedBlock = patchDirective(patchedBlock, 'exit', body.exit);
+      }
       newScriptMd = replaceBlock(scriptMd, id, patchedBlock);
     } catch (err) {
       if (err instanceof NotFoundError) {
@@ -216,7 +266,7 @@ export function createBlockRoutes(projectsRoot: string, frameRenderer: FrameRend
       return c.json({ currentContent: fresh.content, currentEtag: fresh.etag }, 409);
     }
 
-    return c.json({ ok: true, etag: result.etag, mode });
+    return c.json({ ok: true, etag: result.etag, mode: body.mode, enter: body.enter, exit: body.exit });
   });
 
   // ---------------------------------------------------------------------------
@@ -415,46 +465,6 @@ export function createBlockRoutes(projectsRoot: string, frameRenderer: FrameRend
     const slug = resolveSlug(projectsRoot, name);
     const filePath = path.join(projectsRoot, name, 'build', slug, 'output', 'partials', `${id}.mp4`);
     return serveFileWithRange(c, filePath, 'video/mp4');
-  });
-
-  // ---------------------------------------------------------------------------
-  // GET /api/projects/:name/blocks/:id/preview?frame=N → PNG frame preview
-  // ---------------------------------------------------------------------------
-  app.get('/:name/blocks/:id/preview', projectGuard(projectsRoot), async (c) => {
-    const { name, id } = c.req.param();
-    const frameStr = c.req.query('frame') || '0';
-    const frame = parseInt(frameStr, 10);
-
-    if (isNaN(frame) || frame < 0) {
-      return c.json(
-        { error: { code: 'ERR_INVALID_FRAME', message: 'frame must be a non-negative integer' } },
-        400,
-      );
-    }
-
-    try {
-      const pngBuffer = await frameRenderer.renderFrame(name, id, frame);
-      return new Response(new Uint8Array(pngBuffer), {
-        status: 200,
-        headers: {
-          'Content-Type': 'image/png',
-          'Cache-Control': 'no-store',
-        },
-      });
-    } catch (err: any) {
-      // FrameError has status/code/reason
-      if (err.status && err.code) {
-        const body: any = { error: { code: err.code, message: err.message } };
-        if (err.reason) body.reason = err.reason;
-        return c.json(body, err.status);
-      }
-      // Unexpected errors
-      console.error(`[preview] Unhandled error for ${name}/${id} frame ${frame}:`, err);
-      return c.json(
-        { error: { code: 'ERR_INTERNAL', message: 'Internal server error' } },
-        500,
-      );
-    }
   });
 
   return app;

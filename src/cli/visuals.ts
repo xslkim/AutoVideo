@@ -23,7 +23,7 @@ import {
   type ComponentGenInput,
   type ComponentGenResult,
 } from "../ai/component-gen.js";
-import { generateImage } from "../ai/image-gen.js";
+import { generateImage, generateLocalImage } from "../ai/image-gen.js";
 import {
   validateComponent,
   type ValidateComponentOptions,
@@ -313,32 +313,39 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
 
       const blockLabel = block.id;
 
-      // ── Image mode: call generateImage ───────────────────────────────
+      // ── Image mode: local file or API generation ─────────────────────
       if (block.visualMode === 'image') {
         console.log(`Processing block ${blockLabel} (image mode)...`);
 
         try {
-          const result = await generateImage(block, {
-            config: {
-              baseURL: config.imageGen.baseURL,
-              apiKey: config.imageGen.apiKey,
-              model: config.imageGen.model,
-              size: config.imageGen.size,
-              timeoutMs: config.imageGen.timeoutMs,
-              concurrency: config.imageGen.concurrency,
-            },
-            buildOutDir,
-            meta: { aspect: script.meta.aspect, width: script.meta.width, height: script.meta.height },
-            cacheStore,
-            force,
-            signal: abortController.signal,
-            onProgress,
-          });
-
-          if (result.cacheHit) {
-            cacheHits++;
+          if (block.imageSource) {
+            // Local image: if compile already set up (imagePath + componentPath), skip
+            if (block.visual.imagePath && block.visual.componentPath) {
+              console.log(`  Block ${blockLabel}: local image already set up by compile`);
+            } else {
+              await generateLocalImage(block, { buildOutDir });
+              console.log(`  Block ${blockLabel}: local image copied`);
+            }
           } else {
-            apiCalls++;
+            // Call image generation API
+            const result = await generateImage(block, {
+              config: {
+                baseURL: config.imageGen.baseURL,
+                apiKey: config.imageGen.apiKey,
+                model: config.imageGen.model,
+                size: config.imageGen.size,
+                timeoutMs: config.imageGen.timeoutMs,
+                concurrency: config.imageGen.concurrency,
+              },
+              buildOutDir,
+              meta: { aspect: script.meta.aspect, width: script.meta.width, height: script.meta.height },
+              cacheStore,
+              force,
+              signal: abortController.signal,
+              onProgress,
+            });
+            if (result.cacheHit) { cacheHits++; }
+            else { apiCalls++; }
           }
 
           console.log(`  Block ${blockLabel}: image done`);

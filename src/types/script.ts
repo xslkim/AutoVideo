@@ -111,6 +111,10 @@ export interface Block {
 
   visualMode: VisualMode; // 缺省 'animation'，图片模式为 'image'
 
+  /** Image source path for image mode (processed by compile stage).
+   *  Set → local file; absent → call image-gen API. */
+  imageSource?: string;
+
   visual: {
     description: string; // --- visual --- raw text, fed to LLM
     componentPath?: string; // Stage 3 fills (generated .tsx path)
