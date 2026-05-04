@@ -2,7 +2,8 @@
 
 > **目标**：在 `http://localhost:8001` 暴露 `/lipsync` REST API，供 AutoVideo 口型同步功能调用。
 >
-> **API 规范**：见 `LIPSYNC_TASKS.md` § 1
+> **API 规范**：见 `LIPSYNC_TASKS.md` § 1  
+> **日常使用（启动、curl、排障）**：见 [`MUSETALK_USAGE.md`](MUSETALK_USAGE.md)
 
 ---
 
