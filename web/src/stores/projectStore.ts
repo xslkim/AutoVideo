@@ -34,6 +34,9 @@ export const useProjectStore = defineStore('projects', () => {
       await fetchProjects()
       return { ok: true as const, data: result.data }
     }
+    if (result.conflict) {
+      return { ok: false as const, conflict: result.conflict }
+    }
     return { ok: false as const, error: result.error }
   }
 

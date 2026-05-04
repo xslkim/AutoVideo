@@ -223,7 +223,7 @@ async function handleCreateDemo() {
   if (result.ok) {
     message.success('Demo 项目已创建')
     router.push('/project/demo')
-  } else if (result.error?.status === 409) {
+  } else if (result.conflict) {
     // Demo already exists, just navigate to it
     message.info('Demo 项目已存在，进入项目')
     router.push('/project/demo')

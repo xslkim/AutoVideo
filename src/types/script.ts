@@ -466,15 +466,8 @@ export function assertCompiledScript(data: unknown): asserts data is CompiledScr
       throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing narration.lines`);
     }
 
-    if (block.audio !== undefined) {
-      throw new Error(`Block ${i} (${block.id}): audio should not be set at compile stage`);
-    }
-    if (visual.componentPath !== undefined) {
-      throw new Error(`Block ${i} (${block.id}): componentPath should not be set at compile stage`);
-    }
-    if (visual.imagePath !== undefined) {
-      throw new Error(`Block ${i} (${block.id}): imagePath should not be set at compile stage`);
-    }
+    // Audio and visual fields may be pre-populated from prior runs;
+    // allow them to persist so stages can be run independently.
   }
 
   if (typeof s.artifacts !== "object" || s.artifacts === null || !(s.artifacts as Record<string, unknown>).compiledAt) {

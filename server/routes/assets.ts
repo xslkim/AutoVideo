@@ -125,6 +125,48 @@ export function createAssetRoutes(projectsRoot: string) {
     return c.body(buf as unknown as string);
   });
 
+  // POST /api/projects/:name/upload-root — upload file to project root dir
+  app.post('/:name/upload-root', projectGuard(projectsRoot), async (c) => {
+    const name = c.req.param('name')!;
+    const rootDir = path.join(projectsRoot, name);
+
+    const ROOT_FILE_RE = /^[a-zA-Z0-9_.-]+\.(png|jpe?g|gif|webp|svg|wav)$/;
+
+    try {
+      const formData = await c.req.raw.formData();
+      const uploaded: { name: string; size: number }[] = [];
+      const errors: { name: string; reason: string }[] = [];
+
+      for (const [fieldName, value] of formData.entries()) {
+        if (fieldName !== 'file' || !(value instanceof File)) continue;
+
+        const file = value;
+
+        if (file.size > MAX_UPLOAD_SIZE) {
+          errors.push({ name: file.name, reason: 'File exceeds 10MB limit' });
+          continue;
+        }
+
+        if (!ROOT_FILE_RE.test(file.name)) {
+          errors.push({ name: file.name, reason: 'Invalid file name' });
+          continue;
+        }
+
+        try {
+          const buf = Buffer.from(await file.arrayBuffer());
+          fs.writeFileSync(path.join(rootDir, file.name), buf);
+          uploaded.push({ name: file.name, size: file.size });
+        } catch {
+          errors.push({ name: file.name, reason: 'Failed to write file' });
+        }
+      }
+
+      return c.json({ uploaded, errors });
+    } catch {
+      return c.json({ error: { code: 'ERR_UPLOAD_FAILED', message: 'Failed to process upload' } }, 400);
+    }
+  });
+
   // POST /api/projects/:name/voice — upload voice reference
   app.post('/:name/voice', projectGuard(projectsRoot), async (c) => {
     const name = c.req.param('name')!;

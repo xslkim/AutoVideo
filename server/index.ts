@@ -44,6 +44,47 @@ app.get('/api/health', (c) => {
 app.route('/api/projects', createProjectRoutes(projectsRoot));
 app.route('/api/projects', createBlockRoutes(projectsRoot, frameRenderer));
 app.route('/api/projects', createAssetRoutes(projectsRoot));
+
+// Upload file to project root (for missing assets dialog)
+app.post('/api/projects/:name/upload-root', async (c) => {
+  const name = c.req.param('name');
+  if (!name || !/^[a-zA-Z0-9_-]{1,40}$/.test(name)) {
+    return c.json({ error: { code: 'ERR_INVALID_PROJECT_NAME', message: `Invalid project name: ${name}` } }, 400);
+  }
+  const rootDir = path.join(projectsRoot, name);
+  const ROOT_FILE_RE = /^[a-zA-Z0-9_.-]+\.(png|jpe?g|gif|webp|svg|wav)$/;
+  const MAX_SIZE = 10 * 1024 * 1024;
+
+  try {
+    const formData = await c.req.raw.formData();
+    const uploaded: { name: string; size: number }[] = [];
+    const errors: { name: string; reason: string }[] = [];
+
+    for (const [fieldName, value] of formData.entries()) {
+      if (fieldName !== 'file' || !(value instanceof File)) continue;
+      const file = value;
+      if (file.size > MAX_SIZE) {
+        errors.push({ name: file.name, reason: 'File exceeds 10MB limit' });
+        continue;
+      }
+      if (!ROOT_FILE_RE.test(file.name)) {
+        errors.push({ name: file.name, reason: 'Invalid file name' });
+        continue;
+      }
+      try {
+        const buf = Buffer.from(await file.arrayBuffer());
+        fs.writeFileSync(path.join(rootDir, file.name), buf);
+        uploaded.push({ name: file.name, size: file.size });
+      } catch {
+        errors.push({ name: file.name, reason: 'Failed to write file' });
+      }
+    }
+
+    return c.json({ uploaded, errors });
+  } catch {
+    return c.json({ error: { code: 'ERR_UPLOAD_FAILED', message: 'Failed to process upload' } }, 400);
+  }
+});
 app.route('/api/projects', createOutputRoutes(projectsRoot));
 app.route('/api/tasks', createTaskRoutes(taskQueue));
 app.route('/', createSystemRoutes(repoRoot));

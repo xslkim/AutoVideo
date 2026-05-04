@@ -77,6 +77,15 @@
 
     <!-- Bottom task bar -->
     <TaskBar :project-name="projectName" />
+
+    <!-- Asset upload dialog (shown on missing-file errors) -->
+    <AssetUploadDialog
+      :show="showUploadDialog"
+      :error-message="uploadErrorMsg"
+      :project-name="projectName"
+      @update:show="showUploadDialog = $event"
+      @uploaded="onUploadDone"
+    />
   </div>
 </template>
 
@@ -90,6 +99,8 @@ import TaskBar from '../components/layout/TaskBar.vue'
 import MetaEditor from '../components/editors/MetaEditor.vue'
 import ScriptEditor from '../components/editors/ScriptEditor.vue'
 import AssetManager from '../components/assets/AssetManager.vue'
+import AssetUploadDialog from '../components/task/AssetUploadDialog.vue'
+import { useTaskStore } from '../stores/taskStore'
 import { apiGet } from '../utils/api'
 import type { ParseResult } from '../utils/scriptParser'
 import type { VisualMode } from '../../../server/types/api'
@@ -149,6 +160,39 @@ function onVisualModeChanged(mode: VisualMode) {
 function onScriptChanged() {
   // Force reload ScriptEditor to pick up changes made by BlockSidebar
   scriptEditorKey.value++
+}
+
+// ── Global asset upload dialog ─────────────────────────────────────────
+
+const taskStore = useTaskStore()
+const showUploadDialog = ref(false)
+const uploadErrorMsg = ref('')
+let shownUploadForTaskIds = new Set<string>()
+// Only trigger for tasks that fail after page load (avoid stale tasks in history)
+let pageLoadTime = Date.now()
+
+watch(
+  () => taskStore.projectTasks,
+  (tasks) => {
+    for (const task of tasks) {
+      if (task.status !== 'failed') continue
+      if (shownUploadForTaskIds.has(task.id)) continue
+      // Skip tasks that failed before this page was loaded
+      if (task.finishedAt && task.finishedAt < pageLoadTime) continue
+      const msg = task.errorMessage ?? ''
+      if (/referenced file not found/.test(msg) || /voiceRef file not found/.test(msg)) {
+        shownUploadForTaskIds.add(task.id)
+        uploadErrorMsg.value = msg
+        showUploadDialog.value = true
+        return
+      }
+    }
+  },
+  { deep: true },
+)
+
+function onUploadDone() {
+  showUploadDialog.value = false
 }
 </script>
 

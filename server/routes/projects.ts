@@ -59,6 +59,12 @@ export function createProjectRoutes(projectsRoot: string) {
       return c.json({ error: { code: 'ERR_COPY_FAILED', message: `Failed to copy template: ${err instanceof Error ? err.message : String(err)}` } }, 500);
     }
 
+    // Copy default voice reference (B00.wav) from repo root into the project
+    const defaultVoicePath = path.resolve('B00.wav');
+    if (fs.existsSync(defaultVoicePath)) {
+      fs.copyFileSync(defaultVoicePath, path.join(projDir, 'B00.wav'));
+    }
+
     // Replace title and slug in meta.md if provided
     if (body.title || body.slug) {
       const metaPath = path.join(projDir, 'meta.md');

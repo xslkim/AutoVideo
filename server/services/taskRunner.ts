@@ -83,6 +83,31 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
     }
   }
 
+  // ── Copy root-level assets referenced in script.md ──────────────────
+  // Scan script.md for relative paths like ./hero.png or ./assets/... and
+  // copy them from projectDir to snapshotDir so they are available to compile.
+  const srcScriptPath = path.join(projectDir, 'script.md');
+  if (fs.existsSync(srcScriptPath)) {
+    const scriptContent = fs.readFileSync(srcScriptPath, 'utf-8');
+    const assetRefRegex = /(?:^|[\s])\.\.?\/[^\s]+\.[a-zA-Z0-9]+/gm;
+    const copied = new Set<string>();
+    for (const match of scriptContent.matchAll(assetRefRegex)) {
+      const relPath = match[0].trim();
+      const resolved = path.resolve(projectDir, relPath);
+      if (!copied.has(resolved) && fs.existsSync(resolved)) {
+        copied.add(resolved);
+        const destPath = path.join(snapshotDir, relPath);
+        const destDir = path.dirname(destPath);
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        if (!fs.existsSync(destPath)) {
+          fs.copyFileSync(resolved, destPath);
+        }
+      }
+    }
+  }
+
   // ── Resolve voiceRef and copy voice file into snapshot ──────────────
   const srcMetaPath = path.join(projectDir, 'meta.md');
   const snapshotMetaPath = path.join(snapshotDir, 'meta.md');
@@ -93,11 +118,25 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
   // Parse voiceRef from meta.md (simple regex match — matches the
   // `voiceRef:` key in the YAML frontmatter section).
   const voiceRefMatch = metaContent.match(/^voiceRef:\s*(.+)$/m);
-  if (!voiceRefMatch) return;
+  let voiceRefRelative: string;
+  let resolvedVoice: string;
 
-  const voiceRefRelative = voiceRefMatch[1].trim();
-  // Resolve relative to the *original* projectDir (where meta.md lives)
-  const resolvedVoice = path.resolve(projectDir, voiceRefRelative);
+  if (voiceRefMatch) {
+    voiceRefRelative = voiceRefMatch[1].trim();
+    // Resolve relative to the *original* projectDir (where meta.md lives)
+    resolvedVoice = path.resolve(projectDir, voiceRefRelative);
+  } else {
+    // Default voiceRef: ./B00.wav relative to projectDir (matches readMeta default)
+    voiceRefRelative = './B00.wav';
+    resolvedVoice = path.resolve(projectDir, voiceRefRelative);
+    // Add voiceRef line to snapshot meta.md so compile finds it
+    const snapshotMeta = fs.readFileSync(snapshotMetaPath, 'utf-8');
+    const updatedMeta = snapshotMeta.replace(
+      /^---\s*$/m,
+      `voiceRef: ./voice/B00.wav\n---`,
+    );
+    fs.writeFileSync(snapshotMetaPath, updatedMeta, 'utf-8');
+  }
 
   if (!fs.existsSync(resolvedVoice)) return;
 
@@ -170,8 +209,8 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
   if (process.env.VOXCPM_ENDPOINT) {
     cfg.voxcpm.endpoint = process.env.VOXCPM_ENDPOINT;
   }
-  if (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN) {
-    // apiKey is stored on the config for later injection into component-gen
+  // Env var fallback for apiKey — only used if NOT already set via config.json (UI)
+  if (!cfg.anthropic.apiKey && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
     (cfg.anthropic as any).apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
   }
 
@@ -264,6 +303,12 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
             { code: 'ERR_SCRIPT_NOT_FOUND' },
           );
         }
+
+        console.log('[taskRunner] visuals config:', JSON.stringify({
+          apiKey: config.anthropic.apiKey ? `${config.anthropic.apiKey.slice(0, 12)}...` : 'MISSING',
+          baseURL: config.anthropic.baseURL,
+          model: config.anthropic.model,
+        }));
 
         await visuals({
           scriptPath,

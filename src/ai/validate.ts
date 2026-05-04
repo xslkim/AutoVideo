@@ -201,8 +201,12 @@ export function astStaticScan(tsxPath: string): ASTScanResult {
 
 // --- tsc type-check ---
 
-// Resolve AutoVideo project root from this source file's location
-const _projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../..");
+// Resolve AutoVideo project root from this source file's location.
+// When compiled to dist/server/src/ai/, we need 4 levels up; in src/ai/, 2 levels up.
+const __validateDirname = path.dirname(new URL(import.meta.url).pathname);
+const _projectRoot = __validateDirname.includes(path.join('dist', 'server'))
+  ? path.resolve(__validateDirname, '..', '..', '..', '..')
+  : path.resolve(__validateDirname, '..', '..');
 
 export async function validateStatic(tsxPath: string, tsconfigPath: string): Promise<TSCResult> {
   const tscPath = path.join(_projectRoot, "node_modules", ".bin", "tsc");

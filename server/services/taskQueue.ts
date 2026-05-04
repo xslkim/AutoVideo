@@ -330,13 +330,24 @@ export class TaskQueue extends EventEmitter {
 
     const onProgress = (e: ProgressEvent) => {
       this.updateProgress(nextId, e);
+      this.appendLog(task.id, `[${e.percent}%] ${e.stage || ''}: ${e.step}`);
     };
+
+    // Log task start
+    this.appendLog(task.id, `=== Task started: ${task.stage} ===`);
+    this.appendLog(task.id, `Project: ${task.project}, Slug: ${task.outputSlug || 'N/A'}`);
 
     this.taskRunFn(task, controller.signal, onProgress)
       .then(() => {
+        this.appendLog(task.id, '=== Task completed successfully ===');
         this.handleTaskSettled(nextId, null);
       })
       .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack : '';
+        this.appendLog(task.id, `=== Task FAILED ===`);
+        this.appendLog(task.id, `Error: ${msg}`);
+        if (stack) this.appendLog(task.id, stack);
         this.handleTaskSettled(nextId, err);
       });
   }
