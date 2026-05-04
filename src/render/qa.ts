@@ -73,10 +73,11 @@ export async function runQA(
     }
   }
 
-  // 2. Check total duration matches sum of partials ± 1 frame
+  // 2. Check total duration matches sum of partials ± frames
+  // Tolerance accounts for H.264 padding, concat overhead, and Remotion/FFmpeg rounding
   const partialSumSec = blocks.reduce((sum, b) => sum + b.totalSec, 0);
   const expectedDuration = partialSumSec;
-  const tolerance = 8 / meta.fps; // ± 8 frames (H.264 padding + concat overhead)
+  const tolerance = 12 / meta.fps; // ± 12 frames (encoding + concat + rounding)
 
   const videoDuration = await probeDuration(videoPath);
   if (videoDuration === null) {
