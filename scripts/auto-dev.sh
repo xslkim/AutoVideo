@@ -8,6 +8,15 @@
 #   ./scripts/auto-dev.sh --from WP2.1  # 从指定任务开始
 #   ./scripts/auto-dev.sh --dry-run     # 只打印将执行的任务，不实际运行
 #   ./scripts/auto-dev.sh --max-tasks 3 # 最多执行 3 个任务后停止
+#   ./scripts/auto-dev.sh --no-pause    # 任务失败时不暂停，自动继续
+#
+# 监控：
+#   # 实时看当前任务输出：
+#   tail -f logs/auto-dev/tasks/<TASK_ID>.log
+#   # 看整体会话日志：
+#   tail -f logs/auto-dev/session_<ID>.log
+#   # 看所有任务的完成摘要：
+#   cat logs/auto-dev/summary.log
 #
 # 前置条件：
 #   1. 已安装 claude CLI（npm i -g @anthropic-ai/claude-code）
@@ -31,6 +40,13 @@ PAUSE_ON_FAIL=true       # 任务失败时暂停等待确认
 PROGRESS_FILE="WEB_PROGRESS.md"
 TASKS_FILE="WEB_TASKS.md"
 
+# 日志目录（持久化，不依赖 /tmp）
+LOG_DIR="logs/auto-dev"
+SESSION_ID=$(date '+%Y%m%d_%H%M%S')
+SESSION_LOG="$LOG_DIR/session_${SESSION_ID}.log"
+SUMMARY_LOG="$LOG_DIR/summary.log"
+TASK_LOG_DIR="$LOG_DIR/tasks"
+
 # ---------------------------------------------------------------------------
 # 参数解析
 # ---------------------------------------------------------------------------
@@ -44,7 +60,7 @@ while [[ $# -gt 0 ]]; do
     --max-tasks) MAX_TASKS="$2"; shift 2 ;;
     --no-pause)  PAUSE_ON_FAIL=false; shift ;;
     -h|--help)
-      head -16 "$0" | tail -14
+      head -24 "$0" | tail -22
       exit 0
       ;;
     *) echo "Unknown option: $1"; exit 1 ;;
@@ -66,16 +82,36 @@ if [[ ! -f "$PROGRESS_FILE" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 初始化日志目录
+# ---------------------------------------------------------------------------
+
+mkdir -p "$LOG_DIR" "$TASK_LOG_DIR"
+
+# 所有后续 stdout/stderr 同时写入 session 日志
+exec > >(tee -a "$SESSION_LOG") 2>&1
+
+# ---------------------------------------------------------------------------
 # 辅助函数
 # ---------------------------------------------------------------------------
 
-# 从 WEB_PROGRESS.md 提取下一个 pending 任务的 ID
+# 从 WEB_PROGRESS.md 提取下一个需要处理的任务 ID
+# 优先返回 in_progress（断点续跑），其次返回第一个 pending
 get_next_task() {
+  local inprog
+  inprog=$(grep '| in_progress |' "$PROGRESS_FILE" \
+    | head -1 \
+    | sed 's/^[[:space:]]*//' \
+    | awk -F'|' '{print $2}' \
+    | xargs 2>/dev/null || true)
+  if [[ -n "$inprog" ]]; then
+    echo "$inprog"
+    return
+  fi
   grep '| pending |' "$PROGRESS_FILE" \
     | head -1 \
     | sed 's/^[[:space:]]*//' \
     | awk -F'|' '{print $2}' \
-    | xargs
+    | xargs 2>/dev/null || true
 }
 
 # 检查指定任务是否已完成
@@ -89,30 +125,65 @@ get_task_title() {
   local task_id="$1"
   grep "### $task_id " "$TASKS_FILE" \
     | sed "s/### $task_id //" \
-    | xargs
+    | xargs 2>/dev/null || echo "(unknown)"
 }
 
 # 统计完成进度
 get_progress() {
-  local done=$(grep -c '| done |' "$PROGRESS_FILE" 2>/dev/null || echo 0)
-  local total=$(grep -cE '^\| WP[0-9]' "$PROGRESS_FILE" 2>/dev/null || echo 0)
+  local done total
+  done=$(grep -c '| done |' "$PROGRESS_FILE" 2>/dev/null || echo 0)
+  total=$(grep -cE '^\| WP[0-9]' "$PROGRESS_FILE" 2>/dev/null || echo 0)
   echo "$done / $total"
 }
 
-# 日志
-log() { echo "[$(date '+%H:%M:%S')] $*"; }
-log_ok() { echo "[$(date '+%H:%M:%S')] ✓ $*"; }
-log_err() { echo "[$(date '+%H:%M:%S')] ✗ $*" >&2; }
+# 日志函数（输出已由 tee 写入 SESSION_LOG）
+log()     { echo "[$(date '+%H:%M:%S')] $*"; }
+log_ok()  { echo "[$(date '+%H:%M:%S')] ✓ $*"; }
+log_err() { echo "[$(date '+%H:%M:%S')] ✗ $*"; }
+log_sep() { echo "================================================================"; }
+
+# 向 summary.log 写一行任务摘要
+log_summary() {
+  local task_id="$1" status="$2" duration="$3" progress="$4"
+  printf "%-20s  %-12s  %-12s  %6ds  %s\n" \
+    "$(date '+%Y-%m-%d %H:%M:%S')" "$task_id" "$status" "$duration" "$progress" \
+    >> "$SUMMARY_LOG"
+}
+
+# ---------------------------------------------------------------------------
+# 会话头
+# ---------------------------------------------------------------------------
+
+log_sep
+log "AutoVideo Web UI 自动开发 — 会话 $SESSION_ID"
+log "模型: $MODEL | 最大轮次: $MAX_TURNS | 失败暂停: $PAUSE_ON_FAIL"
+log "进度: $(get_progress)"
+log ""
+log "日志文件:"
+log "  会话日志  →  $SESSION_LOG"
+log "  任务日志  →  $TASK_LOG_DIR/<TASK_ID>.log"
+log "  摘要日志  →  $SUMMARY_LOG"
+log ""
+log "实时监控命令（在另一个终端执行）:"
+log "  tail -f $SESSION_LOG"
+log "  cat $SUMMARY_LOG"
+log_sep
+
+# 写 summary 文件头（首次运行时）
+if [[ ! -f "$SUMMARY_LOG" ]]; then
+  printf "%-20s  %-12s  %-12s  %7s  %s\n" \
+    "timestamp" "task_id" "status" "duration" "progress" \
+    >> "$SUMMARY_LOG"
+  printf "%s\n" \
+    "--------------------  ------------  ------------  -------  ---------" \
+    >> "$SUMMARY_LOG"
+fi
 
 # ---------------------------------------------------------------------------
 # 主循环
 # ---------------------------------------------------------------------------
 
 TASKS_DONE=0
-
-log "AutoVideo Web UI 自动开发"
-log "模型: $MODEL | 最大轮次: $MAX_TURNS | 进度: $(get_progress)"
-echo "---"
 
 while true; do
   # 确定下一个任务
@@ -127,6 +198,7 @@ while true; do
   if [[ -z "$TASK_ID" ]]; then
     echo ""
     log_ok "所有任务已完成！进度: $(get_progress)"
+    log_summary "ALL_DONE" "completed" "0" "$(get_progress)"
     break
   fi
 
@@ -138,20 +210,23 @@ while true; do
   fi
 
   TASK_TITLE=$(get_task_title "$TASK_ID")
+  TASK_LOG="$TASK_LOG_DIR/${TASK_ID}.log"
+
+  log_sep
   log "▶ 开始任务 $TASK_ID: $TASK_TITLE"
+  log "  任务日志: $TASK_LOG"
+  log_sep
 
   if $DRY_RUN; then
     log "  [dry-run] 跳过执行"
+    log_summary "$TASK_ID" "dry-run" "0" "$(get_progress)"
     TASKS_DONE=$((TASKS_DONE + 1))
-    # 模拟跳过：找下一个 pending
-    FROM_TASK=""
-    # 为 dry-run 读取下一个 pending（跳过当前行）
     NEXT=$(grep '| pending |' "$PROGRESS_FILE" \
       | grep -v "$TASK_ID" \
       | head -1 \
       | sed 's/^[[:space:]]*//' \
       | awk -F'|' '{print $2}' \
-      | xargs)
+      | xargs 2>/dev/null || true)
     if [[ -z "$NEXT" ]]; then
       log "  [dry-run] 没有更多任务"
       break
@@ -193,7 +268,7 @@ while true; do
 - 提交前确保两边类型检查都通过"
 
   # -----------------------------------------------------------------------
-  # 执行 claude
+  # 执行 claude（双重 tee：写入任务日志 + 会话日志已由上层 tee 覆盖）
   # -----------------------------------------------------------------------
 
   START_TIME=$(date +%s)
@@ -203,7 +278,7 @@ while true; do
     --dangerously-skip-permissions \
     --max-turns "$MAX_TURNS" \
     --model "$MODEL" \
-    2>&1 | tee "/tmp/auto-dev-${TASK_ID}.log"
+    2>&1 | tee "$TASK_LOG"
   EXIT_CODE=${PIPESTATUS[0]}
   set -e
 
@@ -217,10 +292,11 @@ while true; do
   if is_task_done "$TASK_ID"; then
     TASKS_DONE=$((TASKS_DONE + 1))
     log_ok "$TASK_ID 完成 (${DURATION}s) | 进度: $(get_progress)"
-    echo "---"
+    log_summary "$TASK_ID" "done" "$DURATION" "$(get_progress)"
   else
     log_err "$TASK_ID 未完成 (exit=$EXIT_CODE, ${DURATION}s)"
-    log_err "日志：/tmp/auto-dev-${TASK_ID}.log"
+    log_err "任务日志：$TASK_LOG"
+    log_summary "$TASK_ID" "FAILED" "$DURATION" "$(get_progress)"
 
     if $PAUSE_ON_FAIL; then
       echo ""
@@ -233,8 +309,9 @@ while true; do
           ;;
         s|S)
           log "跳过 $TASK_ID"
-          # 手动标记为 skipped 以便循环继续
           sed -i "s/| $TASK_ID |.*| pending |/| $TASK_ID | ... | skipped |/" "$PROGRESS_FILE" 2>/dev/null || true
+          sed -i "s/| $TASK_ID |.*| in_progress |/| $TASK_ID | ... | skipped |/" "$PROGRESS_FILE" 2>/dev/null || true
+          log_summary "$TASK_ID" "skipped" "$DURATION" "$(get_progress)"
           TASKS_DONE=$((TASKS_DONE + 1))
           continue
           ;;
@@ -250,4 +327,8 @@ while true; do
   fi
 done
 
-log "总计完成 $TASKS_DONE 个任务"
+log_sep
+log "会话结束 — 总计完成 $TASKS_DONE 个任务 | 最终进度: $(get_progress)"
+log "完整日志: $SESSION_LOG"
+log "任务摘要: $SUMMARY_LOG"
+log_sep
