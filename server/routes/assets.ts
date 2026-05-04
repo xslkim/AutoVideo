@@ -125,7 +125,25 @@ export function createAssetRoutes(projectsRoot: string) {
     return c.body(buf as unknown as string);
   });
 
-  // GET /api/projects/:name/avatar — serve avatar video
+  // HEAD /api/projects/:name/avatar — check avatar existence (used by frontend checkAvatar)
+  app.on('HEAD', '/:name/avatar', projectGuard(projectsRoot), (c) => {
+    const name = c.req.param('name')!;
+    const avatarPath = path.join(projectsRoot, name, 'avatar.mp4');
+    if (!fs.existsSync(avatarPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'Avatar not found' } }, 404);
+    }
+    const stat = fs.statSync(avatarPath);
+    return new Response(null, {
+      status: 200,
+      headers: {
+        'Content-Type': 'video/mp4',
+        'Content-Length': String(stat.size),
+        'Accept-Ranges': 'bytes',
+      },
+    });
+  });
+
+  // GET /api/projects/:name/avatar — serve avatar video (supports Range for <video> element)
   app.get('/:name/avatar', projectGuard(projectsRoot), (c) => {
     const name = c.req.param('name')!;
     const avatarPath = path.join(projectsRoot, name, 'avatar.mp4');
@@ -135,10 +153,39 @@ export function createAssetRoutes(projectsRoot: string) {
     }
 
     const stat = fs.statSync(avatarPath);
-    c.header('Content-Type', 'video/mp4');
-    c.header('Content-Length', String(stat.size));
+    const total = stat.size;
+    const rangeHeader = c.req.header('Range');
+
+    if (rangeHeader) {
+      // Parse "bytes=start-end"
+      const m = rangeHeader.match(/bytes=(\d*)-(\d*)/);
+      const start = m?.[1] ? parseInt(m[1], 10) : 0;
+      const end = m?.[2] ? parseInt(m[2], 10) : total - 1;
+      const chunkSize = end - start + 1;
+      const buf = Buffer.alloc(chunkSize);
+      const fd = fs.openSync(avatarPath, 'r');
+      fs.readSync(fd, buf, 0, chunkSize, start);
+      fs.closeSync(fd);
+      return new Response(buf, {
+        status: 206,
+        headers: {
+          'Content-Type': 'video/mp4',
+          'Content-Range': `bytes ${start}-${end}/${total}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': String(chunkSize),
+        },
+      });
+    }
+
     const buf = fs.readFileSync(avatarPath);
-    return c.body(buf as unknown as string);
+    return new Response(buf, {
+      status: 200,
+      headers: {
+        'Content-Type': 'video/mp4',
+        'Content-Length': String(total),
+        'Accept-Ranges': 'bytes',
+      },
+    });
   });
 
   // POST /api/projects/:name/upload-root — upload file to project root dir
