@@ -113,6 +113,10 @@ async function handleUpload() {
   try {
     const formData = new FormData()
     formData.append('file', selectedFile.value)
+    // Tell the server the exact relative path (may include subdirs like "generated_images/image1.png")
+    if (fileName.value && fileName.value !== 'unknown') {
+      formData.append('savePath', fileName.value)
+    }
 
     // Upload to project root
     const resp = await fetch(

@@ -3,6 +3,7 @@ dist/
 build/
 project/
 backup/
+temp/
 .cache/
 .autovideo-web/
 web/dist/

@@ -56,7 +56,7 @@ function copyDir(src: string, dest: string): void {
 /**
  * Snapshot source files into outDir/_snapshot/ for compile/build stages.
  *
- * Copies: project.json, meta.md, script.md, assets/, voice/
+ * Copies: project.json, meta.md, script.md, assets/, voice/, generated_images/
  *
  * Also resolves voiceRef from meta.md relative to the original projectDir,
  * copies the voice file into _snapshot/voice/, and rewrites the snapshot
@@ -86,23 +86,43 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
   // ── Copy root-level assets referenced in script.md ──────────────────
   // Scan script.md for relative paths like ./hero.png or ./assets/... and
   // copy them from projectDir to snapshotDir so they are available to compile.
+  // Handles various contexts: preceded by space, newline, parenthesis, etc.
   const srcScriptPath = path.join(projectDir, 'script.md');
   if (fs.existsSync(srcScriptPath)) {
     const scriptContent = fs.readFileSync(srcScriptPath, 'utf-8');
-    const assetRefRegex = /(?:^|[\s])\.\.?\/[^\s]+\.[a-zA-Z0-9]+/gm;
-    const copied = new Set<string>();
+    // Match paths like ./foo, ../bar, ./dir/file.png in any context (not just after space)
+    const assetRefRegex = /\.\.?\/[^\s)]+\.[a-zA-Z0-9]+/g;
+    const copiedPaths = new Set<string>();
+    const copiedDirs = new Set<string>();
+
     for (const match of scriptContent.matchAll(assetRefRegex)) {
-      const relPath = match[0].trim();
+      const relPath = match[0];
       const resolved = path.resolve(projectDir, relPath);
-      if (!copied.has(resolved) && fs.existsSync(resolved)) {
-        copied.add(resolved);
-        const destPath = path.join(snapshotDir, relPath);
-        const destDir = path.dirname(destPath);
-        if (!fs.existsSync(destDir)) {
-          fs.mkdirSync(destDir, { recursive: true });
-        }
-        if (!fs.existsSync(destPath)) {
-          fs.copyFileSync(resolved, destPath);
+
+      // Skip if already copied
+      if (copiedPaths.has(resolved)) continue;
+      if (!fs.existsSync(resolved)) continue;
+
+      copiedPaths.add(resolved);
+
+      // Copy the file
+      const destPath = path.join(snapshotDir, relPath);
+      const destDir = path.dirname(destPath);
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+      if (!fs.existsSync(destPath)) {
+        fs.copyFileSync(resolved, destPath);
+      }
+
+      // Also copy the entire parent directory if it's a new one
+      const parentDir = path.dirname(relPath);
+      if (parentDir !== '.' && !copiedDirs.has(parentDir)) {
+        copiedDirs.add(parentDir);
+        const srcParentDir = path.join(projectDir, parentDir);
+        const destParentDir = path.join(snapshotDir, parentDir);
+        if (fs.existsSync(srcParentDir) && !fs.existsSync(destParentDir)) {
+          copyDir(srcParentDir, destParentDir);
         }
       }
     }

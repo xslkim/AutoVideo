@@ -126,6 +126,8 @@ export function createAssetRoutes(projectsRoot: string) {
   });
 
   // POST /api/projects/:name/upload-root — upload file to project root dir
+  // Accepts optional form field `savePath` (e.g. "generated_images/image1.png")
+  // to place the file in a subdirectory under the project root.
   app.post('/:name/upload-root', projectGuard(projectsRoot), async (c) => {
     const name = c.req.param('name')!;
     const rootDir = path.join(projectsRoot, name);
@@ -137,6 +139,19 @@ export function createAssetRoutes(projectsRoot: string) {
       const uploaded: { name: string; size: number }[] = [];
       const errors: { name: string; reason: string }[] = [];
 
+      // Optional: caller-specified save path (relative, may include subdirs)
+      const savePathEntry = formData.get('savePath');
+      const savePath = typeof savePathEntry === 'string' && savePathEntry.trim() ? savePathEntry.trim() : null;
+
+      // Validate savePath: no ".." segments, only safe chars
+      if (savePath !== null) {
+        const parts = savePath.split('/');
+        const unsafe = parts.some(p => p === '..' || p === '.' || !/^[a-zA-Z0-9_.-]+$/.test(p));
+        if (unsafe) {
+          return c.json({ error: { code: 'ERR_INVALID_PATH', message: 'Invalid save path' } }, 400);
+        }
+      }
+
       for (const [fieldName, value] of formData.entries()) {
         if (fieldName !== 'file' || !(value instanceof File)) continue;
 
@@ -147,15 +162,30 @@ export function createAssetRoutes(projectsRoot: string) {
           continue;
         }
 
-        if (!ROOT_FILE_RE.test(file.name)) {
+        // Determine where to save: use savePath if provided, else flat to root
+        const targetRelPath = savePath ?? file.name;
+        const baseName = path.basename(targetRelPath);
+
+        if (!ROOT_FILE_RE.test(baseName)) {
           errors.push({ name: file.name, reason: 'Invalid file name' });
+          continue;
+        }
+
+        // Final path traversal guard
+        const targetAbsPath = path.resolve(rootDir, targetRelPath);
+        if (!targetAbsPath.startsWith(rootDir + path.sep)) {
+          errors.push({ name: file.name, reason: 'Path traversal detected' });
           continue;
         }
 
         try {
           const buf = Buffer.from(await file.arrayBuffer());
-          fs.writeFileSync(path.join(rootDir, file.name), buf);
-          uploaded.push({ name: file.name, size: file.size });
+          const targetDir = path.dirname(targetAbsPath);
+          if (!fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+          fs.writeFileSync(targetAbsPath, buf);
+          uploaded.push({ name: targetRelPath, size: file.size });
         } catch {
           errors.push({ name: file.name, reason: 'Failed to write file' });
         }
