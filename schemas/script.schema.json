@@ -71,6 +71,10 @@
             "default": "animation",
             "description": "Visual generation mode: animation (Claude-generated Component.tsx) or image (AI-generated PNG)"
           },
+          "imageSource": {
+            "type": "string",
+            "description": "Path to the source image file (e.g., 'assets/abc12345.png'), set during compile for image mode blocks"
+          },
           "enter": {
             "type": "string",
             "enum": ["fade", "fade-up", "fade-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "none"]
