@@ -184,12 +184,10 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
     const resolvedAvatar = path.resolve(projectDir, avatarRefRelative);
 
     if (fs.existsSync(resolvedAvatar)) {
-      // Copy avatar file to snapshot root
+      // Copy avatar file to snapshot root (always overwrite to pick up replacements)
       const avatarFile = path.basename(resolvedAvatar);
       const avatarDest = path.join(snapshotDir, avatarFile);
-      if (!fs.existsSync(avatarDest)) {
-        fs.copyFileSync(resolvedAvatar, avatarDest);
-      }
+      fs.copyFileSync(resolvedAvatar, avatarDest);
 
       // Rewrite snapshot meta.md so avatarRef points to the local copy
       const snapMeta2 = fs.readFileSync(snapshotMetaPath, 'utf-8');
@@ -462,6 +460,11 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
             { code: 'ERR_SCRIPT_NOT_FOUND' },
           );
         }
+
+        // Re-sync media files (avatar, voice) into the snapshot so that
+        // files uploaded after the last compile are picked up by merge.
+        // This does NOT re-compile; script.json is left unchanged.
+        snapshotSourceFiles(projectDir, outDir);
 
         // merge progress mapping: concat 60 / loudnorm 30 / qa 10
         await render({

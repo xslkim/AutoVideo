@@ -125,7 +125,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useProjectStore } from '../stores/projectStore'
 import { useMessage } from 'naive-ui'
@@ -134,6 +134,10 @@ import type { FormInst, FormRules } from 'naive-ui'
 const router = useRouter()
 const store = useProjectStore()
 const message = useMessage()
+
+onMounted(() => {
+  store.fetchProjects()
+})
 
 // ---- Create modal ----
 const showCreateModal = ref(false)

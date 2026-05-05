@@ -53,7 +53,7 @@
       size="small"
       :style="{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }"
       :pane-wrapper-style="{ flex: 1, overflow: 'hidden', minHeight: 0 }"
-      :pane-style="{ height: '100%', overflow: 'hidden', padding: 0 }"
+      :pane-style="{ height: '100%', overflowY: 'auto', overflowX: 'hidden', padding: 0 }"
     >
       <n-tab-pane name="script" tab="脚本编辑" display-directive="show">
         <BlockScriptEditor

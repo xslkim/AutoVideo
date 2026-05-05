@@ -252,6 +252,50 @@ export async function overlayLipsync(
 }
 
 // ---------------------------------------------------------------------------
+// Video size probe
+// ---------------------------------------------------------------------------
+
+/**
+ * Probe the width and height of a video file using ffprobe.
+ */
+export function probeVideoSize(videoPath: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error",
+      "-select_streams", "v:0",
+      "-show_entries", "stream=width,height",
+      "-of", "json",
+      videoPath,
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+
+    let stdout = "";
+    proc.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+
+    proc.on("error", (err) => {
+      reject(new LipsyncError(`ffprobe failed to start: ${err.message}`));
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new LipsyncError(`ffprobe exited with code ${code}`));
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stdout) as { streams: { width: number; height: number }[] };
+        const stream = parsed.streams?.[0];
+        if (!stream?.width || !stream?.height) {
+          reject(new LipsyncError("ffprobe: could not read video dimensions"));
+          return;
+        }
+        resolve({ width: stream.width, height: stream.height });
+      } catch {
+        reject(new LipsyncError("ffprobe: failed to parse output"));
+      }
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
 // FFmpeg runner
 // ---------------------------------------------------------------------------
 

@@ -34,7 +34,7 @@ import { renderBlocks, type RenderBlocksResult } from "../render/render-blocks.j
 import { concatPartials } from "../render/concat.js";
 import { applyLoudnorm, type LoudnormResult } from "../render/loudnorm.js";
 import { runQA, type QAResult } from "../render/qa.js";
-import { extractAudio, generateLipsync, overlayLipsync, LipsyncError } from "../render/lipsync.js";
+import { extractAudio, generateLipsync, overlayLipsync, probeVideoSize, LipsyncError } from "../render/lipsync.js";
 
 // ── Error class ───────────────────────────────────────────────────────
 
@@ -303,9 +303,10 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         throw err;
       }
 
+      const concatAvatarSize = await probeVideoSize(meta.avatarRef);
       await overlayLipsync(
         concatFinalPath, concatLipsyncRaw, concatLipsyncOut,
-        { size: 192, margin: 5, radius: 16, position: "bottom-left" },
+        { size: concatAvatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
         signal,
       );
       fs.renameSync(concatLipsyncOut, concatFinalPath);
@@ -558,11 +559,12 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     // c. Overlay lipsync video onto final.mp4
     emit(72, "叠加口型画中画");
     console.log(`[render] Overlaying lip-sync PiP...`);
+    const avatarSize = await probeVideoSize(meta.avatarRef);
     await overlayLipsync(
       finalAbsPath,
       lipsyncRawPath,
       finalWithLipsyncPath,
-      { size: 192, margin: 5, radius: 16, position: "bottom-left" },
+      { size: avatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
       signal,
     );
 
