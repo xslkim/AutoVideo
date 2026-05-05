@@ -233,6 +233,7 @@ function onUploadDone() {
 /* Right side wrapper (contains main-area + panel-right split) */
 .right-side {
   flex: 1;
+  height: 100%;
   display: flex;
   overflow: hidden;
   min-width: 0;
@@ -264,6 +265,7 @@ function onUploadDone() {
 /* Center main area */
 .main-area {
   flex: 1;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -48,7 +48,7 @@ const DARK_CODE: Theme = {
     fontSizePct: 0.04,
     lineHeight: 1.5,
     maxWidthPct: 0.8,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
     paddingPx: 12,
   },
 };

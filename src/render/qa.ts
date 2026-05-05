@@ -77,7 +77,7 @@ export async function runQA(
   // Tolerance accounts for H.264 padding, concat overhead, and Remotion/FFmpeg rounding
   const partialSumSec = blocks.reduce((sum, b) => sum + b.totalSec, 0);
   const expectedDuration = partialSumSec;
-  const tolerance = 12 / meta.fps; // ± 12 frames (encoding + concat + rounding)
+  const tolerance = 60 / meta.fps; // ± 60 frames — lipsync concat/overlay can add up to ~2s
 
   const videoDuration = await probeDuration(videoPath);
   if (videoDuration === null) {

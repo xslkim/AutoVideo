@@ -2,9 +2,11 @@
  * AutoVideo — Lip-sync module (MuseTalk client + FFmpeg helpers)
  *
  * Provides:
- * 1. generateLipsync() — calls MuseTalk HTTP API to generate lip-synced video
- * 2. extractAudio()    — extracts WAV audio from video via FFmpeg
- * 3. overlayLipsync()  — overlays lip-sync video as rounded-rect PiP via FFmpeg
+ * 1. generateLipsync()     — calls MuseTalk HTTP API to generate lip-synced video
+ * 2. extractAudio()        — extracts WAV audio from video via FFmpeg
+ * 3. padAudio()            — pads audio with leading/trailing silence to exact duration
+ * 4. overlayLipsync()      — overlays lip-sync video as rounded-rect PiP via FFmpeg
+ * 5. concatLipsyncVideos() — concatenates per-block lipsync videos into one
  */
 
 import { spawn } from "node:child_process";
@@ -40,13 +42,15 @@ export interface LipsyncOptions {
   signal?: AbortSignal;
 }
 
-const MUSETALK_TIMEOUT_MS = 600_000; // 10 minutes
+const MUSETALK_TIMEOUT_MS = 1_800_000; // 30 minutes
 
 /**
  * Call MuseTalk service to generate a lip-synced video.
  *
- * Sends avatar video + audio via multipart/form-data, receives mp4 binary back.
- * The output video has no audio track and matches the audio duration.
+ * Uses Node.js http.request instead of fetch to avoid undici's UND_ERR_HEADERS_TIMEOUT,
+ * which fires when MuseTalk takes longer than ~5 minutes before sending the response headers.
+ *
+ * Streams the mp4 response directly to disk — no large in-memory buffer.
  */
 export async function generateLipsync(options: LipsyncOptions): Promise<void> {
   const {
@@ -58,98 +62,114 @@ export async function generateLipsync(options: LipsyncOptions): Promise<void> {
     signal,
   } = options;
 
-  const url = `${serviceUrl.replace(/\/+$/, "")}/lipsync`;
-
-  // Build multipart/form-data manually to avoid external dependency
-  const boundary = `----FormBoundary${Date.now().toString(16)}`;
-
   const { readFile } = await import("node:fs/promises");
+  const { createWriteStream } = await import("node:fs");
+  const http = await import("node:http");
+  const { pipeline } = await import("node:stream/promises");
 
   const avatarBuf = await readFile(avatarPath);
   const audioBuf = await readFile(audioPath);
 
-  // Build multipart/form-data manually
-  const parts: Buffer[] = [];
+  const boundary = `----FormBoundary${Date.now().toString(16)}`;
 
-  // video part
+  const parts: Buffer[] = [];
   parts.push(Buffer.from(
     `--${boundary}\r\nContent-Disposition: form-data; name="video"; filename="${basename(avatarPath)}"\r\nContent-Type: video/mp4\r\n\r\n`
   ));
   parts.push(avatarBuf);
   parts.push(Buffer.from("\r\n"));
-
-  // audio part
   parts.push(Buffer.from(
     `--${boundary}\r\nContent-Disposition: form-data; name="audio"; filename="${basename(audioPath)}"\r\nContent-Type: audio/wav\r\n\r\n`
   ));
   parts.push(audioBuf);
   parts.push(Buffer.from("\r\n"));
-
-  // fps part
   parts.push(Buffer.from(
     `--${boundary}\r\nContent-Disposition: form-data; name="fps"\r\n\r\n${fps}\r\n`
   ));
-
-  // closing boundary
   parts.push(Buffer.from(`--${boundary}--\r\n`));
-
   const body = Buffer.concat(parts);
 
-  // Create abort controller linked to both timeout and external signal
-  const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), MUSETALK_TIMEOUT_MS);
+  const parsed = new URL(`${serviceUrl.replace(/\/+$/, "")}/lipsync`);
 
-  // Link external signal
-  let externalAbortHandler: (() => void) | undefined;
-  if (signal) {
-    externalAbortHandler = () => timeoutController.abort();
-    signal.addEventListener("abort", externalAbortHandler, { once: true });
-  }
+  return new Promise<void>((resolve, reject) => {
+    let timedOut = false;
+    let aborted = false;
 
-  try {
-    const response = await fetch(url, {
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      req.destroy();
+    }, MUSETALK_TIMEOUT_MS);
+
+    const onExternalAbort = () => {
+      aborted = true;
+      req.destroy();
+    };
+    if (signal) {
+      if (signal.aborted) {
+        clearTimeout(timeoutId);
+        reject(new LipsyncError("MuseTalk request cancelled"));
+        return;
+      }
+      signal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      if (signal) signal.removeEventListener("abort", onExternalAbort);
+    };
+
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: Number(parsed.port) || 80,
+      path: parsed.pathname,
       method: "POST",
-      body,
       headers: {
         "Content-Type": `multipart/form-data; boundary=${boundary}`,
+        "Content-Length": body.length,
       },
-      signal: timeoutController.signal,
+      // No socket timeout — MuseTalk processing can take many minutes
+    }, (res) => {
+      cleanup();
+
+      if ((res.statusCode ?? 0) >= 400) {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => {
+          let errMsg = `MuseTalk returned ${res.statusCode}`;
+          try {
+            const parsed = JSON.parse(Buffer.concat(chunks).toString()) as { error?: string };
+            if (parsed.error) errMsg = parsed.error;
+          } catch {}
+          reject(new LipsyncError(`MuseTalk failed: ${errMsg}`));
+        });
+        return;
+      }
+
+      // Stream response directly to output file (no in-memory buffer)
+      const fileStream = createWriteStream(outputPath);
+      pipeline(res, fileStream)
+        .then(() => resolve())
+        .catch((err) => {
+          reject(new LipsyncError(`MuseTalk response stream failed: ${(err as Error).message}`));
+        });
     });
 
-    if (!response.ok) {
-      let errorMsg = `MuseTalk returned ${response.status}`;
-      try {
-        const errBody = await response.json() as { error?: string };
-        if (errBody.error) errorMsg = errBody.error;
-      } catch {
-        // Non-JSON error response
+    req.on("error", (err) => {
+      cleanup();
+      if (aborted) {
+        reject(new LipsyncError("MuseTalk request cancelled"));
+      } else if (timedOut) {
+        reject(new LipsyncError("MuseTalk request timed out (30min)"));
+      } else if ((err as any).code === "ECONNREFUSED") {
+        reject(new LipsyncError(`MuseTalk service unavailable at ${serviceUrl}`));
+      } else {
+        reject(new LipsyncError(`MuseTalk request failed: ${err.message}`));
       }
-      throw new LipsyncError(`MuseTalk failed: ${errorMsg}`);
-    }
+    });
 
-    // Write response body (mp4 binary) to output path
-    const { writeFile } = await import("node:fs/promises");
-    const buffer = Buffer.from(await response.arrayBuffer());
-    await writeFile(outputPath, buffer);
-  } catch (err) {
-    if (err instanceof LipsyncError) throw err;
-
-    if ((err as any)?.code === "ECONNREFUSED" || (err as any)?.cause?.code === "ECONNREFUSED") {
-      throw new LipsyncError(`MuseTalk service unavailable at ${serviceUrl}`);
-    }
-    if ((err as any)?.name === "AbortError") {
-      if (signal?.aborted) {
-        throw new LipsyncError("MuseTalk request cancelled");
-      }
-      throw new LipsyncError("MuseTalk request timed out (10min)");
-    }
-    throw new LipsyncError(`MuseTalk request failed: ${(err as Error).message}`);
-  } finally {
-    clearTimeout(timeoutId);
-    if (externalAbortHandler && signal) {
-      signal.removeEventListener("abort", externalAbortHandler);
-    }
-  }
+    req.write(body);
+    req.end();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +197,78 @@ export async function extractAudio(
   ];
 
   await runFfmpeg(args, signal);
+}
+
+// ---------------------------------------------------------------------------
+// Audio padding
+// ---------------------------------------------------------------------------
+
+/**
+ * Pad a WAV audio file to exactly `totalSec` duration by:
+ *   - Adding `enterMs` milliseconds of silence at the start (for block enter animation)
+ *   - Padding with silence at the end (for block exit animation)
+ *
+ * This ensures the per-block lipsync video matches the block's total duration
+ * (enter + hold + exit), keeping lipsync in sync when overlaid on final.mp4.
+ */
+export async function padAudio(
+  inputPath: string,
+  outputPath: string,
+  enterMs: number,
+  totalSec: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  const afFilters: string[] = [];
+  if (enterMs > 0) {
+    afFilters.push(`adelay=${Math.round(enterMs)}:all=1`);
+  }
+  afFilters.push("apad");
+
+  const args = [
+    "-y",
+    "-i", inputPath,
+    "-af", afFilters.join(","),
+    "-t", totalSec.toFixed(3),
+    "-ar", "16000",
+    "-ac", "1",
+    outputPath,
+  ];
+
+  await runFfmpeg(args, signal);
+}
+
+// ---------------------------------------------------------------------------
+// Lipsync video concat
+// ---------------------------------------------------------------------------
+
+/**
+ * Concatenate per-block lipsync MP4 files (video-only, no audio) into one.
+ *
+ * Uses ffmpeg concat demuxer with stream copy — fast, no re-encoding.
+ */
+export async function concatLipsyncVideos(
+  inputPaths: string[],
+  outputPath: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const { writeFile, unlink } = await import("node:fs/promises");
+
+  const listPath = outputPath + ".concat.txt";
+  const lines = inputPaths.map((p) => `file '${p.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`);
+  await writeFile(listPath, lines.join("\n"), "utf-8");
+
+  try {
+    await runFfmpeg([
+      "-y",
+      "-f", "concat",
+      "-safe", "0",
+      "-i", listPath,
+      "-c", "copy",
+      outputPath,
+    ], signal);
+  } finally {
+    try { await unlink(listPath); } catch {}
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +328,7 @@ export async function overlayLipsync(
     `lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':`,
     `a='if(${geqAlpha},0,255)'`,
     `[avatar];`,
-    `[0:v][avatar]overlay=${overlayPos}:shortest=1`,
+    `[0:v][avatar]overlay=${overlayPos}:eof_action=repeat`,
   ].join("");
 
   const args = [
