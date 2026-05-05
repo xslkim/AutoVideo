@@ -229,6 +229,7 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
 
       if (raw.voxcpm) {
         if (raw.voxcpm.endpoint) cfg.voxcpm.endpoint = raw.voxcpm.endpoint;
+        if (raw.voxcpm.modelDir) cfg.voxcpm.modelDir = raw.voxcpm.modelDir;
         if (raw.voxcpm.autoStart !== undefined) cfg.voxcpm.autoStart = raw.voxcpm.autoStart;
         if (raw.voxcpm.concurrency !== undefined) cfg.voxcpm.concurrency = raw.voxcpm.concurrency;
       }
@@ -256,6 +257,9 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
   }
   if (process.env.VOXCPM_ENDPOINT) {
     cfg.voxcpm.endpoint = process.env.VOXCPM_ENDPOINT;
+  }
+  if (process.env.VOXCPM_MODEL_DIR) {
+    cfg.voxcpm.modelDir = process.env.VOXCPM_MODEL_DIR;
   }
   // Env var fallback for apiKey — only used if NOT already set via config.json (UI)
   if (!cfg.anthropic.apiKey && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {

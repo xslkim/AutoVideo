@@ -71,6 +71,7 @@ export interface AppConfig {
   };
   voxcpm?: {
     endpoint?: string;
+    modelDir?: string;
     autoStart?: boolean;
     concurrency?: number;
   };
@@ -97,6 +98,7 @@ export interface AppConfigPublic {
   };
   voxcpm: {
     endpoint?: string;
+    modelDir?: string;
     autoStart?: boolean;
     concurrency?: number;
   };

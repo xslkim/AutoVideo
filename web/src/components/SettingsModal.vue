@@ -94,6 +94,9 @@
           <n-form-item label="Endpoint">
             <n-input v-model:value="form.voxcpm.endpoint" placeholder="http://127.0.0.1:8000" clearable />
           </n-form-item>
+          <n-form-item label="Model Dir">
+            <n-input v-model:value="form.voxcpm.modelDir" placeholder="/home/ubuntu/model/voxcpm/VoxCPM2" clearable />
+          </n-form-item>
           <n-form-item label="Auto Start">
             <n-switch v-model:value="form.voxcpm.autoStart" />
           </n-form-item>
@@ -189,6 +192,7 @@ const form = reactive({
   },
   voxcpm: {
     endpoint: '' as string,
+    modelDir: '' as string,
     autoStart: true as boolean,
     concurrency: 2 as number | null,
   },
@@ -233,6 +237,7 @@ async function loadConfig() {
   form.imageGen.concurrency = c.imageGen.concurrency ?? 2
 
   form.voxcpm.endpoint = c.voxcpm.endpoint ?? ''
+  form.voxcpm.modelDir = c.voxcpm.modelDir ?? ''
   form.voxcpm.autoStart = c.voxcpm.autoStart ?? true
   form.voxcpm.concurrency = c.voxcpm.concurrency ?? 2
 
@@ -272,6 +277,7 @@ async function onSave() {
     // VoxCPM
     patch.voxcpm = {
       endpoint: form.voxcpm.endpoint || null,
+      modelDir: form.voxcpm.modelDir || null,
       autoStart: form.voxcpm.autoStart,
       concurrency: form.voxcpm.concurrency,
     }
