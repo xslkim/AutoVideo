@@ -32,8 +32,14 @@ MODEL_DIR = os.environ.get(
     "VOXCPM_MODEL_DIR",
     "/home/xsl/models/VoxCPM2",
 )
+ENABLE_DENOISER = os.environ.get("VOXCPM_ENABLE_DENOISER", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
 
-logger.info(f"Loading VoxCPM2 model from {MODEL_DIR} ...")
+logger.info(f"Loading VoxCPM2 model from {MODEL_DIR} (denoiser={ENABLE_DENOISER}) ...")
 
 # Add venv site-packages to path if available
 venv_path = os.path.expanduser("~/video-agent-venv/lib/python3.12/site-packages")
@@ -44,7 +50,7 @@ from voxcpm import VoxCPM  # noqa: E402
 
 model = VoxCPM(
     voxcpm_model_path=MODEL_DIR,
-    enable_denoiser=True,
+    enable_denoiser=ENABLE_DENOISER,
     optimize=False,  # faster startup, slightly slower inference
 )
 

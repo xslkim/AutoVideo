@@ -4,6 +4,7 @@ set -euo pipefail
 VOXCPM_MODEL_DIR="${VOXCPM_MODEL_DIR:-/home/xsl/models/VoxCPM2}"
 VOXCPM_HOST="${VOXCPM_HOST:-127.0.0.1}"
 VOXCPM_PORT="${VOXCPM_PORT:-8000}"
+VOXCPM_ENABLE_DENOISER="${VOXCPM_ENABLE_DENOISER:-1}"
 
 VENV_PYTHON="/home/xsl/tts-server/.venv/bin/python"
 TTS_SERVER_DIR="/home/xsl/AutoVideo/tts-server"
@@ -24,9 +25,11 @@ fi
 
 echo "[VoxCPM] 模型目录: $VOXCPM_MODEL_DIR"
 echo "[VoxCPM] 监听地址: http://$VOXCPM_HOST:$VOXCPM_PORT"
+echo "[VoxCPM] Denoiser: $VOXCPM_ENABLE_DENOISER"
 echo "[VoxCPM] 启动中..."
 
 export VOXCPM_MODEL_DIR
+export VOXCPM_ENABLE_DENOISER
 export PYTHONPATH
 
 exec "$VENV_PYTHON" -m uvicorn server:app \
