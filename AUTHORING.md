@@ -155,6 +155,7 @@ avatarRef: ./avatar.mp4
 | `animation`（默认） | AI 根据 `--- visual ---` 描述生成 React/Remotion 动画组件 |
 | `image` | AI 根据 `--- visual ---` 描述调用文生图 API 生成图片 |
 | `image(./path)` | 使用本地图片文件，**不需要调用 API**，`--- visual ---` 描述仅作文档用途 |
+| `video(./path)` | 使用本地 mp4 视频文件，**不需要调用任何 AI 服务**，`--- visual ---` 描述仅作文档用途 |
 
 > 详细说明见 §3。新建块默认带 `@enter: fade` / `@exit: fade` / `@visual: animation`。
 
@@ -182,6 +183,7 @@ avatarRef: ./avatar.mp4
 | `@visual: animation`（默认） | **原样发送给 Claude AI**，生成 React/Remotion 动画组件 | `src/blocks/{id}/Component.tsx` |
 | `@visual: image` | **原样发送给文生图 API**，作为图片生成的 prompt | `public/images/{id}.png`（API 生成） |
 | `@visual: image(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/images/{id}.png`（直接复制本地文件） |
+| `@visual: video(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/videos/{id}.mp4`（直接复制本地文件） |
 
 ### 3.1 动画模式（默认）写法要点
 
@@ -263,7 +265,7 @@ avatarRef: ./avatar.mp4
 展示 microgpt.py lines 30-50 的代码，语法高亮
 ```
 
-### 3.2 图片模式写法要点
+### 3.2 图片与视频模式写法要点
 
 #### API 生成模式 (`@visual: image`)
 
@@ -296,6 +298,36 @@ avatarRef: ./avatar.mp4
 ```
 
 > ⚠️ 本地图片模式**不需要调用任何 AI 服务**，编译后即可直接预览和渲染。路径相对于 `script.md` 所在目录。
+
+#### 视频模式 (`@visual: video(./path)`)
+
+指定项目中已有的 mp4 视频文件，作为该块的视觉内容。适合嵌入**程序运行录屏 / 真实渲染画面 / 实拍片段**等无法用动画或图片表达的素材。
+
+```
+@visual: video(./assets/demo.mp4)
+
+--- visual ---
+（此描述仅作文档参考，实际使用 ./assets/demo.mp4 视频文件）
+程序运行时的实时渲染画面，相机环绕场景一周
+
+--- narration ---
+这是程序实际运行的画面
+```
+
+要求与说明：
+
+- 路径相对于 `script.md` 所在目录，用 `./` 开头
+- 格式为 **mp4**（H.264 编码，`yuv420p` 像素格式以确保兼容性）
+- 分辨率建议与视频输出一致（16:9 用 1920×1080）
+- `--- visual ---` 描述**仅作文档用途**，不参与生成，也不发送给任何 AI 服务
+- 视频会出现在画面中央（contain 适配，黑底），与图片模式一致
+- **时长关系**：视频片段时长与块时长（由旁白决定）通常不一致——
+  - 视频比块短：循环播放直到块结束
+  - 视频比块长：播放到块结束即截断
+  - 如需精确对齐，可用 `@duration` 指定块时长，或裁剪视频本身
+- 入场 / 退场动画（`@enter` / `@exit`）照常作用于视频画面
+
+> ⚠️ 本地视频模式**不需要调用任何 AI 服务**，编译后即可直接预览和渲染。
 
 ### 3.3 AI 生成的组件可用的 props
 
@@ -425,6 +457,15 @@ AI 生成的组件可以使用 `remotion` 包的：
 
 > 两种方式的路径都相对于 `script.md` 所在目录。
 
+### 视频
+
+用 `@visual: video(./assets/demo.mp4)` 直接将本地 mp4 作为块的视觉内容。编译后即可预览和渲染，**不需要调用 AI 服务**。视频会出现在画面中央（contain 适配，黑底）。
+
+- 路径相对于 `script.md` 所在目录
+- 格式为 mp4（H.264 + `yuv420p`）
+- 构建时复制到 `build/<slug>/public/videos/{id}.mp4`
+- 适用场景：程序运行录屏、真实渲染画面、实拍片段（详见 §3.2）
+
 ### 参考音色
 
 `meta.md` 的 `voiceRef` 字段指向 10–30 秒的清晰人声 WAV：
@@ -544,14 +585,14 @@ voiceRef: ../../B00.wav
 2. **块 ID 全局唯一**：跨文件不可重号
 3. **每个块必须包含** `--- visual ---` 和 `--- narration ---` 两个 section
 4. **section 顺序固定**：`>>>` 标题 → 指令行（可选）→ `--- visual ---` → `--- narration ---`
-5. **`@visual` 模式**：`animation`（默认，AI 生成组件）/ `image`（AI 生成图片）/ `image(./path)`（本地图片）
+5. **`@visual` 模式**：`animation`（默认，AI 生成组件）/ `image`（AI 生成图片）/ `image(./path)`（本地图片）/ `video(./path)`（本地 mp4 视频）
 6. **动画预设值**必须是：`fade` `fade-up` `fade-down` `slide-left` `slide-right` `zoom-in` `zoom-out` `none`
 7. **`@duration` 格式**：必须是 `<数字>s`，如 `8s`、`1.5s`
 8. **新建块默认指令**：`@enter: fade` / `@exit: fade` / `@visual: animation`
 9. **动画模式视觉描述用自然语言**：写得越具体（布局、颜色、时序、文字内容），AI 生成的组件越精准
 10. ⚠️ **视觉字号下限（1080p）**：主标题 ≥ 76px、副标题 ≥ 50px、正文 ≥ 28px、代码 ≥ 24px（详见 §3.1）
 11. ⚠️ **视觉布局占比**：内容区域占画布 ≥ 70%；外边距 ≤ 画布短边 6%（详见 §3.1）
-12. **图片模式 prompt**：API 生成时 visual 描述作为 prompt；本地文件时 visual 描述仅作文档（详见 §3.2）
+12. **图片 / 视频模式**：API 生成图片时 visual 描述作为 prompt；本地图片 / 本地视频时 visual 描述仅作文档（详见 §3.2）
 13. **旁白每行一句**：TTS 逐行生成，空行忽略
 14. ⚠️ **字幕单行长度上限**：中文 ≤ 50 字 / 英文 ≤ 70 字符；超长按标点拆行（详见 §4.4）
 15. **高亮语法**：`**文字**` 在字幕高亮，TTS 只读文字本身；字面 `**` 用 `\*\*`
