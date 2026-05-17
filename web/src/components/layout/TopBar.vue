@@ -117,7 +117,7 @@ import { createDiscreteApi } from 'naive-ui'
 import SettingsModal from '../SettingsModal.vue'
 import type { DoctorReport } from '../../../../server/types/api'
 
-const { message } = createDiscreteApi(['message'])
+const { message, dialog } = createDiscreteApi(['message', 'dialog'])
 
 const props = defineProps<{
   projectName: string
@@ -248,6 +248,35 @@ function onDownload() {
 
 // ── Action handlers ───────────────────────────────────────────────────
 
+/** Returns true if avatar video exists for this project */
+async function hasAvatar(): Promise<boolean> {
+  try {
+    const resp = await fetch(`/api/projects/${props.projectName}/avatar`, { method: 'HEAD' })
+    return resp.ok
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Show a confirmation dialog when no avatar is found.
+ * Resolves true  → user wants to continue without avatar
+ * Resolves false → user wants to go back and upload
+ */
+function confirmNoAvatar(): Promise<boolean> {
+  return new Promise((resolve) => {
+    dialog.warning({
+      title: '未配置头像视频',
+      content: '该项目尚未上传头像视频，无法生成口型动画。\n\n上传头像后可在左下角叠加说话的人物头像。',
+      positiveText: '继续（不用头像）',
+      negativeText: '返回去上传',
+      onPositiveClick: () => resolve(true),
+      onNegativeClick: () => resolve(false),
+      onClose:        () => resolve(false),
+    })
+  })
+}
+
 async function onCompile() {
   compileLoading.value = true
   const task = await taskStore.createTask(props.projectName, 'compile')
@@ -258,6 +287,11 @@ async function onCompile() {
 }
 
 async function onBuild() {
+  const avatar = await hasAvatar()
+  if (!avatar) {
+    const proceed = await confirmNoAvatar()
+    if (!proceed) return
+  }
   buildLoading.value = true
   const task = await taskStore.createTask(props.projectName, 'build')
   buildLoading.value = false
@@ -267,6 +301,11 @@ async function onBuild() {
 }
 
 async function onMerge() {
+  const avatar = await hasAvatar()
+  if (!avatar) {
+    const proceed = await confirmNoAvatar()
+    if (!proceed) return
+  }
   mergeLoading.value = true
   const task = await taskStore.createTask(props.projectName, 'merge')
   mergeLoading.value = false

@@ -466,6 +466,31 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
         // This does NOT re-compile; script.json is left unchanged.
         snapshotSourceFiles(projectDir, outDir);
 
+        // If the snapshot has an avatarRef but script.json doesn't (e.g. avatar
+        // was added after the last compile), patch script.json so the lipsync
+        // overlay step runs correctly.
+        {
+          const snapshotMetaPath = path.join(outDir, '_snapshot', 'meta.md');
+          if (fs.existsSync(snapshotMetaPath)) {
+            const snapshotMeta = fs.readFileSync(snapshotMetaPath, 'utf-8');
+            const avatarMatch = snapshotMeta.match(/^avatarRef:\s*(.+)$/m);
+            if (avatarMatch) {
+              const snapshotAvatarPath = path.resolve(
+                path.join(outDir, '_snapshot'),
+                avatarMatch[1].trim(),
+              );
+              if (fs.existsSync(snapshotAvatarPath)) {
+                const scriptRaw = JSON.parse(fs.readFileSync(scriptPath, 'utf-8')) as Record<string, any>;
+                if (!scriptRaw?.meta?.avatarRef) {
+                  scriptRaw.meta.avatarRef = snapshotAvatarPath;
+                  fs.writeFileSync(scriptPath, JSON.stringify(scriptRaw, null, 2), 'utf-8');
+                  console.log(`[taskRunner] Patched script.json with avatarRef: ${snapshotAvatarPath}`);
+                }
+              }
+            }
+          }
+        }
+
         // merge progress mapping: concat 60 / loudnorm 30 / qa 10
         await render({
           scriptPath,

@@ -125,7 +125,7 @@
           </n-button>
         </n-dropdown>
 
-        <n-dropdown v-if="!imageSource" trigger="click" :options="visualMenuOpts" @select="(k: string) => onBlockAction(k, 'visuals')">
+        <n-dropdown v-if="!imageSource && visualMode !== 'video'" trigger="click" :options="visualMenuOpts" @select="(k: string) => onBlockAction(k, 'visuals')">
           <n-button size="small" block :disabled="taskStore.hasActiveStage('visuals')" :loading="actionLoading === 'visuals'">
             {{ visualMode === 'image' ? '生成图片' : '生成视觉' }}
           </n-button>
@@ -166,7 +166,7 @@ const taskStore = useTaskStore()
 const props = defineProps<{
   projectName: string
   blockId: string
-  visualMode: 'animation' | 'image'
+  visualMode: 'animation' | 'image' | 'video'
   imageSource?: string
 }>()
 

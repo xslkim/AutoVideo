@@ -1,21 +1,41 @@
 /**
  * AutoVideo — Theme tokens & font loading
  *
- * Implements the Theme interface from §4 and loads CJK + emoji fonts
- * via @remotion/google-fonts for consistent rendering in Remotion.
+ * Implements the Theme interface from §4.
+ *
+ * Font strategy: use local system fonts via @font-face aliases.
+ * Avoids network requests to Google Fonts (fails in offline/WSL2 envs).
+ * Requires: fonts-noto-cjk installed (sudo apt-get install fonts-noto-cjk)
  */
-
-import { loadFont as loadNotoSansSC } from "@remotion/google-fonts/NotoSansSC";
-import { loadFont as loadNotoColorEmoji } from "@remotion/google-fonts/NotoColorEmoji";
 
 import type { Theme } from "../../src/types/script.js";
 
 // ---------------------------------------------------------------------------
-// Font loading — eager, side-effect
+// Font loading — inject @font-face aliases pointing to local system fonts
 // ---------------------------------------------------------------------------
 
-loadNotoSansSC();
-loadNotoColorEmoji();
+if (typeof document !== "undefined") {
+  const style = document.createElement("style");
+  style.textContent = `
+    /* Alias "Noto Sans SC" → system "Noto Sans CJK SC" (fonts-noto-cjk) */
+    @font-face {
+      font-family: 'Noto Sans SC';
+      src: local('Noto Sans CJK SC'),
+           local('Noto Sans CJK SC Regular');
+      font-style: normal;
+      font-weight: 100 900;
+    }
+    /* Alias "Noto Sans" → same CJK font as generic fallback */
+    @font-face {
+      font-family: 'Noto Sans';
+      src: local('Noto Sans CJK SC'),
+           local('Noto Sans');
+      font-style: normal;
+      font-weight: 100 900;
+    }
+  `;
+  document.head.appendChild(style);
+}
 
 // ---------------------------------------------------------------------------
 // dark-code theme

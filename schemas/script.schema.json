@@ -71,13 +71,17 @@
           },
           "visualMode": {
             "type": "string",
-            "enum": ["animation", "image"],
+            "enum": ["animation", "image", "video"],
             "default": "animation",
-            "description": "Visual generation mode: animation (Claude-generated Component.tsx) or image (AI-generated PNG)"
+            "description": "Visual generation mode: animation (Claude-generated Component.tsx), image (AI-generated PNG), or video (local mp4 file)"
           },
           "imageSource": {
             "type": "string",
             "description": "Path to the source image file (e.g., 'assets/abc12345.png'), set during compile for image mode blocks"
+          },
+          "videoSource": {
+            "type": "string",
+            "description": "Path to the source video file (e.g., 'assets/abc12345.mp4'), set during compile for video mode blocks"
           },
           "enter": {
             "type": "string",
@@ -103,6 +107,10 @@
               "imagePath": {
                 "type": "string",
                 "description": "Path to generated PNG image (filled by image-gen stage, POSIX relative to build dir)"
+              },
+              "videoPath": {
+                "type": "string",
+                "description": "Path to video file (filled by compile stage for video mode, POSIX relative to build dir)"
               }
             }
           },

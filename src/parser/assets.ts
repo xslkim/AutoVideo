@@ -31,12 +31,14 @@ export interface BlockForAssets {
   sourceFilePath: string;
   /** Image source path for image mode (e.g. "./assets/hero.png"), relative to source .md */
   imageSource?: string;
+  /** Video source path for video mode (e.g. "./assets/demo.mp4"), relative to source .md */
+  videoSource?: string;
 }
 
 /** Result of processing assets for all blocks */
 export interface AssetProcessResult {
-  /** Updated blocks with visual descriptions and imageSource rewritten */
-  blocks: Array<{ id: string; visualDescription: string; sourceFilePath: string; imageSource?: string }>;
+  /** Updated blocks with visual descriptions, imageSource and videoSource rewritten */
+  blocks: Array<{ id: string; visualDescription: string; sourceFilePath: string; imageSource?: string; videoSource?: string }>;
   /** Assets manifest: relative POSIX path (to project.json dir) → "assets/{hash}.ext" */
   assets: Record<string, string>;
 }
@@ -237,9 +239,10 @@ export function processAssets(
   const updatedBlocks = blocks.map((block) => {
     let description = block.visualDescription;
     let imageSource = block.imageSource;
+    let videoSource = block.videoSource;
     const sourceDir = dirname(block.sourceFilePath);
 
-    // Collect paths from both visualDescription and imageSource
+    // Collect paths from both visualDescription, imageSource, and videoSource
     const allRawPaths: string[] = [];
     const pathRegex = new RegExp(LOCAL_PATH_REGEX.source, "gm");
     const descMatches = [...description.matchAll(pathRegex)];
@@ -249,9 +252,12 @@ export function processAssets(
     if (imageSource && /^\.\.?\//.test(imageSource)) {
       allRawPaths.push(imageSource);
     }
+    if (videoSource && /^\.\.?\//.test(videoSource)) {
+      allRawPaths.push(videoSource);
+    }
 
     if (allRawPaths.length === 0) {
-      return { id: block.id, visualDescription: description, sourceFilePath: block.sourceFilePath, imageSource };
+      return { id: block.id, visualDescription: description, sourceFilePath: block.sourceFilePath, imageSource, videoSource };
     }
 
     // Build unique file references for this block (dedup by absPath)
@@ -345,11 +351,18 @@ export function processAssets(
       processedImageSource = rawPathToHashName.get(imageSource);
     }
 
+    // Rewrite videoSource if it was a local path
+    let processedVideoSource = videoSource;
+    if (videoSource && rawPathToHashName.has(videoSource)) {
+      processedVideoSource = rawPathToHashName.get(videoSource);
+    }
+
     return {
       id: block.id,
       visualDescription: description,
       sourceFilePath: block.sourceFilePath,
       ...(processedImageSource !== undefined ? { imageSource: processedImageSource } : {}),
+      ...(processedVideoSource !== undefined ? { videoSource: processedVideoSource } : {}),
     };
   });
 

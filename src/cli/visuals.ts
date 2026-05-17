@@ -313,6 +313,12 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
 
       const blockLabel = block.id;
 
+      // ── Video mode: already set up by compile, skip ──────────────────
+      if (block.visualMode === 'video') {
+        console.log(`  Block ${blockLabel}: local video already set up by compile`);
+        return;
+      }
+
       // ── Image mode: local file or API generation ─────────────────────
       if (block.visualMode === 'image') {
         console.log(`Processing block ${blockLabel} (image mode)...`);

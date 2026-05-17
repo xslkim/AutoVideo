@@ -201,6 +201,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
     visualDescription: b.visualDescription,
     sourceFilePath: b.sourceFilePath,
     ...(b.imageSource !== undefined ? { imageSource: b.imageSource } : {}),
+    ...(b.videoSource !== undefined ? { videoSource: b.videoSource } : {}),
   }));
 
   if (verbose)
@@ -234,6 +235,9 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       visualMode: raw.visualMode,
       ...(processedBlock?.imageSource !== undefined
         ? { imageSource: processedBlock.imageSource }
+        : {}),
+      ...(processedBlock?.videoSource !== undefined
+        ? { videoSource: processedBlock.videoSource }
         : {}),
       visual: {
         description: processedBlock
@@ -292,6 +296,54 @@ export default Component;
       mkdirSync(blockDir, { recursive: true });
       const componentFile = join(blockDir, 'Component.tsx');
       writeFileSync(componentFile, WRAPPER_TSX(block.id), 'utf-8');
+      block.visual.componentPath = `src/blocks/${block.id}/Component.tsx`;
+    }
+  }
+
+  // ── Step 7.6: Set up local video blocks ────────────────────────────────
+  // For video-mode blocks with videoSource, the video file already exists
+  // locally. Copy it to public/videos/{id}.mp4 and write the wrapper
+  // Component.tsx so the block is fully ready for preview and render
+  // without needing the visuals stage.
+  const VIDEO_WRAPPER_TSX = (id: string) => `import React from "react";
+import { AbsoluteFill, Video, staticFile } from "remotion";
+
+interface AnimationProps {
+  frame: number; durationInFrames: number; width: number; height: number;
+  subtitleSafeBottom: number; theme: any; fps: number;
+}
+
+const Component: React.FC<AnimationProps> = () => (
+  <AbsoluteFill style={{ backgroundColor: "#000" }}>
+    <Video
+      src={staticFile("videos/${id}.mp4")}
+      style={{ width: "100%", height: "100%", objectFit: "contain" }}
+      loop
+    />
+  </AbsoluteFill>
+);
+
+export default Component;
+`;
+
+  for (const block of scriptBlocks) {
+    if (block.visualMode === 'video' && block.videoSource) {
+      const videosDir = join(outDir, 'public', 'videos');
+      mkdirSync(videosDir, { recursive: true });
+      const srcPath = join(outDir, 'public', block.videoSource);
+      const destPath = join(videosDir, `${block.id}.mp4`);
+      if (existsSync(srcPath)) {
+        copyFileSync(srcPath, destPath);
+        block.visual.videoPath = `public/videos/${block.id}.mp4`;
+      } else if (verbose) {
+        console.warn(`[compile] Local video not found for ${block.id}: ${srcPath}`);
+      }
+
+      // Write wrapper Component.tsx so rendering works without visuals stage
+      const blockDir = join(outDir, 'src', 'blocks', block.id);
+      mkdirSync(blockDir, { recursive: true });
+      const componentFile = join(blockDir, 'Component.tsx');
+      writeFileSync(componentFile, VIDEO_WRAPPER_TSX(block.id), 'utf-8');
       block.visual.componentPath = `src/blocks/${block.id}/Component.tsx`;
     }
   }

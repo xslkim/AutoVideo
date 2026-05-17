@@ -18,6 +18,7 @@
       >
         <n-radio-button value="animation">动画</n-radio-button>
         <n-radio-button value="image">图片</n-radio-button>
+        <n-radio-button value="video">视频</n-radio-button>
       </n-radio-group>
       <n-spin v-if="modeSwitching" size="small" />
     </div>
@@ -167,7 +168,7 @@ async function onModeChange(mode: VisualMode) {
 
   if (result.ok) {
     currentMode.value = mode
-    message.success(`已切换为 ${mode === 'animation' ? '动画' : '图片'} 模式 (建议重新生成视觉)`, { duration: 3000 })
+    message.success(`已切换为 ${mode === 'animation' ? '动画' : mode === 'image' ? '图片' : '视频'} 模式 (建议重新生成视觉)`, { duration: 3000 })
     emit('visual-mode-changed', mode)
     emit('block-saved')
   } else if (result.conflict) {

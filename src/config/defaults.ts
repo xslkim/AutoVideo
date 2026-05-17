@@ -63,6 +63,10 @@ export interface RenderConfig {
   framesConcurrencyPerBlock: number | null;
   /** Browser executable path; null = Remotion auto-detect */
   browser: string | null;
+  /** Headless browser setup timeout in ms (default 120000); increase for slow WSL2 */
+  browserTimeoutMs: number;
+  /** Allow Chromium multi-process on Linux; false = --single-process (better for WSL2) */
+  enableMultiProcessOnLinux: boolean;
   /** Minimum hold duration (seconds) for timing calculation */
   minHoldSec: number;
   /** Default enter animation duration (seconds) */
@@ -137,6 +141,8 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     blockConcurrency: 4,
     framesConcurrencyPerBlock: null,
     browser: null,
+    browserTimeoutMs: 120000,
+    enableMultiProcessOnLinux: false,
     minHoldSec: 1.5,
     defaultEnterSec: 0.5,
     defaultExitSec: 0.3,

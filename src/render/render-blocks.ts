@@ -92,6 +92,13 @@ export async function renderBlocks(
     renderConfig.framesConcurrencyPerBlock ??
     Math.max(1, Math.floor(cpus / blockConcurrency));
 
+  // Browser timeout: default 120s to handle slow WSL2 / resource-constrained envs
+  const browserTimeoutMs = renderConfig.browserTimeoutMs ?? 120000;
+  // browserExecutable: null = Remotion auto-detect
+  const browserExecutable = renderConfig.browser ?? null;
+  // WSL2 / Linux: default to single-process mode to avoid multi-process startup failures
+  const enableMultiProcessOnLinux = renderConfig.enableMultiProcessOnLinux ?? false;
+
   const partialsDir = path.join(buildDir, 'output', 'partials');
   ensureDir(partialsDir);
 
@@ -214,6 +221,9 @@ export async function renderBlocks(
             serveUrl,
             id: 'Block',
             inputProps: { blockId },
+            timeoutInMilliseconds: browserTimeoutMs,
+            browserExecutable,
+            chromiumOptions: { enableMultiProcessOnLinux },
           });
 
           // Render the block
@@ -225,6 +235,9 @@ export async function renderBlocks(
             concurrency: framesConcurrencyPerBlock,
             codec: 'h264',
             cancelSignal,
+            timeoutInMilliseconds: browserTimeoutMs,
+            browserExecutable,
+            chromiumOptions: { enableMultiProcessOnLinux },
             onProgress: ({ progress }) => {
               if (attempt === 1) {
                 const pct = (progress * 100).toFixed(0);

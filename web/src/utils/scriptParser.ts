@@ -13,8 +13,9 @@ export interface ParsedBlock {
   id: string
   title: string
   line: number          // 1-based
-  visualMode: 'animation' | 'image'
+  visualMode: 'animation' | 'image' | 'video'
   imageSource?: string
+  videoSource?: string
   enter: string
   exit: string
 }
@@ -47,8 +48,9 @@ export function parseScript(scriptMd: string): ParseResult {
     id: string
     title: string
     line: number
-    visualMode: 'animation' | 'image'
+    visualMode: 'animation' | 'image' | 'video'
     imageSource?: string
+    videoSource?: string
     enter: string
     exit: string
   }
@@ -90,14 +92,20 @@ export function parseScript(scriptMd: string): ParseResult {
           if (imgMatch) {
             current.visualMode = 'image'
             current.imageSource = imgMatch[1].trim()
-          } else if (value === 'animation' || value === 'image') {
-            current.visualMode = value
           } else {
-            warnings.push({
-              line: lineNum,
-              message: `@visual 值非法: "${value}"，将降级为 animation`,
-            })
-            current.visualMode = 'animation'
+            const vidMatch = value.match(/^video\((.+?)\)$/)
+            if (vidMatch) {
+              current.visualMode = 'video'
+              current.videoSource = vidMatch[1].trim()
+            } else if (value === 'animation' || value === 'image' || value === 'video') {
+              current.visualMode = value
+            } else {
+              warnings.push({
+                line: lineNum,
+                message: `@visual 值非法: "${value}"，将降级为 animation`,
+              })
+              current.visualMode = 'animation'
+            }
           }
         } else if (key === 'enter') {
           current.enter = value
@@ -117,6 +125,7 @@ export function parseScript(scriptMd: string): ParseResult {
       line: rb.line,
       visualMode: rb.visualMode,
       ...(rb.imageSource !== undefined ? { imageSource: rb.imageSource } : {}),
+      ...(rb.videoSource !== undefined ? { videoSource: rb.videoSource } : {}),
       enter: rb.enter,
       exit: rb.exit,
     })),
