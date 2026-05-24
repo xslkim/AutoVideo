@@ -1,11 +1,11 @@
 /**
- * Image Generation Module — Generate PNG images from visual descriptions
- * using OpenAI-compatible image generation API.
+ * Image Generation Module — Generate PNG images from visual descriptions.
  *
- * Protocol: POST {baseURL}/v1/images/generations
- * Supports b64_json and url response formats.
+ * Supports:
+ * - openai: POST {baseURL}/v1/images/generations (b64_json or url)
+ * - sensenova: POST {baseURL}/api/t2i (raw PNG, SenseNova-U1 web_t2i)
  *
- * Cache key: sha256(prompt + model + size + baseURL)
+ * Cache key: sha256(prompt + model + size + baseURL + provider + provider-specific params)
  *
  * Output:
  *   build/{slug}/public/images/{id}.png
@@ -14,54 +14,41 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import { type CacheStore, type ImageKey } from "../cache/store.js";
+import type { ImageGenProvider } from "../config/defaults.js";
 import type { Block, ProgressEvent } from "../types/script.js";
 
 // ── Runtime config (subset of AutoVideoConfig.imageGen with runtime-only fields) ─
 
 export interface ImageGenConfig {
-  /** API base URL (e.g. https://api.openai.com) */
+  provider?: ImageGenProvider;
   baseURL?: string;
-  /** API key */
   apiKey?: string;
-  /** Model identifier */
   model: string;
-  /** Output image size override (e.g. "1920x1080"); computed from meta.aspect if not set */
   size?: string;
-  /** Request timeout in ms */
   timeoutMs: number;
-  /** Max concurrent image generation calls */
   concurrency: number;
+  numSteps?: number;
+  cfgScale?: number;
 }
 
 // ── Options ────────────────────────────────────────────────────────────────
 
 export interface GenerateImageOptions {
-  /** Image generation configuration */
   config: ImageGenConfig;
-  /** Build output directory (where script.json lives) */
   buildOutDir: string;
-  /** Script meta for aspect-to-size mapping */
   meta: { aspect: string; width: number; height: number };
-  /** Cache store instance */
   cacheStore: CacheStore;
-  /** Force cache miss */
   force?: boolean;
-  /** Abort signal for cancellation */
   signal?: AbortSignal;
-  /** Progress callback */
   onProgress?: (event: ProgressEvent) => void;
 }
 
 // ── Result ─────────────────────────────────────────────────────────────────
 
 export interface ImageGenResult {
-  /** Relative POSIX path to the generated image */
   imagePath: string;
-  /** Relative POSIX path to the wrapper Component.tsx */
   componentPath: string;
-  /** Whether the result came from cache */
   cacheHit: boolean;
 }
 
@@ -84,6 +71,54 @@ const ASPECT_TO_SIZE: Record<string, string> = {
   "1:1": "1024x1024",
 };
 
+const SENSENOVA_DEFAULT_BASE_URL = "http://127.0.0.1:8765";
+
+// ── Provider resolution ────────────────────────────────────────────────────
+
+/** Infer provider from explicit config or base URL heuristics. */
+export function resolveImageGenProvider(config: ImageGenConfig): ImageGenProvider {
+  if (config.provider === "openai" || config.provider === "sensenova") {
+    return config.provider;
+  }
+
+  const baseURL = (config.baseURL || "").toLowerCase();
+  if (
+    baseURL.includes(":8765")
+    || baseURL.includes("/api/t2i")
+    || baseURL.includes("sensenova")
+  ) {
+    return "sensenova";
+  }
+
+  return "openai";
+}
+
+function resolveBaseURL(config: ImageGenConfig, provider: ImageGenProvider): string {
+  if (config.baseURL) return config.baseURL.replace(/\/+$/, "");
+  return provider === "sensenova" ? SENSENOVA_DEFAULT_BASE_URL : "https://api.openai.com";
+}
+
+function cacheModel(config: ImageGenConfig, provider: ImageGenProvider): string {
+  if (provider === "sensenova") return "sensenova-u1";
+  return config.model;
+}
+
+function buildImageKey(
+  prompt: string,
+  model: string,
+  size: string,
+  baseURL: string,
+  provider: ImageGenProvider,
+  config: ImageGenConfig,
+): ImageKey {
+  const key: ImageKey = { prompt, model, size, baseURL, provider };
+  if (provider === "sensenova") {
+    key.numSteps = config.numSteps ?? 15;
+    key.cfgScale = config.cfgScale ?? 4.0;
+  }
+  return key;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function resolveSize(aspect: string, override?: string): string {
@@ -93,10 +128,17 @@ function resolveSize(aspect: string, override?: string): string {
   return "1920x1080";
 }
 
-/**
- * Build the wrapper Component.tsx for an image-mode block.
- * Uses staticFile("images/{id}.png") so Remotion resolves the PNG from publicDir.
- */
+function parseSize(size: string): { width: number; height: number } {
+  const match = /^(\d+)x(\d+)$/i.exec(size.trim());
+  if (!match) {
+    throw new ImageGenError(
+      `Invalid image size "${size}", expected WIDTHxHEIGHT`,
+      "ERR_IMAGE_GEN_BAD_SIZE",
+    );
+  }
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
 function buildWrapperComponent(blockId: string): string {
   return `import React from "react";
 import { AbsoluteFill, Img, staticFile } from "remotion";
@@ -119,15 +161,65 @@ export default Component;
 `;
 }
 
+function createFetchController(
+  timeoutMs: number,
+  signal?: AbortSignal,
+): { controller: AbortController; clear: () => void } {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timeoutId);
+      controller.abort(signal.reason);
+    } else {
+      signal.addEventListener(
+        "abort",
+        () => controller.abort(signal.reason),
+        { once: true },
+      );
+    }
+  }
+
+  return {
+    controller,
+    clear: () => clearTimeout(timeoutId),
+  };
+}
+
+function wrapFetchError(err: unknown, signal: AbortSignal | undefined, timeoutMs: number): never {
+  if (err instanceof ImageGenError) throw err;
+  if (err instanceof Error && err.name === "AbortError") {
+    if (signal?.aborted) {
+      throw new ImageGenError("Image generation cancelled", "ERR_CANCELLED");
+    }
+    throw new ImageGenError(
+      `Image generation timed out after ${timeoutMs}ms`,
+      "ERR_IMAGE_GEN_TIMEOUT",
+    );
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  throw new ImageGenError(
+    `Image generation HTTP error: ${message}`,
+    "ERR_IMAGE_GEN_HTTP_ERROR",
+  );
+}
+
+async function readHttpError(response: Response): Promise<string> {
+  const contentType = response.headers.get("content-type") || "";
+  try {
+    if (contentType.includes("application/json")) {
+      const data = await response.json() as { detail?: string; error?: { message?: string } };
+      return data.detail || data.error?.message || JSON.stringify(data).slice(0, 200);
+    }
+    return (await response.text()).slice(0, 200);
+  } catch {
+    return response.statusText;
+  }
+}
+
 // ── Local image function ────────────────────────────────────────────────────
 
-/**
- * Use a local image file (already processed by compile stage to
- * public/assets/{hash}.ext) as the block's visual output.
- *
- * Copies the image to public/images/{id}.png and writes the wrapper
- * Component.tsx — no API calls involved.
- */
 export async function generateLocalImage(
   block: Block,
   options: { buildOutDir: string },
@@ -142,7 +234,6 @@ export async function generateLocalImage(
   const relativeImagePath = `public/images/${block.id}.png`;
   const relativeComponentPath = `src/blocks/${block.id}/Component.tsx`;
 
-  // Locate the source image in public/assets/
   const srcImagePath = path.join(buildOutDir, "public", block.imageSource!);
 
   if (!fs.existsSync(srcImagePath)) {
@@ -152,44 +243,27 @@ export async function generateLocalImage(
     );
   }
 
-  // Copy to public/images/
   fs.mkdirSync(imagesDir, { recursive: true });
   fs.copyFileSync(srcImagePath, imageFile);
 
-  // Write wrapper Component.tsx
-  const wrapperCode = buildWrapperComponent(block.id);
   fs.mkdirSync(blockDir, { recursive: true });
-  fs.writeFileSync(componentFile, wrapperCode, "utf-8");
+  fs.writeFileSync(componentFile, buildWrapperComponent(block.id), "utf-8");
 
-  // Update block in place
   block.visual.imagePath = relativeImagePath;
   block.visual.componentPath = relativeComponentPath;
 
   return { imagePath: relativeImagePath, componentPath: relativeComponentPath, cacheHit: false };
 }
 
-// ── API image generation ─────────────────────────────────────────────────────
+// ── Remote backends ─────────────────────────────────────────────────────────
 
-/**
- * Generate a PNG image from a block's visual description using an
- * OpenAI-compatible image generation API.
- *
- * On cache hit: copies cached PNG to build dir, writes wrapper TSX.
- * On cache miss: calls API, saves PNG, caches PNG, writes wrapper TSX.
- *
- * @returns {imagePath, componentPath, cacheHit}
- * @throws {ImageGenError} on key missing, timeout, HTTP error, or bad response
- */
-export async function generateImage(
-  block: Block,
-  options: GenerateImageOptions,
-): Promise<ImageGenResult> {
-  const { config, buildOutDir, meta, cacheStore, force, signal, onProgress } = options;
-
-  const prompt = block.visual.description;
-  const size = resolveSize(meta.aspect, config.size);
-  const baseURL = config.baseURL || "https://api.openai.com";
-
+async function fetchOpenAIImage(
+  prompt: string,
+  size: string,
+  config: ImageGenConfig,
+  baseURL: string,
+  signal: AbortSignal | undefined,
+): Promise<Buffer> {
   if (!config.apiKey) {
     throw new ImageGenError(
       "Image generation API key is required but not provided.",
@@ -197,7 +271,143 @@ export async function generateImage(
     );
   }
 
-  // Check abort before starting
+  const { controller, clear } = createFetchController(config.timeoutMs, signal);
+
+  try {
+    const response = await fetch(`${baseURL}/v1/images/generations`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        prompt,
+        size,
+        n: 1,
+        response_format: "b64_json",
+      }),
+      signal: controller.signal,
+    });
+    clear();
+
+    if (!response.ok) {
+      const detail = await readHttpError(response);
+      throw new ImageGenError(
+        `Image generation API returned ${response.status}: ${detail}`,
+        `ERR_IMAGE_GEN_HTTP_${response.status}`,
+      );
+    }
+
+    const data = await response.json() as {
+      data?: Array<{ b64_json?: string; url?: string }>;
+    };
+
+    if (data.data?.[0]?.b64_json) {
+      return Buffer.from(data.data[0].b64_json, "base64");
+    }
+
+    if (data.data?.[0]?.url) {
+      const imgResponse = await fetch(data.data[0].url, { signal: controller.signal });
+      if (!imgResponse.ok) {
+        throw new ImageGenError(
+          `Failed to download image from URL: HTTP ${imgResponse.status}`,
+          `ERR_IMAGE_GEN_HTTP_${imgResponse.status}`,
+        );
+      }
+      return Buffer.from(await imgResponse.arrayBuffer());
+    }
+
+    throw new ImageGenError(
+      "Image generation API response missing data[0].b64_json or data[0].url",
+      "ERR_IMAGE_GEN_BAD_RESPONSE",
+    );
+  } catch (err) {
+    clear();
+    wrapFetchError(err, signal, config.timeoutMs);
+  }
+}
+
+async function fetchSenseNovaImage(
+  prompt: string,
+  size: string,
+  config: ImageGenConfig,
+  baseURL: string,
+  signal: AbortSignal | undefined,
+): Promise<Buffer> {
+  const { width, height } = parseSize(size);
+  const { controller, clear } = createFetchController(config.timeoutMs, signal);
+
+  try {
+    const response = await fetch(`${baseURL}/api/t2i`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        width,
+        height,
+        num_steps: config.numSteps ?? 15,
+        cfg_scale: config.cfgScale ?? 4.0,
+      }),
+      signal: controller.signal,
+    });
+    clear();
+
+    const contentType = response.headers.get("content-type") || "";
+
+    if (!response.ok) {
+      const detail = await readHttpError(response);
+      throw new ImageGenError(
+        `SenseNova t2i returned ${response.status}: ${detail}`,
+        `ERR_IMAGE_GEN_HTTP_${response.status}`,
+      );
+    }
+
+    if (!contentType.includes("image/png")) {
+      const detail = contentType.includes("json")
+        ? await readHttpError(response)
+        : `unexpected content-type ${contentType}`;
+      throw new ImageGenError(
+        `SenseNova t2i bad response: ${detail}`,
+        "ERR_IMAGE_GEN_BAD_RESPONSE",
+      );
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  } catch (err) {
+    clear();
+    wrapFetchError(err, signal, config.timeoutMs);
+  }
+}
+
+async function fetchRemoteImage(
+  prompt: string,
+  size: string,
+  config: ImageGenConfig,
+  provider: ImageGenProvider,
+  baseURL: string,
+  signal: AbortSignal | undefined,
+): Promise<Buffer> {
+  if (provider === "sensenova") {
+    return fetchSenseNovaImage(prompt, size, config, baseURL, signal);
+  }
+  return fetchOpenAIImage(prompt, size, config, baseURL, signal);
+}
+
+// ── API image generation ─────────────────────────────────────────────────────
+
+export async function generateImage(
+  block: Block,
+  options: GenerateImageOptions,
+): Promise<ImageGenResult> {
+  const { config, buildOutDir, meta, cacheStore, force, signal, onProgress } = options;
+
+  const prompt = block.visual.description;
+  const provider = resolveImageGenProvider(config);
+  const baseURL = resolveBaseURL(config, provider);
+  const size = resolveSize(meta.aspect, config.size);
+  const model = cacheModel(config, provider);
+
   if (signal?.aborted) {
     throw new ImageGenError("Image generation cancelled", "ERR_CANCELLED");
   }
@@ -209,7 +419,6 @@ export async function generateImage(
     blockId: block.id,
   });
 
-  // Directories and paths
   const imagesDir = path.join(buildOutDir, "public", "images");
   const blockDir = path.join(buildOutDir, "src", "blocks", block.id);
   const imageFile = path.join(imagesDir, `${block.id}.png`);
@@ -218,15 +427,17 @@ export async function generateImage(
   const relativeImagePath = `public/images/${block.id}.png`;
   const relativeComponentPath = `src/blocks/${block.id}/Component.tsx`;
 
-  // Check cache (unless --force)
+  const imageKey: ImageKey = buildImageKey(
+    prompt,
+    model,
+    size,
+    baseURL,
+    provider,
+    config,
+  );
+
   let cacheHit = false;
   if (!force) {
-    const imageKey: ImageKey = {
-      prompt,
-      model: config.model,
-      size,
-      baseURL,
-    };
     const cachedPath = await cacheStore.get("images", imageKey);
     if (cachedPath) {
       fs.mkdirSync(imagesDir, { recursive: true });
@@ -236,168 +447,39 @@ export async function generateImage(
   }
 
   if (!cacheHit) {
-    // ---- HTTP call to OpenAI-compatible image generation API ----
-
     onProgress?.({
       percent: 20,
-      step: `请求文生图 API: ${block.id}`,
+      step: provider === "sensenova"
+        ? `请求 SenseNova 文生图: ${block.id}`
+        : `请求文生图 API: ${block.id}`,
       stage: "visuals",
       blockId: block.id,
     });
 
-    const url = `${baseURL}/v1/images/generations`;
-    const body = JSON.stringify({
-      model: config.model,
+    const imageBuffer = await fetchRemoteImage(
       prompt,
       size,
-      n: 1,
-      response_format: "b64_json",
-    });
+      config,
+      provider,
+      baseURL,
+      signal,
+    );
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), config.timeoutMs);
-
-    // Forward external signal to timeout controller
-    if (signal) {
-      if (signal.aborted) {
-        clearTimeout(timeoutId);
-        throw new ImageGenError("Image generation cancelled", "ERR_CANCELLED");
-      }
-      signal.addEventListener(
-        "abort",
-        () => controller.abort(signal.reason),
-        { once: true },
-      );
-    }
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-    } catch (err: any) {
-      clearTimeout(timeoutId);
-      if (err.name === "AbortError") {
-        if (signal?.aborted) {
-          throw new ImageGenError("Image generation cancelled", "ERR_CANCELLED");
-        }
-        throw new ImageGenError(
-          `Image generation timed out after ${config.timeoutMs}ms`,
-          "ERR_IMAGE_GEN_TIMEOUT",
-        );
-      }
-      throw new ImageGenError(
-        `Image generation HTTP error: ${err.message}`,
-        "ERR_IMAGE_GEN_HTTP_ERROR",
-      );
-    }
-
-    if (!response.ok) {
-      const status = response.status;
-      let errorBody = "";
-      try {
-        errorBody = await response.text();
-      } catch {
-        // ignore body read errors
-      }
-      throw new ImageGenError(
-        `Image generation API returned ${status}: ${errorBody.slice(0, 200)}`,
-        `ERR_IMAGE_GEN_HTTP_${status}`,
-      );
-    }
-
-    // Parse response
-    let data: any;
-    try {
-      data = await response.json();
-    } catch {
-      throw new ImageGenError(
-        "Failed to parse image generation API response",
-        "ERR_IMAGE_GEN_BAD_RESPONSE",
-      );
-    }
-
-    // Extract image data — support both b64_json and url
-    let imageBuffer: Buffer;
-
-    if (data.data?.[0]?.b64_json) {
-      imageBuffer = Buffer.from(data.data[0].b64_json, "base64");
-    } else if (data.data?.[0]?.url) {
-      // Download the image from the returned URL
-      onProgress?.({
-        percent: 50,
-        step: `下载生成图片: ${block.id}`,
-        stage: "visuals",
-        blockId: block.id,
-      });
-
-      try {
-        const imgResponse = await fetch(data.data[0].url, {
-          signal: controller.signal,
-        });
-        if (!imgResponse.ok) {
-          throw new ImageGenError(
-            `Failed to download image from URL: HTTP ${imgResponse.status}`,
-            `ERR_IMAGE_GEN_HTTP_${imgResponse.status}`,
-          );
-        }
-        const arrayBuffer = await imgResponse.arrayBuffer();
-        imageBuffer = Buffer.from(arrayBuffer);
-      } catch (err: any) {
-        if (err instanceof ImageGenError) throw err;
-        if (err.name === "AbortError") {
-          if (signal?.aborted) {
-            throw new ImageGenError("Image generation cancelled", "ERR_CANCELLED");
-          }
-          throw new ImageGenError(
-            "Image download timed out",
-            "ERR_IMAGE_GEN_TIMEOUT",
-          );
-        }
-        throw new ImageGenError(
-          `Failed to download image from URL: ${err.message}`,
-          "ERR_IMAGE_GEN_BAD_RESPONSE",
-        );
-      }
-    } else {
-      throw new ImageGenError(
-        "Image generation API response missing data[0].b64_json or data[0].url",
-        "ERR_IMAGE_GEN_BAD_RESPONSE",
-      );
-    }
-
-    // Write PNG to build output directory
     fs.mkdirSync(imagesDir, { recursive: true });
     fs.writeFileSync(imageFile, imageBuffer);
 
-    // Cache the PNG for future reuse
-    const imageKey: ImageKey = {
-      prompt,
-      model: config.model,
-      size,
-      baseURL,
-    };
     await cacheStore.put("images", imageKey, imageFile, {
       prompt,
-      model: config.model,
+      model,
       size,
       baseURL,
+      provider,
     });
   }
 
-  // Write wrapper Component.tsx (always, even on cache hit — it's cheap to regenerate)
   fs.mkdirSync(blockDir, { recursive: true });
-  const wrapperTsx = buildWrapperComponent(block.id);
-  fs.writeFileSync(componentFile, wrapperTsx, "utf-8");
+  fs.writeFileSync(componentFile, buildWrapperComponent(block.id), "utf-8");
 
-  // Update block IR
   block.visual.imagePath = relativeImagePath;
   block.visual.componentPath = relativeComponentPath;
 
@@ -413,4 +495,20 @@ export async function generateImage(
     componentPath: relativeComponentPath,
     cacheHit,
   };
+}
+
+/** Health-check URL for the configured image generation backend. */
+export function imageGenHealthURL(config: ImageGenConfig): string | null {
+  const provider = resolveImageGenProvider(config);
+  const baseURL = resolveBaseURL(config, provider);
+  if (provider === "sensenova") return `${baseURL}/api/health`;
+  if (!config.apiKey) return null;
+  return `${baseURL}/v1/models`;
+}
+
+/** Whether image generation is sufficiently configured to run. */
+export function isImageGenConfigured(config: ImageGenConfig): boolean {
+  const provider = resolveImageGenProvider(config);
+  if (provider === "sensenova") return true;
+  return Boolean(config.apiKey);
 }

@@ -77,12 +77,16 @@ export interface RenderConfig {
   loudnorm: LoudnormConfig;
 }
 
+export type ImageGenProvider = "openai" | "sensenova";
+
 export interface ImageGenConfig {
-  /** API base URL (e.g. https://api.openai.com) */
+  /** Backend: OpenAI-compatible API or local SenseNova-U1 web_t2i */
+  provider?: ImageGenProvider;
+  /** API base URL (e.g. https://api.openai.com or http://127.0.0.1:8765) */
   baseURL?: string;
-  /** API key */
+  /** API key (required for openai; optional for sensenova) */
   apiKey?: string;
-  /** Model identifier */
+  /** Model identifier (openai only) */
   model: string;
   /** Output image size (e.g. "1920x1080"); computed from meta.aspect if not set */
   size?: string;
@@ -90,6 +94,10 @@ export interface ImageGenConfig {
   timeoutMs: number;
   /** Max concurrent image generation calls */
   concurrency: number;
+  /** SenseNova: diffusion steps (default 15) */
+  numSteps?: number;
+  /** SenseNova: classifier-free guidance scale (default 4.0) */
+  cfgScale?: number;
 }
 
 export interface CacheConfig {
@@ -131,11 +139,14 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     baseURL: process.env.ANTHROPIC_BASE_URL,
   },
   imageGen: {
+    provider: (process.env.IMAGE_GEN_PROVIDER as ImageGenProvider | undefined) || undefined,
     baseURL: process.env.IMAGE_GEN_BASE_URL,
     apiKey: process.env.IMAGE_GEN_API_KEY,
     model: "gpt-image-1",
-    timeoutMs: 120000,
-    concurrency: 2,
+    timeoutMs: 600000,
+    concurrency: 1,
+    numSteps: 15,
+    cfgScale: 4.0,
   },
   render: {
     blockConcurrency: 4,

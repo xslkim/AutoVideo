@@ -336,12 +336,15 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
             // Call image generation API
             const result = await generateImage(block, {
               config: {
+                provider: config.imageGen.provider,
                 baseURL: config.imageGen.baseURL,
                 apiKey: config.imageGen.apiKey,
                 model: config.imageGen.model,
                 size: config.imageGen.size,
                 timeoutMs: config.imageGen.timeoutMs,
                 concurrency: config.imageGen.concurrency,
+                numSteps: config.imageGen.numSteps,
+                cfgScale: config.imageGen.cfgScale,
               },
               buildOutDir,
               meta: { aspect: script.meta.aspect, width: script.meta.width, height: script.meta.height },

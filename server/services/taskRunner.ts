@@ -233,12 +233,15 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
       }
 
       if (raw.imageGen) {
+        if (raw.imageGen.provider) cfg.imageGen.provider = raw.imageGen.provider;
         if (raw.imageGen.baseURL) cfg.imageGen.baseURL = raw.imageGen.baseURL;
         if (raw.imageGen.apiKey) cfg.imageGen.apiKey = raw.imageGen.apiKey;
         if (raw.imageGen.model) cfg.imageGen.model = raw.imageGen.model;
         if (raw.imageGen.size) cfg.imageGen.size = raw.imageGen.size;
         if (raw.imageGen.timeoutMs !== undefined) cfg.imageGen.timeoutMs = raw.imageGen.timeoutMs;
         if (raw.imageGen.concurrency !== undefined) cfg.imageGen.concurrency = raw.imageGen.concurrency;
+        if (raw.imageGen.numSteps !== undefined) cfg.imageGen.numSteps = raw.imageGen.numSteps;
+        if (raw.imageGen.cfgScale !== undefined) cfg.imageGen.cfgScale = raw.imageGen.cfgScale;
       }
 
       if (raw.musetalk) {
@@ -267,6 +270,16 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
   // MuseTalk URL env var fallback
   if (process.env.MUSETALK_URL) {
     (cfg as any).musetalk = { ...(cfg as any).musetalk, url: process.env.MUSETALK_URL };
+  }
+
+  if (process.env.IMAGE_GEN_BASE_URL && !cfg.imageGen.baseURL) {
+    cfg.imageGen.baseURL = process.env.IMAGE_GEN_BASE_URL;
+  }
+  if (process.env.IMAGE_GEN_API_KEY && !cfg.imageGen.apiKey) {
+    cfg.imageGen.apiKey = process.env.IMAGE_GEN_API_KEY;
+  }
+  if (process.env.IMAGE_GEN_PROVIDER && !cfg.imageGen.provider) {
+    cfg.imageGen.provider = process.env.IMAGE_GEN_PROVIDER as 'openai' | 'sensenova';
   }
 
   return cfg;

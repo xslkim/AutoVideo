@@ -59,6 +59,9 @@ export interface ImageKey {
   model: string;
   size: string;
   baseURL: string;
+  provider: string;
+  numSteps?: number;
+  cfgScale?: number;
 }
 
 export type CacheKey = AudioKey | ComponentKey | PartialKey | ImageKey;

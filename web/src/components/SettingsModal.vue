@@ -44,10 +44,21 @@
       <!-- 文生图 -->
       <n-tab-pane name="imageGen" tab="文生图">
         <n-form label-placement="left" label-width="90" :style="{ paddingTop: '12px' }">
-          <n-form-item label="Base URL">
-            <n-input v-model:value="form.imageGen.baseURL" placeholder="https://api.openai.com" clearable />
+          <n-form-item label="Provider">
+            <n-select
+              v-model:value="form.imageGen.provider"
+              :options="imageGenProviderOptions"
+              style="width: 100%"
+            />
           </n-form-item>
-          <n-form-item label="API Key">
+          <n-form-item label="Base URL">
+            <n-input
+              v-model:value="form.imageGen.baseURL"
+              :placeholder="form.imageGen.provider === 'sensenova' ? 'http://127.0.0.1:8765' : 'https://api.openai.com'"
+              clearable
+            />
+          </n-form-item>
+          <n-form-item v-if="form.imageGen.provider === 'openai'" label="API Key">
             <n-input
               v-model:value="form.imageGen.apiKey"
               type="password"
@@ -56,8 +67,14 @@
               clearable
             />
           </n-form-item>
-          <n-form-item label="Model">
+          <n-form-item v-if="form.imageGen.provider === 'openai'" label="Model">
             <n-input v-model:value="form.imageGen.model" placeholder="gpt-image-1" clearable />
+          </n-form-item>
+          <n-form-item v-if="form.imageGen.provider === 'sensenova'" label="Steps">
+            <n-input-number v-model:value="form.imageGen.numSteps" :min="1" :max="60" style="width: 100%" />
+          </n-form-item>
+          <n-form-item v-if="form.imageGen.provider === 'sensenova'" label="CFG Scale">
+            <n-input-number v-model:value="form.imageGen.cfgScale" :min="1" :max="15" :step="0.5" style="width: 100%" />
           </n-form-item>
           <n-form-item label="Size">
             <n-select
@@ -173,6 +190,11 @@ const sizeOptions = [
   { label: '1024×1024 (1:1 方形)', value: '1024x1024' },
 ]
 
+const imageGenProviderOptions = [
+  { label: 'SenseNova-U1（本地 :8765）', value: 'sensenova' },
+  { label: 'OpenAI 兼容 API', value: 'openai' },
+]
+
 // ── Form state (flat structure matching PUT body) ──────────────────────
 
 const form = reactive({
@@ -183,12 +205,15 @@ const form = reactive({
     concurrency: 4 as number | null,
   },
   imageGen: {
+    provider: 'sensenova' as 'openai' | 'sensenova',
     baseURL: '' as string,
     apiKey: '' as string,
     model: '' as string,
     size: '' as string,
-    timeoutMs: 120000 as number | null,
-    concurrency: 2 as number | null,
+    timeoutMs: 600000 as number | null,
+    concurrency: 1 as number | null,
+    numSteps: 15 as number | null,
+    cfgScale: 4.0 as number | null,
   },
   voxcpm: {
     endpoint: '' as string,
@@ -229,12 +254,15 @@ async function loadConfig() {
   form.anthropic.model = c.anthropic.model ?? ''
   form.anthropic.concurrency = c.anthropic.concurrency ?? 4
 
+  form.imageGen.provider = c.imageGen.provider ?? 'sensenova'
   form.imageGen.baseURL = c.imageGen.baseURL ?? ''
   form.imageGen.apiKey = ''
   form.imageGen.model = c.imageGen.model ?? ''
   form.imageGen.size = c.imageGen.size ?? ''
-  form.imageGen.timeoutMs = c.imageGen.timeoutMs ?? 120000
-  form.imageGen.concurrency = c.imageGen.concurrency ?? 2
+  form.imageGen.timeoutMs = c.imageGen.timeoutMs ?? 600000
+  form.imageGen.concurrency = c.imageGen.concurrency ?? 1
+  form.imageGen.numSteps = c.imageGen.numSteps ?? 15
+  form.imageGen.cfgScale = c.imageGen.cfgScale ?? 4.0
 
   form.voxcpm.endpoint = c.voxcpm.endpoint ?? ''
   form.voxcpm.modelDir = c.voxcpm.modelDir ?? ''
@@ -267,11 +295,14 @@ async function onSave() {
     // ImageGen
     const igPatch: Record<string, unknown> = {}
     if (form.imageGen.apiKey) igPatch.apiKey = form.imageGen.apiKey
+    igPatch.provider = form.imageGen.provider
     igPatch.baseURL = form.imageGen.baseURL || null
     igPatch.model = form.imageGen.model || null
     igPatch.size = form.imageGen.size || null
     igPatch.timeoutMs = form.imageGen.timeoutMs
     igPatch.concurrency = form.imageGen.concurrency
+    igPatch.numSteps = form.imageGen.numSteps
+    igPatch.cfgScale = form.imageGen.cfgScale
     patch.imageGen = igPatch
 
     // VoxCPM

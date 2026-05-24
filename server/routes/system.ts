@@ -3,6 +3,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import type { AppConfig, AppConfigPublic, DoctorReport } from '../types/api.js';
 import { checkFfmpeg, checkChromium } from '../../src/cli/doctor.js';
+import {
+  imageGenHealthURL,
+  isImageGenConfigured,
+  resolveImageGenProvider,
+} from '../../src/ai/image-gen.js';
+import type { ImageGenConfig } from '../../src/config/defaults.js';
 
 const CONFIG_FILE = '.autovideo-web/config.json';
 
@@ -45,12 +51,17 @@ function resolveConfig(repoRoot: string): AppConfig {
       concurrency: stored.anthropic?.concurrency ?? undefined,
     },
     imageGen: {
+      provider: stored.imageGen?.provider
+        || (process.env.IMAGE_GEN_PROVIDER as 'openai' | 'sensenova' | undefined)
+        || undefined,
       baseURL: stored.imageGen?.baseURL || process.env.IMAGE_GEN_BASE_URL || undefined,
       apiKey: stored.imageGen?.apiKey || process.env.IMAGE_GEN_API_KEY || undefined,
       model: stored.imageGen?.model || undefined,
       size: stored.imageGen?.size || undefined,
       timeoutMs: stored.imageGen?.timeoutMs ?? undefined,
       concurrency: stored.imageGen?.concurrency ?? undefined,
+      numSteps: stored.imageGen?.numSteps ?? undefined,
+      cfgScale: stored.imageGen?.cfgScale ?? undefined,
     },
     voxcpm: {
       endpoint: stored.voxcpm?.endpoint || process.env.VOXCPM_ENDPOINT || undefined,
@@ -82,12 +93,15 @@ function publicConfig(full: AppConfig): AppConfigPublic {
       concurrency: full.anthropic?.concurrency,
     },
     imageGen: {
+      provider: full.imageGen?.provider,
       baseURL: full.imageGen?.baseURL,
       apiKey: mask(full.imageGen?.apiKey),
       model: full.imageGen?.model,
       size: full.imageGen?.size,
       timeoutMs: full.imageGen?.timeoutMs,
       concurrency: full.imageGen?.concurrency,
+      numSteps: full.imageGen?.numSteps,
+      cfgScale: full.imageGen?.cfgScale,
     },
     voxcpm: {
       endpoint: full.voxcpm?.endpoint,
@@ -192,17 +206,56 @@ export function createSystemRoutes(repoRoot: string): Hono {
       }
 
       case 'imageGen': {
-        const key = full.imageGen?.apiKey;
-        const baseURL = full.imageGen?.baseURL;
-        if (!baseURL) return c.json({ ok: false, message: '未配置 Base URL' });
-        if (!key) return c.json({ ok: false, message: '未配置 API Key' });
+        const igConfig: ImageGenConfig = {
+          provider: full.imageGen?.provider,
+          baseURL: full.imageGen?.baseURL,
+          apiKey: full.imageGen?.apiKey,
+          model: full.imageGen?.model || 'gpt-image-1',
+          timeoutMs: full.imageGen?.timeoutMs ?? 600000,
+          concurrency: full.imageGen?.concurrency ?? 1,
+          numSteps: full.imageGen?.numSteps,
+          cfgScale: full.imageGen?.cfgScale,
+        };
+
+        if (!isImageGenConfigured(igConfig)) {
+          return c.json({ ok: false, message: '未配置文生图 API Key（OpenAI 模式需要）' });
+        }
+
+        const healthURL = imageGenHealthURL(igConfig);
+        if (!healthURL) {
+          return c.json({ ok: false, message: '未配置文生图服务地址' });
+        }
+
+        const provider = resolveImageGenProvider(igConfig);
         const start = Date.now();
         try {
-          const resp = await fetch(`${baseURL}/v1/models`, {
-            headers: { Authorization: `Bearer ${key}` },
+          const headers: Record<string, string> = {};
+          if (provider === 'openai' && full.imageGen?.apiKey) {
+            headers.Authorization = `Bearer ${full.imageGen.apiKey}`;
+          }
+
+          const resp = await fetch(healthURL, {
+            headers,
             signal: AbortSignal.timeout(10000),
           });
           const latencyMs = Date.now() - start;
+
+          if (provider === 'sensenova') {
+            if (!resp.ok) {
+              const errText = await resp.text().catch(() => '');
+              return c.json({ ok: false, latencyMs, message: `HTTP ${resp.status} ${errText.slice(0, 200)}` });
+            }
+            const data = await resp.json().catch(() => null) as { ok?: boolean; model_loaded?: boolean } | null;
+            if (data?.ok && data?.model_loaded) {
+              return c.json({ ok: true, latencyMs });
+            }
+            return c.json({
+              ok: false,
+              latencyMs,
+              message: data?.ok ? '模型尚未加载完成' : 'SenseNova 健康检查失败',
+            });
+          }
+
           if (resp.ok) {
             return c.json({ ok: true, latencyMs });
           }
@@ -281,12 +334,64 @@ export function createSystemRoutes(repoRoot: string): Hono {
     }
 
     // ── imageGen ────────────────────────────────────────────────────────
-    if (full.imageGen?.apiKey && full.imageGen?.baseURL) {
-      report.imageGen = { status: 'ok' as const };
-    } else if (!full.imageGen?.baseURL) {
-      report.imageGen = { status: 'missing' as const, message: '未配置文生图服务' };
+    const igConfig: ImageGenConfig = {
+      provider: full.imageGen?.provider,
+      baseURL: full.imageGen?.baseURL,
+      apiKey: full.imageGen?.apiKey,
+      model: full.imageGen?.model || 'gpt-image-1',
+      timeoutMs: full.imageGen?.timeoutMs ?? 600000,
+      concurrency: full.imageGen?.concurrency ?? 1,
+      numSteps: full.imageGen?.numSteps,
+      cfgScale: full.imageGen?.cfgScale,
+    };
+
+    if (!isImageGenConfigured(igConfig)) {
+      report.imageGen = {
+        status: 'missing' as const,
+        message: resolveImageGenProvider(igConfig) === 'sensenova'
+          ? '未配置文生图服务'
+          : '未配置文生图 API Key',
+      };
     } else {
-      report.imageGen = { status: 'missing' as const, message: '未配置文生图 API Key' };
+      const healthURL = imageGenHealthURL(igConfig);
+      if (!healthURL) {
+        report.imageGen = { status: 'missing' as const, message: '未配置文生图服务地址' };
+      } else {
+        try {
+          const provider = resolveImageGenProvider(igConfig);
+          const headers: Record<string, string> = {};
+          if (provider === 'openai' && full.imageGen?.apiKey) {
+            headers.Authorization = `Bearer ${full.imageGen.apiKey}`;
+          }
+          const resp = await fetch(healthURL, {
+            headers,
+            signal: AbortSignal.timeout(5000),
+          });
+          if (provider === 'sensenova') {
+            if (resp.ok) {
+              const data = await resp.json().catch(() => null) as { ok?: boolean; model_loaded?: boolean } | null;
+              if (data?.ok && data?.model_loaded) {
+                report.imageGen = { status: 'ok' as const };
+              } else if (data?.ok) {
+                report.imageGen = { status: 'fail' as const, message: 'SenseNova 模型加载中' };
+              } else {
+                report.imageGen = { status: 'fail' as const, message: 'SenseNova 健康检查失败' };
+              }
+            } else {
+              report.imageGen = { status: 'fail' as const, message: `HTTP ${resp.status}` };
+            }
+          } else if (resp.ok) {
+            report.imageGen = { status: 'ok' as const };
+          } else {
+            report.imageGen = { status: 'fail' as const, message: `HTTP ${resp.status}` };
+          }
+        } catch (err) {
+          report.imageGen = {
+            status: 'fail' as const,
+            message: err instanceof Error ? err.message : String(err),
+          };
+        }
+      }
     }
 
     // ── voxcpm ──────────────────────────────────────────────────────────

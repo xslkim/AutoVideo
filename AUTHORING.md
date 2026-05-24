@@ -182,6 +182,8 @@ avatarRef: ./avatar.mp4
 |------|------------------------|------|
 | `@visual: animation`（默认） | **原样发送给 Claude AI**，生成 React/Remotion 动画组件 | `src/blocks/{id}/Component.tsx` |
 | `@visual: image` | **原样发送给文生图 API**，作为图片生成的 prompt | `public/images/{id}.png`（API 生成） |
+
+默认本地文生图后端为 **SenseNova-U1**（`http://127.0.0.1:8765/api/t2i`），在 `autovideo.config.json` 的 `imageGen` 段或 Web 设置面板配置；也支持 OpenAI 兼容 API（`provider: openai`）。
 | `@visual: image(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/images/{id}.png`（直接复制本地文件） |
 | `@visual: video(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/videos/{id}.mp4`（直接复制本地文件） |
 

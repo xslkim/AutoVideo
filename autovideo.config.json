@@ -19,6 +19,14 @@
     "defaultExitSec": 0.3,
     "browser": null
   },
+  "imageGen": {
+    "provider": "sensenova",
+    "baseURL": "http://127.0.0.1:8765",
+    "timeoutMs": 600000,
+    "concurrency": 1,
+    "numSteps": 15,
+    "cfgScale": 4.0
+  },
   "cache": {
     "dir": "~/.autovideo/cache",
     "maxSizeGB": 20

@@ -63,12 +63,15 @@ export interface AppConfig {
     concurrency?: number;
   };
   imageGen?: {
+    provider?: 'openai' | 'sensenova';
     baseURL?: string;
     apiKey?: string;
     model?: string;
     size?: string;
     timeoutMs?: number;
     concurrency?: number;
+    numSteps?: number;
+    cfgScale?: number;
   };
   voxcpm?: {
     endpoint?: string;
@@ -90,12 +93,15 @@ export interface AppConfigPublic {
     concurrency?: number;
   };
   imageGen: {
+    provider?: 'openai' | 'sensenova';
     baseURL?: string;
     apiKey: { set: boolean; last4?: string };
     model?: string;
     size?: string;
     timeoutMs?: number;
     concurrency?: number;
+    numSteps?: number;
+    cfgScale?: number;
   };
   voxcpm: {
     endpoint?: string;
