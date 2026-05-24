@@ -189,14 +189,14 @@ export async function checkVoxCPMService(config: AutoVideoConfig): Promise<Check
       name: "VoxCPM2 service",
       status: "WARN",
       detail: `${endpoint}/health → HTTP ${code}`,
-      fix: `Start VoxCPM2 service or enable autoStart. Run: cd tts-server && uvicorn server:app`,
+      fix: `Start VoxCPM2 service or enable autoStart. Run: ~/tts-server/start-voxcpm.sh`,
     };
   } catch {
     return {
       name: "VoxCPM2 service",
       status: "WARN",
       detail: `unreachable at ${endpoint}`,
-      fix: `Start VoxCPM2 service or enable autoStart. Run: cd tts-server && uvicorn server:app`,
+      fix: `Start VoxCPM2 service or enable autoStart. Run: ~/tts-server/start-voxcpm.sh`,
     };
   }
 }

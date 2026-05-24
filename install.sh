@@ -78,13 +78,14 @@ npm install
 info "npm dependencies installed."
 
 # ── Step 4: Python venv for TTS server ─────────────────────────────────────
-if [[ -f "tts-server/requirements.txt" ]]; then
-  info "Setting up Python venv for TTS server..."
-  python3 -m venv tts-server/.venv
-  tts-server/.venv/bin/pip install --quiet -r tts-server/requirements.txt
+TTS_SERVER_DIR="$HOME/tts-server"
+if [[ -f "$TTS_SERVER_DIR/requirements.txt" ]]; then
+  info "Setting up Python venv for TTS server at $TTS_SERVER_DIR..."
+  python3 -m venv "$TTS_SERVER_DIR/.venv"
+  "$TTS_SERVER_DIR/.venv/bin/pip" install --quiet -r "$TTS_SERVER_DIR/requirements.txt"
   info "Python venv ready."
 else
-  warn "tts-server/requirements.txt not found — skipping Python venv setup."
+  warn "$TTS_SERVER_DIR/requirements.txt not found — skipping Python venv setup."
 fi
 
 # ── Step 5: VoxCPM2 model weights ──────────────────────────────────────────

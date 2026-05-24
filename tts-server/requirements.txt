@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-soundfile
-numpy
-torch
-modelscope
-voxcpm

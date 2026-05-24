@@ -57,22 +57,24 @@ export async function ensureVoxcpmServer(
     console.log(`[tts] Starting VoxCPM server (model: ${modelDir})`);
   }
 
-  // Start server process
-  const pythonBin = resolve(
-    process.env.HOME ?? "/root",
-    "video-agent-venv/bin/python"
+  // Start server process (canonical install: ~/tts-server)
+  const ttsServerDir = resolve(process.env.HOME ?? "/root", "tts-server");
+  const pythonBin = resolve(ttsServerDir, ".venv/bin/python");
+  const sitePackages = resolve(
+    ttsServerDir,
+    ".venv/lib/python3.13/site-packages"
   );
   const serverProc = spawn(
     pythonBin,
     ["-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "8000"],
     {
-      cwd: opts.cwd ?? resolve(import.meta.dirname ?? ".", "../../tts-server"),
+      cwd: opts.cwd ?? ttsServerDir,
       stdio: "pipe",
       detached: false,
       env: {
         ...process.env,
         VOXCPM_MODEL_DIR: modelDir,
-        PYTHONPATH: resolve(process.env.HOME ?? "/root", "video-agent-venv/lib/python3.12/site-packages"),
+        PYTHONPATH: sitePackages,
       },
     }
   );
