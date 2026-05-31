@@ -50,6 +50,10 @@
         "avatarRef": {
           "type": "string",
           "description": "Absolute path to avatar loop video for lip-sync overlay"
+        },
+        "skipLipsync": {
+          "type": "boolean",
+          "description": "Skip MuseTalk lip-sync, just overlay avatar.mp4 on repeat (default true)"
         }
       }
     },

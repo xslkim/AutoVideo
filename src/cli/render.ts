@@ -274,68 +274,82 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
     if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
 
-    // Lip-sync overlay in concatOnly mode: per-block (reuse cached if available)
+    // Avatar overlay in concatOnly mode
     const concatFinalPath = path.join(buildDir, "output", "final.mp4");
     if (meta.avatarRef) {
-      const lipsyncDir = path.join(buildDir, "output", "lipsync");
-      fs.mkdirSync(lipsyncDir, { recursive: true });
-      const musetalkUrl = (config as any).musetalk?.url ?? "http://localhost:8001";
-      const blockCount = blocks.length;
+      if (meta.skipLipsync !== false) {
+        // Skip lip-sync: overlay avatar.mp4 directly with repeat
+        emit(35, "叠加头像画中画（无口型同步）");
+        const concatAvatarOut = path.join(buildDir, "output", "final_avatar.mp4");
+        const concatAvatarSize = await probeVideoSize(meta.avatarRef);
+        await overlayLipsync(
+          concatFinalPath, meta.avatarRef, concatAvatarOut,
+          { size: concatAvatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
+          signal,
+        );
+        fs.renameSync(concatAvatarOut, concatFinalPath);
+      } else {
+        // Full lip-sync: per-block MuseTalk generation
+        const lipsyncDir = path.join(buildDir, "output", "lipsync");
+        fs.mkdirSync(lipsyncDir, { recursive: true });
+        const musetalkUrl = (config as any).musetalk?.url ?? "http://localhost:8001";
+        const blockCount = blocks.length;
 
-      for (let i = 0; i < blockCount; i++) {
-        const block = blocks[i];
-        const blockLipsyncPath = path.join(lipsyncDir, `${block.id}.mp4`);
+        for (let i = 0; i < blockCount; i++) {
+          const block = blocks[i];
+          const blockLipsyncPath = path.join(lipsyncDir, `${block.id}.mp4`);
 
-        if (fs.existsSync(blockLipsyncPath)) {
-          emit(35 + Math.round((i / blockCount) * 20), `口型同步: ${block.id} (缓存)`);
-          console.log(`[render] Lipsync cache hit for ${block.id}`);
-          continue;
+          if (fs.existsSync(blockLipsyncPath)) {
+            emit(35 + Math.round((i / blockCount) * 20), `口型同步: ${block.id} (缓存)`);
+            console.log(`[render] Lipsync cache hit for ${block.id}`);
+            continue;
+          }
+
+          const audioRelPath = block.audio!.wavPath;
+          const audioPath = path.join(buildDir, audioRelPath);
+          const enterMs = (block.timing?.enterSec ?? 0) * 1000;
+          const totalSec = block.timing?.totalSec ?? block.audio!.durationSec;
+
+          const paddedAudioPath = path.join(lipsyncDir, `${block.id}_padded.wav`);
+          await padAudio(audioPath, paddedAudioPath, enterMs, totalSec, signal);
+
+          emit(35 + Math.round((i / blockCount) * 20), `口型同步: ${block.id}`);
+          console.log(`[render] Generating lipsync for ${block.id} (${totalSec.toFixed(1)}s)...`);
+
+          try {
+            await generateLipsync({
+              avatarPath: meta.avatarRef,
+              audioPath: paddedAudioPath,
+              outputPath: blockLipsyncPath,
+              fps: meta.fps,
+              serviceUrl: musetalkUrl,
+              signal,
+            });
+          } catch (err) {
+            if (err instanceof LipsyncError) throw new RenderError(err.message, "ERR_LIPSYNC_FAILED");
+            throw err;
+          }
+
+          try { fs.unlinkSync(paddedAudioPath); } catch {}
+          if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
         }
 
-        const audioRelPath = block.audio!.wavPath;
-        const audioPath = path.join(buildDir, audioRelPath);
-        const enterMs = (block.timing?.enterSec ?? 0) * 1000;
-        const totalSec = block.timing?.totalSec ?? block.audio!.durationSec;
+        emit(56, "拼接口型片段");
+        const lipsyncParts = blocks.map((b) => path.join(lipsyncDir, `${b.id}.mp4`));
+        const lipsyncFullPath = path.join(buildDir, "output", "lipsync_full.mp4");
+        await concatLipsyncVideos(lipsyncParts, lipsyncFullPath, signal);
 
-        const paddedAudioPath = path.join(lipsyncDir, `${block.id}_padded.wav`);
-        await padAudio(audioPath, paddedAudioPath, enterMs, totalSec, signal);
-
-        emit(35 + Math.round((i / blockCount) * 20), `口型同步: ${block.id}`);
-        console.log(`[render] Generating lipsync for ${block.id} (${totalSec.toFixed(1)}s)...`);
-
-        try {
-          await generateLipsync({
-            avatarPath: meta.avatarRef,
-            audioPath: paddedAudioPath,
-            outputPath: blockLipsyncPath,
-            fps: meta.fps,
-            serviceUrl: musetalkUrl,
-            signal,
-          });
-        } catch (err) {
-          if (err instanceof LipsyncError) throw new RenderError(err.message, "ERR_LIPSYNC_FAILED");
-          throw err;
-        }
-
-        try { fs.unlinkSync(paddedAudioPath); } catch {}
-        if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
+        emit(58, "叠加口型画中画");
+        const concatLipsyncOut = path.join(buildDir, "output", "final_lipsync.mp4");
+        const concatAvatarSize = await probeVideoSize(meta.avatarRef);
+        await overlayLipsync(
+          concatFinalPath, lipsyncFullPath, concatLipsyncOut,
+          { size: concatAvatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
+          signal,
+        );
+        fs.renameSync(concatLipsyncOut, concatFinalPath);
+        try { fs.unlinkSync(lipsyncFullPath); } catch {}
       }
-
-      emit(56, "拼接口型片段");
-      const lipsyncParts = blocks.map((b) => path.join(lipsyncDir, `${b.id}.mp4`));
-      const lipsyncFullPath = path.join(buildDir, "output", "lipsync_full.mp4");
-      await concatLipsyncVideos(lipsyncParts, lipsyncFullPath, signal);
-
-      emit(58, "叠加口型画中画");
-      const concatLipsyncOut = path.join(buildDir, "output", "final_lipsync.mp4");
-      const concatAvatarSize = await probeVideoSize(meta.avatarRef);
-      await overlayLipsync(
-        concatFinalPath, lipsyncFullPath, concatLipsyncOut,
-        { size: concatAvatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
-        signal,
-      );
-      fs.renameSync(concatLipsyncOut, concatFinalPath);
-      try { fs.unlinkSync(lipsyncFullPath); } catch {}
     }
 
     if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
@@ -541,7 +555,10 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   // Each block's audio is padded with silence for enter/exit animations so
   // the lipsync duration matches the block partial duration exactly.
 
-  if (meta.avatarRef) {
+  // Per-block lipsync generation (only when skipLipsync is explicitly false)
+  const doLipsync = meta.avatarRef && meta.skipLipsync === false;
+  const avatarRef = meta.avatarRef;
+  if (doLipsync && avatarRef) {
     const lipsyncDir = path.join(buildDir, "output", "lipsync");
     fs.mkdirSync(lipsyncDir, { recursive: true });
     const musetalkUrl = (config as any).musetalk?.url ?? "http://localhost:8001";
@@ -572,7 +589,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
       try {
         await generateLipsync({
-          avatarPath: meta.avatarRef,
+          avatarPath: avatarRef,
           audioPath: paddedAudioPath,
           outputPath: blockLipsyncPath,
           fps: meta.fps,
@@ -606,27 +623,39 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   const finalAbsPath = path.join(buildDir, "output", "final.mp4");
 
-  // ── Step 7.5: Overlay pre-generated lipsync onto final.mp4 ───────────
+  // ── Step 7.5: Overlay avatar onto final.mp4 ──────────────────────────
 
   if (meta.avatarRef) {
-    emit(73, "叠加口型画中画");
-    const lipsyncFullPath = path.join(buildDir, "output", "lipsync_full.mp4");
-    const finalWithLipsyncPath = path.join(buildDir, "output", "final_lipsync.mp4");
-
-    console.log(`[render] Overlaying lip-sync PiP...`);
+    emit(73, "叠加头像画中画");
+    const finalWithAvatarPath = path.join(buildDir, "output", "final_avatar.mp4");
     const avatarSize = await probeVideoSize(meta.avatarRef);
-    await overlayLipsync(
-      finalAbsPath,
-      lipsyncFullPath,
-      finalWithLipsyncPath,
-      { size: avatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
-      signal,
-    );
 
-    fs.renameSync(finalWithLipsyncPath, finalAbsPath);
-    try { fs.unlinkSync(lipsyncFullPath); } catch {}
+    if (meta.skipLipsync !== false) {
+      // Skip lip-sync: overlay avatar.mp4 directly with repeat
+      console.log(`[render] Overlaying avatar (no lip-sync) PiP...`);
+      await overlayLipsync(
+        finalAbsPath,
+        meta.avatarRef,
+        finalWithAvatarPath,
+        { size: avatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
+        signal,
+      );
+    } else {
+      // Full lip-sync: overlay pre-generated lipsync_full.mp4
+      const lipsyncFullPath = path.join(buildDir, "output", "lipsync_full.mp4");
+      console.log(`[render] Overlaying lip-sync PiP...`);
+      await overlayLipsync(
+        finalAbsPath,
+        lipsyncFullPath,
+        finalWithAvatarPath,
+        { size: avatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
+        signal,
+      );
+      try { fs.unlinkSync(lipsyncFullPath); } catch {}
+    }
 
-    console.log(`[render] Lip-sync overlay complete`);
+    fs.renameSync(finalWithAvatarPath, finalAbsPath);
+    console.log(`[render] Avatar overlay complete`);
   }
 
   // ── Step 8: Loudnorm ────────────────────────────────────────────────

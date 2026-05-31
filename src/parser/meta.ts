@@ -29,6 +29,8 @@ export interface ParsedMeta {
   slug?: string;
   /** Optional avatar loop video for lip-sync overlay (absolute path to mp4) */
   avatarRef?: string;
+  /** Skip MuseTalk lip-sync, just overlay avatar.mp4 on repeat (default true) */
+  skipLipsync: boolean;
 }
 
 /** Parsed meta with dimensions computed */
@@ -279,12 +281,17 @@ export function readMeta(
     avatarRef = avatarPath;
   }
 
+  // skipLipsync — optional, default true (skip MuseTalk, just overlay avatar.mp4 on repeat)
+  const skipLipsyncRaw = kv.get("skipLipsync");
+  const skipLipsync = skipLipsyncRaw === undefined ? true : skipLipsyncRaw.toLowerCase() !== "false";
+
   return {
     title,
     voiceRef,
     aspect,
     theme,
     fps,
+    skipLipsync,
     ...(slug ? { slug } : {}),
     ...(avatarRef ? { avatarRef } : {}),
   };

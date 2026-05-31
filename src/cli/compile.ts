@@ -360,6 +360,7 @@ export default Component;
       theme: meta.theme,
       subtitleSafeBottom,
       ...(meta.avatarRef ? { avatarRef: meta.avatarRef } : {}),
+      skipLipsync: meta.skipLipsync,
     },
     blocks: scriptBlocks,
     artifacts: {

@@ -171,6 +171,7 @@ export interface Script {
     theme: string;
     subtitleSafeBottom: number;
     avatarRef?: string; // absolute path to avatar loop video for lip-sync overlay
+    skipLipsync?: boolean; // default true: skip MuseTalk, just overlay avatar.mp4 on repeat
   };
   blocks: Block[];
   assets: Record<string, string>; // relative POSIX path → "assets/{hash}.ext"
