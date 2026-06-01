@@ -328,15 +328,17 @@ export async function overlayLipsync(
     `lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':`,
     `a='if(${geqAlpha},0,255)'`,
     `[avatar];`,
-    `[0:v][avatar]overlay=${overlayPos}:eof_action=repeat`,
+    `[0:v][avatar]overlay=${overlayPos}:eof_action=endall`,
   ].join("");
 
   const args = [
     "-y",
     "-i", mainVideoPath,
+    "-stream_loop", "-1",   // loop avatar from the beginning when it runs out
     "-i", lipsyncVideoPath,
     "-filter_complex", filterComplex,
     "-c:a", "copy",
+    "-shortest",            // stop encoding when the main video ends
     outputPath,
   ];
 
