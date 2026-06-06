@@ -9,7 +9,17 @@
       </n-breadcrumb>
     </div>
     <div class="top-bar-actions">
-      <n-space size="small">
+      <n-space size="small" align="center">
+        <span class="concurrency-label">动画并发</span>
+        <n-select
+          v-model:value="visualConcurrency"
+          :options="visualConcurrencyOptions"
+          size="small"
+          :loading="concurrencySaving"
+          :disabled="concurrencySaving"
+          style="width: 72px"
+          @update:value="onVisualConcurrencyChange"
+        />
         <n-button
           size="small"
           :disabled="compileDisabled"
@@ -115,7 +125,24 @@ import { useRouter } from 'vue-router'
 import { useTaskStore } from '../../stores/taskStore'
 import { createDiscreteApi } from 'naive-ui'
 import SettingsModal from '../SettingsModal.vue'
-import type { DoctorReport } from '../../../../server/types/api'
+import type { DoctorReport, AppConfigPublic } from '../../../../server/types/api'
+import { apiGet, apiPut } from '../../utils/api'
+
+const VISUAL_CONCURRENCY_MIN = 2
+const VISUAL_CONCURRENCY_MAX = 8
+
+const visualConcurrencyOptions = Array.from(
+  { length: VISUAL_CONCURRENCY_MAX - VISUAL_CONCURRENCY_MIN + 1 },
+  (_, i) => {
+    const v = VISUAL_CONCURRENCY_MIN + i
+    return { label: String(v), value: v }
+  },
+)
+
+function clampVisualConcurrency(value: number | null | undefined): number {
+  const n = value ?? 4
+  return Math.min(VISUAL_CONCURRENCY_MAX, Math.max(VISUAL_CONCURRENCY_MIN, n))
+}
 
 const { message, dialog } = createDiscreteApi(['message', 'dialog'])
 
@@ -156,6 +183,33 @@ const outputUrl = computed(() =>
 const showPreview = ref(false)
 const previewError = ref('')
 const showSettings = ref(false)
+
+// ── Animation generation concurrency (anthropic.concurrency) ─────────
+
+const visualConcurrency = ref(4)
+const concurrencySaving = ref(false)
+
+async function loadVisualConcurrency() {
+  const res = await apiGet<AppConfigPublic>('/api/config', { silent: true })
+  if (res.ok) {
+    visualConcurrency.value = clampVisualConcurrency(res.data.anthropic?.concurrency)
+  }
+}
+
+async function onVisualConcurrencyChange(value: number) {
+  concurrencySaving.value = true
+  try {
+    const res = await apiPut<{ ok: boolean }>('/api/config', {
+      anthropic: { concurrency: value },
+    }, undefined, { silent: true })
+    if (!res.ok) {
+      message.error('保存并发数失败')
+      await loadVisualConcurrency()
+    }
+  } finally {
+    concurrencySaving.value = false
+  }
+}
 
 // ── Doctor / health indicator ──────────────────────────────────────────
 
@@ -231,6 +285,11 @@ async function refreshDoctor() {
 
 onMounted(() => {
   refreshDoctor()
+  loadVisualConcurrency()
+})
+
+watch(showSettings, (open) => {
+  if (!open) loadVisualConcurrency()
 })
 
 // Clear preview error when modal opens or closes
@@ -335,6 +394,12 @@ async function onMerge() {
 .top-bar-actions {
   display: flex;
   align-items: center;
+}
+
+.concurrency-label {
+  font-size: 12px;
+  color: var(--n-text-color-2, #666);
+  white-space: nowrap;
 }
 
 /* ── Preview modal ──────────────────────────────────────────────────── */

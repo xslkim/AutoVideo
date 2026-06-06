@@ -19,7 +19,7 @@
       <n-upload
         :multiple="false"
         :accept="accept"
-        :max-size="10 * 1024 * 1024"
+        :max-size="maxUploadBytes"
         @change="handleChange"
       >
         <n-button>选择文件</n-button>
@@ -86,7 +86,13 @@ const accept = computed(() => {
   if (ext === 'wav') return 'audio/wav'
   if (ext === 'gif') return 'image/gif'
   if (ext === 'svg') return 'image/svg+xml'
-  return '*'
+  if (ext === 'mp4') return 'video/mp4,.mp4'
+  return 'image/*,audio/wav,video/mp4,.mp4'
+})
+
+const maxUploadBytes = computed(() => {
+  const ext = fileName.value.split('.').pop()?.toLowerCase()
+  return ext === 'mp4' ? 500 * 1024 * 1024 : 10 * 1024 * 1024
 })
 
 // ── Upload ──────────────────────────────────────────────────────────────
@@ -128,11 +134,15 @@ async function handleUpload() {
       const body = await resp.json()
       if (body.error) {
         message.error(body.error.message || '上传失败')
-      } else {
+      } else if (body.errors?.length && !body.uploaded?.length) {
+        message.error(body.errors.map((e: { reason: string }) => e.reason).join('；'))
+      } else if (body.uploaded?.length) {
         message.success(`${fileName.value} 上传成功，可以重新运行任务`)
         emit('uploaded')
         handleCancel()
         return
+      } else {
+        message.error('上传失败')
       }
     } else {
       const body = await resp.json().catch(() => ({}))

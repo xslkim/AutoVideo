@@ -26,8 +26,12 @@
           <n-form-item label="Model">
             <n-input v-model:value="form.anthropic.model" placeholder="claude-sonnet-4-6" clearable />
           </n-form-item>
-          <n-form-item label="Concurrency">
-            <n-input-number v-model:value="form.anthropic.concurrency" :min="1" :max="16" style="width: 100%" />
+          <n-form-item label="动画并发">
+            <n-select
+              v-model:value="form.anthropic.concurrency"
+              :options="anthropicConcurrencyOptions"
+              style="width: 100%"
+            />
           </n-form-item>
           <n-form-item>
             <n-button size="small" :loading="testing.anthropic" @click="testService('anthropic')">
@@ -195,6 +199,16 @@ const imageGenProviderOptions = [
   { label: 'OpenAI 兼容 API', value: 'openai' },
 ]
 
+const anthropicConcurrencyOptions = [2, 3, 4, 5, 6, 7, 8].map((v) => ({
+  label: String(v),
+  value: v,
+}))
+
+function clampAnthropicConcurrency(value: number | null | undefined): number {
+  const n = value ?? 4
+  return Math.min(8, Math.max(2, n))
+}
+
 // ── Form state (flat structure matching PUT body) ──────────────────────
 
 const form = reactive({
@@ -252,7 +266,7 @@ async function loadConfig() {
   form.anthropic.apiKey = ''
   form.anthropic.baseURL = c.anthropic.baseURL ?? ''
   form.anthropic.model = c.anthropic.model ?? ''
-  form.anthropic.concurrency = c.anthropic.concurrency ?? 4
+  form.anthropic.concurrency = clampAnthropicConcurrency(c.anthropic.concurrency)
 
   form.imageGen.provider = c.imageGen.provider ?? 'sensenova'
   form.imageGen.baseURL = c.imageGen.baseURL ?? ''

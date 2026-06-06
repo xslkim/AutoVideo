@@ -41,6 +41,13 @@ export interface AnthropicConfig {
   apiKey?: string;
   /** Max concurrent block generation calls */
   concurrency: number;
+  /**
+   * When true, invoke the local `claude` CLI instead of the Anthropic SDK.
+   * Reuses credentials from `claude login`; no API key required.
+   */
+  useCLI?: boolean;
+  /** Path to the `claude` binary (default: "claude", must be in PATH). */
+  cliPath?: string;
 }
 
 export interface LoudnormConfig {

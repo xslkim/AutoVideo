@@ -12,11 +12,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { extractScriptAssetRefs } from '../utils/scriptAssetRefs.js';
 import { compile } from '../../src/cli/compile.js';
 import { tts } from '../../src/cli/tts.js';
 import { visuals } from '../../src/cli/visuals.js';
 import { render } from '../../src/cli/render.js';
-import { getDefaultConfig } from '../../src/config/load.js';
+import { loadConfig } from '../../src/config/load.js';
 import type { AutoVideoConfig } from '../../src/config/defaults.js';
 import type { ProgressEvent as CliProgressEvent } from '../../src/types/script.js';
 import type { TaskRecord, ProgressEvent, AppConfig } from '../types/api.js';
@@ -90,30 +91,24 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
   const srcScriptPath = path.join(projectDir, 'script.md');
   if (fs.existsSync(srcScriptPath)) {
     const scriptContent = fs.readFileSync(srcScriptPath, 'utf-8');
-    // Match paths like ./foo, ../bar, ./dir/file.png in any context (not just after space)
-    const assetRefRegex = /\.\.?\/[^\s)]+\.[a-zA-Z0-9]+/g;
     const copiedPaths = new Set<string>();
     const copiedDirs = new Set<string>();
 
-    for (const match of scriptContent.matchAll(assetRefRegex)) {
-      const relPath = match[0];
+    for (const relPath of extractScriptAssetRefs(scriptContent)) {
       const resolved = path.resolve(projectDir, relPath);
 
-      // Skip if already copied
       if (copiedPaths.has(resolved)) continue;
       if (!fs.existsSync(resolved)) continue;
 
       copiedPaths.add(resolved);
 
-      // Copy the file
       const destPath = path.join(snapshotDir, relPath);
       const destDir = path.dirname(destPath);
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
       }
-      if (!fs.existsSync(destPath)) {
-        fs.copyFileSync(resolved, destPath);
-      }
+      // Always refresh from project dir (picks up files uploaded after a failed compile)
+      fs.copyFileSync(resolved, destPath);
 
       // Also copy the entire parent directory if it's a new one
       const parentDir = path.dirname(relPath);
@@ -211,7 +206,8 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
  * Returns a complete AutoVideoConfig suitable for passing to CLI modules.
  */
 function loadWebConfig(repoRoot: string): AutoVideoConfig {
-  const cfg = getDefaultConfig();
+  // defaults + repo-root autovideo.config.json (same merge order as CLI)
+  const cfg = loadConfig({ projectRoot: repoRoot }).config;
 
   const configPath = path.join(repoRoot, '.autovideo-web', 'config.json');
   if (fs.existsSync(configPath)) {
@@ -223,6 +219,8 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
         if (raw.anthropic.baseURL) cfg.anthropic.baseURL = raw.anthropic.baseURL;
         if (raw.anthropic.model) cfg.anthropic.model = raw.anthropic.model;
         if (raw.anthropic.concurrency !== undefined) cfg.anthropic.concurrency = raw.anthropic.concurrency;
+        if (raw.anthropic.useCLI !== undefined) cfg.anthropic.useCLI = raw.anthropic.useCLI;
+        if (raw.anthropic.cliPath) cfg.anthropic.cliPath = raw.anthropic.cliPath;
       }
 
       if (raw.voxcpm) {

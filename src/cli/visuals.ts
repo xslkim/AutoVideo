@@ -79,7 +79,7 @@ export interface VisualsResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 3;
 const RETRY_BASE_DELAY_MS = 60_000; // 60s base, doubles each attempt (60s / 120s / 240s …)
 const POST_REQUEST_DELAY_MS = 20_000; // 20s cooldown after each successful API call (Claude Code OAuth rate limit)
 
@@ -169,6 +169,10 @@ Generate a single React component that renders a full-screen visual based on the
 - Only import from "react" and "remotion"
 - Do NOT import fs, path, child_process, http, https, or any Node built-in
 - Do NOT use eval, Function constructor, or require()
+- Define \`AnimationProps\` interface inline in the file, then use \`React.FC<AnimationProps>\` or \`(props: AnimationProps)\` — NEVER destructure untyped props like \`({ frame })\` without a type
+- Remotion imports MUST be only symbols that exist. Common allowed imports:
+  \`interpolate\`, \`spring\`, \`useCurrentFrame\`, \`useVideoConfig\`, \`Easing\`, \`AbsoluteFill\`, \`Sequence\`, \`Img\`, \`Video\`, \`staticFile\`
+- Do NOT import invented types/APIs such as \`ContinueProp\`, \`Easing.easeOut\`, \`Easing.cubicOut\` — use \`Easing.ease\`, \`Easing.out(Easing.cubic)\`, \`Easing.inOut(Easing.quad)\` instead
 - Use theme.colors for consistent styling — the theme object has EXACTLY this shape:
   { colors: { bg, fg, accent, muted, code: { bg, fg, keyword, string, comment } }, fonts: { sans, mono }, spacing: { unit }, subtitle: { fontFamily, fontSizePct, lineHeight, maxWidthPct, backgroundColor, paddingPx } }
   IMPORTANT: Use theme.colors.bg (NOT background), theme.colors.fg (NOT text), theme.colors.accent, theme.colors.muted (NOT secondary).
@@ -276,6 +280,8 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
     maxRetries: config.anthropic.maxRetries,
     baseURL: config.anthropic.baseURL,
     apiKey: config.anthropic.apiKey,
+    useCLI: config.anthropic.useCLI,
+    cliPath: config.anthropic.cliPath,
   };
 
   if (dryRun) {

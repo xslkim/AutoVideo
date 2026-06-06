@@ -61,6 +61,10 @@ export interface AppConfig {
     baseURL?: string;
     model?: string;
     concurrency?: number;
+    /** Use local `claude` CLI instead of Anthropic SDK */
+    useCLI?: boolean;
+    /** Path to the `claude` binary (default: "claude") */
+    cliPath?: string;
   };
   imageGen?: {
     provider?: 'openai' | 'sensenova';

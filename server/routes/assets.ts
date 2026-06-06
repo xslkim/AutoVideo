@@ -3,6 +3,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { projectGuard, fileGuard } from '../middleware/pathGuard.js';
 import { readFileWithEtag, writeFileWithEtag, computeEtag } from '../services/projectService.js';
+import {
+  validateRelativeSavePath,
+  isAllowedRootUploadBasename,
+  maxRootUploadBytes,
+  maxRootUploadLabel,
+} from '../utils/uploadPaths.js';
 
 const ASSET_FILE_RE = /^[a-zA-Z0-9_.-]+\.(png|jpe?g|gif|webp|svg)$/;
 const WAV_FILE_RE = /^[a-zA-Z0-9_.-]+\.wav$/;
@@ -195,8 +201,6 @@ export function createAssetRoutes(projectsRoot: string) {
     const name = c.req.param('name')!;
     const rootDir = path.join(projectsRoot, name);
 
-    const ROOT_FILE_RE = /^[a-zA-Z0-9_.-]+\.(png|jpe?g|gif|webp|svg|wav)$/;
-
     try {
       const formData = await c.req.raw.formData();
       const uploaded: { name: string; size: number }[] = [];
@@ -206,13 +210,8 @@ export function createAssetRoutes(projectsRoot: string) {
       const savePathEntry = formData.get('savePath');
       const savePath = typeof savePathEntry === 'string' && savePathEntry.trim() ? savePathEntry.trim() : null;
 
-      // Validate savePath: no ".." segments, only safe chars
-      if (savePath !== null) {
-        const parts = savePath.split('/');
-        const unsafe = parts.some(p => p === '..' || p === '.' || !/^[a-zA-Z0-9_.-]+$/.test(p));
-        if (unsafe) {
-          return c.json({ error: { code: 'ERR_INVALID_PATH', message: 'Invalid save path' } }, 400);
-        }
+      if (savePath !== null && !validateRelativeSavePath(savePath)) {
+        return c.json({ error: { code: 'ERR_INVALID_PATH', message: 'Invalid save path' } }, 400);
       }
 
       for (const [fieldName, value] of formData.entries()) {
@@ -220,17 +219,21 @@ export function createAssetRoutes(projectsRoot: string) {
 
         const file = value;
 
-        if (file.size > MAX_UPLOAD_SIZE) {
-          errors.push({ name: file.name, reason: 'File exceeds 10MB limit' });
-          continue;
-        }
-
         // Determine where to save: use savePath if provided, else flat to root
         const targetRelPath = savePath ?? file.name;
         const baseName = path.basename(targetRelPath);
 
-        if (!ROOT_FILE_RE.test(baseName)) {
-          errors.push({ name: file.name, reason: 'Invalid file name' });
+        const maxBytes = maxRootUploadBytes(baseName);
+        if (file.size > maxBytes) {
+          errors.push({
+            name: file.name,
+            reason: `File exceeds ${maxRootUploadLabel(baseName)} limit`,
+          });
+          continue;
+        }
+
+        if (!isAllowedRootUploadBasename(baseName)) {
+          errors.push({ name: file.name, reason: 'Invalid file name or unsupported type' });
           continue;
         }
 
