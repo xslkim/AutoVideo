@@ -4,11 +4,20 @@
  * Credentials are resolved from:
  *   1. Environment variables (ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY)
  *   2. ~/.claude/settings.json (cc-switch / Claude Code config)
+ *
+ * When config.useCLI is true, the local `claude` CLI is invoked instead of
+ * the Anthropic SDK.  This avoids API-key setup and reuses whatever account
+ * is already logged in via `claude login`.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { Message, MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { resolveClaudeCredentials } from "../config/claude-settings.js";
+import { spawn } from "node:child_process";
+import os from "node:os";
+import crypto from "node:crypto";
+import { writeFileSync, unlinkSync } from "node:fs";
+import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -24,6 +33,13 @@ export interface AnthropicConfig {
   baseURL?: string;
   /** Explicit API key (web mode) — if set, skips env/settings resolution */
   apiKey?: string;
+  /**
+   * When true, invoke the local `claude` CLI instead of the Anthropic SDK.
+   * The CLI reuses whatever credentials are active via `claude login`.
+   */
+  useCLI?: boolean;
+  /** Path to the `claude` binary. Defaults to "claude" (must be in PATH). */
+  cliPath?: string;
 }
 
 /** Input for a single component-generation call */
@@ -85,6 +101,112 @@ function buildUserContent(
 }
 
 // ---------------------------------------------------------------------------
+// CLI-based generation (useCLI mode)
+// ---------------------------------------------------------------------------
+
+/**
+ * Invoke the local `claude` CLI in non-interactive print mode to generate
+ * a component.  System prompt is written to a temp file to avoid shell
+ * argument length limits; user content is piped via stdin.
+ */
+async function generateComponentViaCLI(
+  input: ComponentGenInput,
+  config: AnthropicConfig,
+  signal?: AbortSignal
+): Promise<ComponentGenResult> {
+  if (signal?.aborted) {
+    throw Object.assign(new Error("Cancelled"), { code: "ERR_CANCELLED" });
+  }
+
+  const cliPath = config.cliPath || "claude";
+  const userContent = buildUserContent(input);
+
+  // Write system prompt to a temp file to avoid CLI argument length limits
+  const tmpFile = join(
+    os.tmpdir(),
+    `autovideo-sp-${crypto.randomBytes(8).toString("hex")}.txt`
+  );
+  writeFileSync(tmpFile, input.systemPrompt, "utf-8");
+
+  const args = [
+    "-p",
+    "--no-session-persistence",
+    "--dangerously-skip-permissions",
+    "--output-format", "text",
+    "--system-prompt-file", tmpFile,
+  ];
+
+  // NOTE: we intentionally do NOT forward --model to the CLI.
+  // The CLI picks its own default (typically the fastest available model).
+  // Forcing a specific model via --model switches to a different backend that
+  // can be orders of magnitude slower with large system prompts, causing the
+  // invocation to hang until the server-side timeout kills it.
+
+  try {
+    const raw = await new Promise<string>((resolve, reject) => {
+      const proc = spawn(cliPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
+
+      // Feed user prompt via stdin
+      proc.stdin.write(userContent, "utf-8");
+      proc.stdin.end();
+
+      proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+      proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          settle(() => resolve(stdout));
+        } else {
+          settle(() =>
+            reject(new Error(`claude CLI exited ${code}: ${stderr.slice(0, 400)}`))
+          );
+        }
+      });
+
+      proc.on("error", (err: Error) => {
+        settle(() => reject(new Error(`Failed to spawn claude: ${err.message}`)));
+      });
+
+      // Support cancellation via AbortSignal
+      if (signal) {
+        const onAbort = () => {
+          proc.kill("SIGTERM");
+          settle(() =>
+            reject(Object.assign(new Error("Cancelled"), { code: "ERR_CANCELLED" }))
+          );
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        proc.on("close", () => signal.removeEventListener("abort", onAbort));
+      }
+    });
+
+    // Strip markdown fences that the model may emit despite instructions
+    let tsx = raw
+      .replace(/^```(?:tsx|typescript|jsx|javascript)?\s*\n?/m, "")
+      .replace(/\n?```\s*$/m, "")
+      .trim();
+
+    if (tsx.length === 0) {
+      throw new Error("claude CLI returned empty response.");
+    }
+
+    return { tsx, usage: { inputTokens: 0, outputTokens: 0 } };
+  } finally {
+    try { unlinkSync(tmpFile); } catch { /* ignore */ }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
 
@@ -99,6 +221,11 @@ export async function generateComponent(
   config: AnthropicConfig,
   signal?: AbortSignal
 ): Promise<ComponentGenResult> {
+  // ---- Dispatch to CLI mode if requested ----------------------------------
+  if (config.useCLI) {
+    return generateComponentViaCLI(input, config, signal);
+  }
+
   // ---- Resolve credentials ------------------------------------------------
   let apiKey: string | undefined;
   let baseURL: string | undefined;
