@@ -28,7 +28,7 @@ export class LipsyncError extends Error {
 // ---------------------------------------------------------------------------
 
 export interface LipsyncOptions {
-  /** Absolute path to avatar loop video (192x192, 30fps, mp4) */
+  /** Absolute path to avatar loop video (square mp4, e.g. 128x128) */
   avatarPath: string;
   /** Absolute path to full audio WAV */
   audioPath: string;
@@ -276,11 +276,13 @@ export async function concatLipsyncVideos(
 // ---------------------------------------------------------------------------
 
 export interface OverlayOptions {
-  /** PiP size in pixels (default 192) */
-  size: number;
+  /** PiP width in pixels (from uploaded avatar resolution) */
+  width: number;
+  /** PiP height in pixels (from uploaded avatar resolution) */
+  height: number;
   /** Margin from edge in pixels (default 5) */
   margin: number;
-  /** Corner radius in pixels (default 16) */
+  /** Corner radius in pixels (default 24) */
   radius: number;
   /** Position on screen */
   position: "bottom-left";
@@ -300,31 +302,31 @@ export async function overlayLipsync(
   options: OverlayOptions,
   signal?: AbortSignal,
 ): Promise<void> {
-  const { size, margin, radius, position } = options;
+  const { width, height, margin, radius, position } = options;
 
   // Calculate overlay position
   let overlayPos: string;
   if (position === "bottom-left") {
-    overlayPos = `${margin}:main_h-${size}-${margin}`;
+    overlayPos = `${margin}:main_h-${height}-${margin}`;
   } else {
-    overlayPos = `${margin}:main_h-${size}-${margin}`;
+    overlayPos = `${margin}:main_h-${height}-${margin}`;
   }
 
   // Rounded-rect alpha mask via geq
-  // R = radius, W = size, H = size
+  // R = radius, W = width, H = height
   const geqAlpha = [
     // Top-left corner
     `lt(X,${radius})*lt(Y,${radius})*gt(pow(X-${radius},2)+pow(Y-${radius},2),pow(${radius},2))`,
     // Top-right corner
-    `gt(X,${size - radius})*lt(Y,${radius})*gt(pow(X-${size}+${radius},2)+pow(Y-${radius},2),pow(${radius},2))`,
+    `gt(X,${width - radius})*lt(Y,${radius})*gt(pow(X-${width}+${radius},2)+pow(Y-${radius},2),pow(${radius},2))`,
     // Bottom-left corner
-    `lt(X,${radius})*gt(Y,${size - radius})*gt(pow(X-${radius},2)+pow(Y-${size}+${radius},2),pow(${radius},2))`,
+    `lt(X,${radius})*gt(Y,${height - radius})*gt(pow(X-${radius},2)+pow(Y-${height}+${radius},2),pow(${radius},2))`,
     // Bottom-right corner
-    `gt(X,${size - radius})*gt(Y,${size - radius})*gt(pow(X-${size}+${radius},2)+pow(Y-${size}+${radius},2),pow(${radius},2))`,
+    `gt(X,${width - radius})*gt(Y,${height - radius})*gt(pow(X-${width}+${radius},2)+pow(Y-${height}+${radius},2),pow(${radius},2))`,
   ].join("+");
 
   const filterComplex = [
-    `[1:v]format=yuva420p,geq=`,
+    `[1:v]scale=${width}:${height}:flags=lanczos,format=yuva420p,geq=`,
     `lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':`,
     `a='if(${geqAlpha},0,255)'`,
     `[avatar];`,

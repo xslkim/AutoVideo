@@ -171,7 +171,8 @@ export interface Script {
     theme: string;
     subtitleSafeBottom: number;
     avatarRef?: string; // absolute path to avatar loop video for lip-sync overlay
-    skipLipsync?: boolean; // default true: skip MuseTalk, just overlay avatar.mp4 on repeat
+    skipLipsync?: boolean; // default false: run MuseTalk lip-sync when avatarRef is set
+    avatarRadius?: number; // PiP corner radius 8–128 px (default 24)
   };
   blocks: Block[];
   assets: Record<string, string>; // relative POSIX path → "assets/{hash}.ext"

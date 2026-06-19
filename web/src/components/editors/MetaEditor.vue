@@ -15,17 +15,58 @@
         </n-button>
       </div>
       <div class="avatar-body">
-        <div v-if="avatarExists" class="avatar-preview">
-          <video
-            :src="`/api/projects/${projectName}/avatar`"
-            class="avatar-video"
-            muted
-            loop
-            autoplay
-            @mouseenter="($event.target as HTMLVideoElement)?.play()"
-            @mouseleave="($event.target as HTMLVideoElement)?.pause()"
+        <div v-if="avatarExists || hasAvatarRef" class="lipsync-toggle">
+          <n-switch
+            v-model:value="lipsyncEnabled"
+            size="small"
+            :disabled="disabled || (!avatarExists && !hasAvatarRef)"
+            @update:value="onLipsyncToggle"
           />
-          <span class="avatar-filename">avatar.mp4</span>
+          <span class="lipsync-label">
+            {{ lipsyncEnabled ? '口型同步（MuseTalk）' : '仅循环头像（无口型）' }}
+          </span>
+          <span v-if="isDirty" class="dirty-hint">请先保存 meta.md</span>
+        </div>
+        <div v-if="avatarExists || hasAvatarRef" class="avatar-radius-row">
+          <span class="radius-label">画中画圆角</span>
+          <n-select
+            v-model:value="avatarRadius"
+            :options="avatarRadiusOptions"
+            size="small"
+            style="width: 88px"
+            :disabled="disabled"
+            @update:value="onAvatarRadiusChange"
+          />
+          <span class="radius-unit">px</span>
+        </div>
+        <div v-if="avatarExists" class="avatar-preview-row">
+          <div class="avatar-preview">
+            <video
+              :src="`/api/projects/${projectName}/avatar`"
+              class="avatar-video"
+              muted
+              loop
+              autoplay
+              @mouseenter="($event.target as HTMLVideoElement)?.play()"
+              @mouseleave="($event.target as HTMLVideoElement)?.pause()"
+            />
+            <span class="avatar-filename">avatar.mp4</span>
+          </div>
+          <div class="pip-preview">
+            <span class="pip-preview-title">左下角效果预览</span>
+            <div class="pip-preview-frame" :style="{ height: `${previewFrameHeight}px` }">
+              <video
+                :src="`/api/projects/${projectName}/avatar`"
+                class="pip-preview-avatar"
+                :style="pipPreviewStyle"
+                muted
+                loop
+                autoplay
+                playsinline
+                @loadedmetadata="onPreviewVideoMetadata"
+              />
+            </div>
+          </div>
         </div>
         <div v-else class="avatar-empty">
           <n-upload
@@ -38,7 +79,7 @@
               上传 Avatar 视频
             </n-button>
           </n-upload>
-          <span class="avatar-hint">192x192, 30fps, mp4</span>
+          <span class="avatar-hint">按上传分辨率叠加（如 128×128），30fps mp4</span>
         </div>
       </div>
     </div>
@@ -94,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
@@ -120,6 +161,132 @@ const isDirty = ref(false)
 const avatarExists = ref(false)
 const avatarUploading = ref(false)
 const avatarDeleting = ref(false)
+const hasAvatarRef = ref(false)
+const lipsyncEnabled = ref(true)
+const avatarRadius = ref(24)
+const previewVideoWidth = ref(128)
+const previewVideoHeight = ref(128)
+const previewAspect = ref<'16:9' | '9:16' | '1:1'>('16:9')
+
+const AVATAR_RADIUS_MIN = 8
+const AVATAR_RADIUS_MAX = 128
+const DEFAULT_AVATAR_RADIUS = 24
+const PREVIEW_FRAME_WIDTH = 280
+
+const avatarRadiusChoices = [
+  ...Array.from({ length: (64 - AVATAR_RADIUS_MIN) / 4 + 1 }, (_, i) => AVATAR_RADIUS_MIN + i * 4),
+  96,
+  128,
+]
+
+const avatarRadiusOptions = avatarRadiusChoices.map((value) => ({
+  label: String(value),
+  value,
+}))
+
+const previewFrameHeight = computed(() => {
+  if (previewAspect.value === '9:16') return Math.round(PREVIEW_FRAME_WIDTH * 16 / 9)
+  if (previewAspect.value === '1:1') return PREVIEW_FRAME_WIDTH
+  return Math.round(PREVIEW_FRAME_WIDTH * 9 / 16)
+})
+
+const pipPreviewStyle = computed(() => {
+  const metaWidth = previewAspect.value === '9:16' ? 1080 : previewAspect.value === '1:1' ? 1080 : 1920
+  const metaHeight = previewAspect.value === '9:16' ? 1920 : previewAspect.value === '1:1' ? 1080 : 1080
+  const scale = PREVIEW_FRAME_WIDTH / metaWidth
+  const w = Math.max(1, Math.round(previewVideoWidth.value * scale))
+  const h = Math.max(1, Math.round(previewVideoHeight.value * scale))
+  const r = Math.min(
+    avatarRadius.value * (w / previewVideoWidth.value),
+    w / 2,
+    h / 2,
+  )
+  return {
+    width: `${w}px`,
+    height: `${h}px`,
+    borderRadius: `${r}px`,
+  }
+})
+
+function readAvatarRadius(content: string): number {
+  const match = content.match(/^avatarRadius:\s*(\d+)\s*$/m)
+  if (!match) return DEFAULT_AVATAR_RADIUS
+  const parsed = Number(match[1])
+  if (!Number.isFinite(parsed)) return DEFAULT_AVATAR_RADIUS
+  return Math.min(AVATAR_RADIUS_MAX, Math.max(AVATAR_RADIUS_MIN, parsed))
+}
+
+function readAspect(content: string): '16:9' | '9:16' | '1:1' {
+  const match = content.match(/^aspect:\s*(\S+)/m)
+  if (match?.[1] === '9:16' || match?.[1] === '1:1') return match[1]
+  return '16:9'
+}
+
+function applyAvatarRadiusToMeta(content: string, radius: number): string {
+  const line = `avatarRadius: ${radius}`
+  if (/^avatarRadius:\s*\d+\s*$/m.test(content)) {
+    return content.replace(/^avatarRadius:\s*\d+\s*$/m, line)
+  }
+  if (/^avatarRef:\s*.+$/m.test(content)) {
+    return content.replace(/^(avatarRef:\s*.+)$/m, `$1\n${line}`)
+  }
+  if (/^skipLipsync:\s*.+$/m.test(content)) {
+    return content.replace(/^(skipLipsync:\s*.+)$/m, `$1\n${line}`)
+  }
+  return content.replace(/^---\s*$/m, `${line}\n---`)
+}
+
+function onPreviewVideoMetadata(event: Event) {
+  const video = event.target as HTMLVideoElement
+  if (video.videoWidth > 0) previewVideoWidth.value = video.videoWidth
+  if (video.videoHeight > 0) previewVideoHeight.value = video.videoHeight
+}
+
+async function onAvatarRadiusChange(value: number) {
+  if (!view) return
+  const current = view.state.doc.toString()
+  const updated = applyAvatarRadiusToMeta(current, value)
+  if (updated === current) return
+  view.dispatch({
+    changes: { from: 0, to: current.length, insert: updated },
+  })
+  await save()
+}
+
+function readLipsyncEnabled(content: string): boolean {
+  const match = content.match(/^skipLipsync:\s*(.+)$/m)
+  if (!match) return true
+  return match[1].trim().toLowerCase() !== 'true'
+}
+
+function applyLipsyncToMeta(content: string, enabled: boolean): string {
+  const line = enabled ? 'skipLipsync: false' : 'skipLipsync: true'
+  if (/^skipLipsync:\s*.+$/m.test(content)) {
+    return content.replace(/^skipLipsync:\s*.+$/m, line)
+  }
+  if (/^avatarRef:\s*.+$/m.test(content)) {
+    return content.replace(/^(avatarRef:\s*.+)$/m, `$1\n${line}`)
+  }
+  return content.replace(/^---\s*$/m, `${line}\n---`)
+}
+
+function syncLipsyncState(content: string) {
+  hasAvatarRef.value = /^avatarRef:\s*.+$/m.test(content)
+  lipsyncEnabled.value = readLipsyncEnabled(content)
+  avatarRadius.value = readAvatarRadius(content)
+  previewAspect.value = readAspect(content)
+}
+
+async function onLipsyncToggle(enabled: boolean) {
+  if (!view) return
+  const current = view.state.doc.toString()
+  const updated = applyLipsyncToMeta(current, enabled)
+  if (updated === current) return
+  view.dispatch({
+    changes: { from: 0, to: current.length, insert: updated },
+  })
+  await save()
+}
 
 // Conflict state
 const conflictVisible = ref(false)
@@ -157,6 +324,11 @@ function buildExtensions(onSave: () => void) {
     EditorView.updateListener.of((update) => {
       if (update.docChanged) {
         isDirty.value = true
+        const content = update.state.doc.toString()
+        hasAvatarRef.value = /^avatarRef:\s*.+$/m.test(content)
+        lipsyncEnabled.value = readLipsyncEnabled(content)
+        avatarRadius.value = readAvatarRadius(content)
+        previewAspect.value = readAspect(content)
       }
     }),
     EditorView.theme({
@@ -259,6 +431,7 @@ async function initEditor() {
     parent: editorEl.value,
   })
 
+  syncLipsyncState(content)
   loading.value = false
 }
 
@@ -406,19 +579,89 @@ watch(
 .avatar-body {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.lipsync-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lipsync-label {
+  font-size: 12px;
+  color: var(--n-text-color-2, #666);
+}
+
+.dirty-hint {
+  font-size: 11px;
+  color: #f0a020;
+}
+
+.avatar-radius-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.radius-label {
+  font-size: 12px;
+  color: var(--n-text-color-2, #666);
+}
+
+.radius-unit {
+  font-size: 12px;
+  color: var(--n-text-color-3, #999);
+}
+
+.avatar-preview-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  width: 100%;
 }
 
 .avatar-preview {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .avatar-video {
   width: 48px;
   height: 48px;
   border-radius: 6px;
+  object-fit: cover;
+  background: #000;
+}
+
+.pip-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pip-preview-title {
+  font-size: 11px;
+  color: var(--n-text-color-3, #999);
+}
+
+.pip-preview-frame {
+  position: relative;
+  width: 280px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pip-preview-avatar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
   object-fit: cover;
   background: #000;
 }

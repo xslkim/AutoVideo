@@ -361,6 +361,7 @@ export default Component;
       subtitleSafeBottom,
       ...(meta.avatarRef ? { avatarRef: meta.avatarRef } : {}),
       skipLipsync: meta.skipLipsync,
+      ...(meta.avatarRef ? { avatarRadius: meta.avatarRadius } : {}),
     },
     blocks: scriptBlocks,
     artifacts: {

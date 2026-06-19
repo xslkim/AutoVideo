@@ -53,7 +53,13 @@
         },
         "skipLipsync": {
           "type": "boolean",
-          "description": "Skip MuseTalk lip-sync, just overlay avatar.mp4 on repeat (default true)"
+          "description": "Skip MuseTalk lip-sync, just overlay avatar.mp4 on repeat (default false)"
+        },
+        "avatarRadius": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 128,
+          "description": "PiP corner radius in pixels for avatar overlay (default 24)"
         }
       }
     },

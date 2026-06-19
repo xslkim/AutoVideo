@@ -29,8 +29,10 @@ export interface ParsedMeta {
   slug?: string;
   /** Optional avatar loop video for lip-sync overlay (absolute path to mp4) */
   avatarRef?: string;
-  /** Skip MuseTalk lip-sync, just overlay avatar.mp4 on repeat (default true) */
+  /** Skip MuseTalk lip-sync, just overlay avatar.mp4 on repeat (default false) */
   skipLipsync: boolean;
+  /** PiP corner radius in pixels when avatar overlay is used (8–128, default 24) */
+  avatarRadius: number;
 }
 
 /** Parsed meta with dimensions computed */
@@ -67,7 +69,11 @@ const DEFAULTS = {
   aspect: "16:9" as AspectRatio,
   theme: "dark-code",
   fps: 30,
+  avatarRadius: 24,
 };
+
+const AVATAR_RADIUS_MIN = 8;
+const AVATAR_RADIUS_MAX = 128;
 
 // ---------------------------------------------------------------------------
 // Meta segment extractor
@@ -281,9 +287,27 @@ export function readMeta(
     avatarRef = avatarPath;
   }
 
-  // skipLipsync — optional, default true (skip MuseTalk, just overlay avatar.mp4 on repeat)
+  // skipLipsync — optional, default false (run MuseTalk lip-sync when avatarRef is set)
   const skipLipsyncRaw = kv.get("skipLipsync");
-  const skipLipsync = skipLipsyncRaw === undefined ? true : skipLipsyncRaw.toLowerCase() !== "false";
+  const skipLipsync = skipLipsyncRaw === undefined ? false : skipLipsyncRaw.toLowerCase() === "true";
+
+  // avatarRadius — optional PiP corner radius (8–128 px, default 24)
+  const avatarRadiusRaw = kv.get("avatarRadius");
+  let avatarRadius = DEFAULTS.avatarRadius;
+  if (avatarRadiusRaw !== undefined && avatarRadiusRaw.trim() !== "") {
+    const parsed = Number(avatarRadiusRaw);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+      throw new MetaError(
+        `avatarRadius must be an integer between ${AVATAR_RADIUS_MIN} and ${AVATAR_RADIUS_MAX}, got: ${avatarRadiusRaw}`,
+      );
+    }
+    if (parsed < AVATAR_RADIUS_MIN || parsed > AVATAR_RADIUS_MAX) {
+      throw new MetaError(
+        `avatarRadius must be between ${AVATAR_RADIUS_MIN} and ${AVATAR_RADIUS_MAX}, got: ${parsed}`,
+      );
+    }
+    avatarRadius = parsed;
+  }
 
   return {
     title,
@@ -292,6 +316,7 @@ export function readMeta(
     theme,
     fps,
     skipLipsync,
+    avatarRadius,
     ...(slug ? { slug } : {}),
     ...(avatarRef ? { avatarRef } : {}),
   };

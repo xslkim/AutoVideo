@@ -68,6 +68,14 @@ describe("LOCAL_PATH_REGEX", () => {
     expect(matches[0][2]).toBe("./a.png");
     expect(matches[1][2]).toBe("../b.jpg");
   });
+
+  it("does not swallow text after full-width colon (e.g. camchain.yaml)", () => {
+    const text =
+      "（预渲染图 ./assets/B18.png：camchain.yaml 结构与 intrinsics 解读。源文件 assets/B18.html。）";
+    const matches = [...text.matchAll(new RegExp(LOCAL_PATH_REGEX.source, "gm"))];
+    expect(matches).toHaveLength(1);
+    expect(matches[0][2]).toBe("./assets/B18.png");
+  });
 });
 
 describe("computeFileHash", () => {

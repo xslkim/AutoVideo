@@ -36,6 +36,23 @@ import { applyLoudnorm, type LoudnormResult } from "../render/loudnorm.js";
 import { runQA, type QAResult } from "../render/qa.js";
 import { extractAudio, generateLipsync, overlayLipsync, probeVideoSize, padAudio, concatLipsyncVideos, LipsyncError } from "../render/lipsync.js";
 
+const DEFAULT_AVATAR_RADIUS = 24;
+
+function resolveAvatarRadius(meta: Script["meta"]): number {
+  const r = meta.avatarRadius ?? DEFAULT_AVATAR_RADIUS;
+  return Math.min(128, Math.max(8, Math.round(r)));
+}
+
+/** Run MuseTalk per-block lip-sync (default when avatarRef is set). */
+function shouldGenerateMuseTalkLipsync(meta: Script["meta"]): boolean {
+  return Boolean(meta.avatarRef) && meta.skipLipsync !== true;
+}
+
+/** Overlay looping avatar.mp4 without MuseTalk (only when skipLipsync: true). */
+function shouldOverlayRawAvatarLoop(meta: Script["meta"]): boolean {
+  return Boolean(meta.avatarRef) && meta.skipLipsync === true;
+}
+
 // ── Error class ───────────────────────────────────────────────────────
 
 export class RenderError extends Error {
@@ -277,19 +294,19 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     // Avatar overlay in concatOnly mode
     const concatFinalPath = path.join(buildDir, "output", "final.mp4");
     if (meta.avatarRef) {
-      if (meta.skipLipsync !== false) {
-        // Skip lip-sync: overlay avatar.mp4 directly with repeat
+      if (shouldOverlayRawAvatarLoop(meta)) {
+        // skipLipsync: true — overlay avatar.mp4 directly with repeat
         emit(35, "叠加头像画中画（无口型同步）");
         const concatAvatarOut = path.join(buildDir, "output", "final_avatar.mp4");
         const concatAvatarSize = await probeVideoSize(meta.avatarRef);
         await overlayLipsync(
           concatFinalPath, meta.avatarRef, concatAvatarOut,
-          { size: concatAvatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
+          { width: concatAvatarSize.width, height: concatAvatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left" },
           signal,
         );
         fs.renameSync(concatAvatarOut, concatFinalPath);
-      } else {
-        // Full lip-sync: per-block MuseTalk generation
+      } else if (shouldGenerateMuseTalkLipsync(meta)) {
+        // skipLipsync: false (default) — per-block MuseTalk generation
         const lipsyncDir = path.join(buildDir, "output", "lipsync");
         fs.mkdirSync(lipsyncDir, { recursive: true });
         const musetalkUrl = (config as any).musetalk?.url ?? "http://localhost:8001";
@@ -344,7 +361,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         const concatAvatarSize = await probeVideoSize(meta.avatarRef);
         await overlayLipsync(
           concatFinalPath, lipsyncFullPath, concatLipsyncOut,
-          { size: concatAvatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
+          { width: concatAvatarSize.width, height: concatAvatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left" },
           signal,
         );
         fs.renameSync(concatLipsyncOut, concatFinalPath);
@@ -555,8 +572,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   // Each block's audio is padded with silence for enter/exit animations so
   // the lipsync duration matches the block partial duration exactly.
 
-  // Per-block lipsync generation (only when skipLipsync is explicitly false)
-  const doLipsync = meta.avatarRef && meta.skipLipsync === false;
+  // Per-block lipsync generation (default on; skipLipsync: true disables MuseTalk)
+  const doLipsync = shouldGenerateMuseTalkLipsync(meta);
   const avatarRef = meta.avatarRef;
   if (doLipsync && avatarRef) {
     const lipsyncDir = path.join(buildDir, "output", "lipsync");
@@ -630,25 +647,23 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     const finalWithAvatarPath = path.join(buildDir, "output", "final_avatar.mp4");
     const avatarSize = await probeVideoSize(meta.avatarRef);
 
-    if (meta.skipLipsync !== false) {
-      // Skip lip-sync: overlay avatar.mp4 directly with repeat
+    if (shouldOverlayRawAvatarLoop(meta)) {
       console.log(`[render] Overlaying avatar (no lip-sync) PiP...`);
       await overlayLipsync(
         finalAbsPath,
         meta.avatarRef,
         finalWithAvatarPath,
-        { size: avatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
+        { width: avatarSize.width, height: avatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left" },
         signal,
       );
-    } else {
-      // Full lip-sync: overlay pre-generated lipsync_full.mp4
+    } else if (shouldGenerateMuseTalkLipsync(meta)) {
       const lipsyncFullPath = path.join(buildDir, "output", "lipsync_full.mp4");
       console.log(`[render] Overlaying lip-sync PiP...`);
       await overlayLipsync(
         finalAbsPath,
         lipsyncFullPath,
         finalWithAvatarPath,
-        { size: avatarSize.width, margin: 0, radius: 16, position: "bottom-left" },
+        { width: avatarSize.width, height: avatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left" },
         signal,
       );
       try { fs.unlinkSync(lipsyncFullPath); } catch {}

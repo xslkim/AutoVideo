@@ -57,10 +57,11 @@ export class AssetError extends Error {
 /**
  * Regex to match local file paths in visual descriptions.
  * Must be preceded by start-of-string or whitespace.
- * Path must start with ./ or ../ and end with a file extension.
- * Capture group 1 = the path (without leading whitespace).
+ * Path must start with ./ or ../, use ASCII path chars only, and end with a file extension.
+ * Stops before full-width punctuation (e.g. 「./assets/B18.png：camchain.yaml」).
+ * Capture group 2 = the path (without leading whitespace).
  */
-export const LOCAL_PATH_REGEX = /(^|[\s])(\.\.?\/[^\s]+\.[a-zA-Z0-9]+)/gm;
+export const LOCAL_PATH_REGEX = /(^|[\s(（])(\.\.?\/[a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)/gm;
 
 /**
  * Source code file extensions that may be inlined.

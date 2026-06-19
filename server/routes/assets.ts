@@ -394,7 +394,20 @@ export function createAssetRoutes(projectsRoot: string) {
           // Add avatarRef before closing ---
           metaContent = metaContent.replace(
             /^---\s*$/m,
-            'avatarRef: ./avatar.mp4\n---',
+            'avatarRef: ./avatar.mp4\nskipLipsync: false\n---',
+          );
+        }
+        // Ensure default lip-sync when avatar is present (unless user explicitly disabled)
+        if (!/^skipLipsync:\s*.+$/m.test(metaContent)) {
+          metaContent = metaContent.replace(
+            /^avatarRef:\s*.+$/m,
+            'avatarRef: ./avatar.mp4\nskipLipsync: false',
+          );
+        }
+        if (!/^avatarRadius:\s*\d+\s*$/m.test(metaContent)) {
+          metaContent = metaContent.replace(
+            /^avatarRef:\s*.+$/m,
+            (line) => `${line}\navatarRadius: 24`,
           );
         }
         fs.writeFileSync(metaPath, metaContent, 'utf-8');
