@@ -31,6 +31,7 @@ import {
   type ValidateComponentOptions,
 } from "../ai/validate.js";
 import { assessVisualMetrics } from "../ai/visual-metrics.js";
+import { reviewVisual } from "../ai/visual-review.js";
 import { DEFAULT_VISUAL_QUALITY } from "../config/defaults.js";
 import {
   assertCompiledScript,
@@ -423,6 +424,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
         let succeeded = false;
         // Visual-quality feedback loop (plan A: metrics; plan B: review)
         const vq = config.visualQuality ?? DEFAULT_VISUAL_QUALITY;
+        let reviewRounds = 0;
 
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
           if (hasFailed || abortController.signal.aborted) return;
@@ -516,6 +518,32 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                       );
                     }
                     throw new VisualsError(metrics.feedback);
+                  }
+
+                  // Plan B: multimodal review (only after metrics pass, capped
+                  // by maxReviewRounds to bound cost/time).
+                  if (vq.review && reviewRounds < vq.maxReviewRounds) {
+                    const review = await reviewVisual(
+                      { pngPath: still.pngPath, visualDescription: block.visual.description },
+                      {
+                        useCLI: anthropicConfig.useCLI,
+                        cliPath: anthropicConfig.cliPath,
+                        apiKey: anthropicConfig.apiKey,
+                        baseURL: anthropicConfig.baseURL,
+                        model: anthropicConfig.model,
+                        maxRetries: anthropicConfig.maxRetries,
+                      },
+                      abortController.signal
+                    );
+                    if (!review.pass) {
+                      reviewRounds++;
+                      if (verbose) {
+                        console.log(
+                          `  Block ${blockLabel}: visual review requested changes (round ${reviewRounds}/${vq.maxReviewRounds}) — regenerating`
+                        );
+                      }
+                      throw new VisualsError(review.feedback);
+                    }
                   }
                 } else if (verbose) {
                   console.log(
