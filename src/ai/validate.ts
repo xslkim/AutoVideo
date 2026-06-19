@@ -234,6 +234,76 @@ export async function validateStatic(tsxPath: string, tsconfigPath: string): Pro
 
 // --- Render smoke ---
 
+/**
+ * Render a single mid-frame PNG of the component into a temp directory and
+ * return its path WITHOUT deleting it. The caller is responsible for calling
+ * `cleanupStill(tempDir)` once the PNG is no longer needed.
+ *
+ * This is the shared rendering primitive used by both the render-smoke check
+ * and the visual-quality feedback loop (deterministic metrics + multimodal
+ * review), all of which need the rendered still to inspect.
+ */
+export interface RenderStillResult {
+  ok: boolean;
+  pngPath?: string;
+  tempDir: string;
+  error?: string;
+}
+
+export async function renderComponentStill(
+  tsxPath: string,
+  options: {
+    buildOutDir: string;
+    width: number;
+    height: number;
+    fps: number;
+    durationSec?: number;
+    theme?: Record<string, unknown>;
+    projectRoot?: string;
+  },
+): Promise<RenderStillResult> {
+  const { buildOutDir, width, height, fps, durationSec = 5, theme } = options;
+  // Unique temp dir so concurrent block renders never collide.
+  // Must be absolute — the bundler requires an absolute output path.
+  const tempDir = path.resolve(
+    buildOutDir,
+    ".visual-still",
+    `still-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  );
+  fs.mkdirSync(tempDir, { recursive: true });
+  const outputPath = path.join(tempDir, "still.png");
+
+  try {
+    const componentRelPath = path.relative(tempDir, tsxPath).replace(/\\/g, "/");
+    const rootContent = generateSmokeTestRoot(componentRelPath, { width, height, fps, tempDurationSec: durationSec, theme });
+    const rootPath = path.join(tempDir, "SmokeRoot.tsx");
+    fs.writeFileSync(rootPath, rootContent);
+    const publicDir = path.join(buildOutDir, "public");
+    fs.mkdirSync(publicDir, { recursive: true });
+    ensureNodeModules(tempDir, options.projectRoot);
+
+    const bundler = await import("@remotion/bundler");
+    const renderer = await import("@remotion/renderer");
+
+    const bundleDir = path.join(tempDir, "bundle");
+    const serveUrl = await bundler.bundle({ entryPoint: rootPath, publicDir, outDir: bundleDir });
+    const composition = await renderer.selectComposition({ serveUrl, id: "SmokeTest", inputProps: {} });
+    const totalFrames = Math.max(1, Math.floor(durationSec * fps));
+    const midFrame = Math.floor(totalFrames / 2);
+
+    await renderer.renderStill({ composition, serveUrl, frame: midFrame, output: outputPath, imageFormat: "png" });
+
+    if (!fs.existsSync(outputPath)) return { ok: false, tempDir, error: "Render output PNG not found" };
+    return { ok: true, pngPath: outputPath, tempDir };
+  } catch (err: unknown) {
+    return { ok: false, tempDir, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export function cleanupStill(tempDir: string): void {
+  try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+}
+
 export async function validateRenderSmoke(
   tsxPath: string,
   tempDurationSec: number,
@@ -247,37 +317,17 @@ export async function validateRenderSmoke(
     projectRoot?: string;
   },
 ): Promise<RenderSmokeResult> {
-  const { buildOutDir, width, height, theme, timeoutMs = 30000 } = options;
-  const tempDir = path.join(buildOutDir, ".validate-smoke");
-  fs.mkdirSync(tempDir, { recursive: true });
-  const outputPath = path.join(tempDir, `smoke-${Date.now()}.png`);
-
+  const { buildOutDir, width, height, theme } = options;
+  const still = await renderComponentStill(tsxPath, {
+    buildOutDir, width, height, fps, durationSec: tempDurationSec, theme, projectRoot: options.projectRoot,
+  });
   try {
-    const componentRelPath = path.relative(tempDir, tsxPath).replace(/\\/g, "/");
-    const rootContent = generateSmokeTestRoot(componentRelPath, { width, height, fps, tempDurationSec, theme });
-    const rootPath = path.join(tempDir, "SmokeRoot.tsx");
-    fs.writeFileSync(rootPath, rootContent);
-    const publicDir = path.join(buildOutDir, "public");
-    fs.mkdirSync(publicDir, { recursive: true });
-    ensureNodeModules(tempDir, options.projectRoot);
-
-    const bundler = await import("@remotion/bundler");
-    const renderer = await import("@remotion/renderer");
-
-    const bundleDir = path.join(tempDir, "bundle");
-    const serveUrl = await bundler.bundle({ entryPoint: rootPath, publicDir, outDir: bundleDir });
-    const composition = await renderer.selectComposition({ serveUrl, id: "SmokeTest", inputProps: {} });
-    const totalFrames = Math.max(1, Math.floor(tempDurationSec * fps));
-    const midFrame = Math.floor(totalFrames / 2);
-
-    await renderer.renderStill({ composition, serveUrl, frame: midFrame, output: outputPath, imageFormat: "png" });
-
-    if (!fs.existsSync(outputPath)) return { pass: false, error: "Render output PNG not found" };
-    return analyzeImage(outputPath);
-  } catch (err: unknown) {
-    return { pass: false, error: `Render smoke test failed: ${err instanceof Error ? err.message : String(err)}` };
+    if (!still.ok || !still.pngPath) {
+      return { pass: false, error: `Render smoke test failed: ${still.error ?? "unknown error"}` };
+    }
+    return await analyzeImage(still.pngPath);
   } finally {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    cleanupStill(still.tempDir);
   }
 }
 
@@ -323,7 +373,7 @@ function generateSmokeTestRoot(
   };
   return `// Auto-generated smoke test root
 import React from "react";
-import { Composition, AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { Composition, useCurrentFrame, useVideoConfig, registerRoot } from "remotion";
 import Component from "${componentRelPath}";
 const theme = ${JSON.stringify(defaultTheme, null, 2)};
 const SmokeTestComp: React.FC = () => {
@@ -340,6 +390,7 @@ export const RemotionRoot: React.FC = () => {
     durationInFrames: ${totalFrames}, fps: ${fps}, width: ${width}, height: ${height},
   });
 };
+registerRoot(RemotionRoot);
 `;
 }
 

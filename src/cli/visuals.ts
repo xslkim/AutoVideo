@@ -26,8 +26,12 @@ import {
 import { generateImage, generateLocalImage } from "../ai/image-gen.js";
 import {
   validateComponent,
+  renderComponentStill,
+  cleanupStill,
   type ValidateComponentOptions,
 } from "../ai/validate.js";
+import { assessVisualMetrics } from "../ai/visual-metrics.js";
+import { DEFAULT_VISUAL_QUALITY } from "../config/defaults.js";
 import {
   assertCompiledScript,
   type Script,
@@ -417,6 +421,8 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
         let previousSource: string | null = null;
         let previousError: string | null = null;
         let succeeded = false;
+        // Visual-quality feedback loop (plan A: metrics; plan B: review)
+        const vq = config.visualQuality ?? DEFAULT_VISUAL_QUALITY;
 
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
           if (hasFailed || abortController.signal.aborted) return;
@@ -473,6 +479,52 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
               throw new VisualsError(
                 `Validation failed:\n${validation.errors.join("\n")}`
               );
+            }
+
+            // ── Visual-quality gate (soft) ───────────────────────────────
+            // Correctness passed. Render a still once and check deterministic
+            // metrics (plan A). A miss feeds actionable feedback into the next
+            // retry; on the final attempt we accept the best-effort component
+            // rather than failing the whole block.
+            const isLastAttempt = attempt === MAX_RETRIES - 1;
+            if (vq.enabled && !isLastAttempt) {
+              const still = await renderComponentStill(componentFile, {
+                buildOutDir,
+                width: script.meta.width,
+                height: script.meta.height,
+                fps: script.meta.fps,
+              });
+              try {
+                if (still.ok && still.pngPath) {
+                  const metrics = await assessVisualMetrics({
+                    tsxPath: componentFile,
+                    pngPath: still.pngPath,
+                    width: script.meta.width,
+                    height: script.meta.height,
+                    thresholds: {
+                      minFontCoeff: vq.minFontCoeff,
+                      minElements: vq.minElements,
+                      minCoverage: vq.minCoverage,
+                    },
+                  });
+                  if (!metrics.pass) {
+                    if (verbose) {
+                      console.log(
+                        `  Block ${blockLabel}: visual metrics below threshold (coverage ${
+                          metrics.image ? Math.round(metrics.image.coverage * 100) : "?"
+                        }%, maxFont ${Math.round(metrics.static.maxFontPx)}px, elements ${metrics.static.elementCount}) — regenerating`
+                      );
+                    }
+                    throw new VisualsError(metrics.feedback);
+                  }
+                } else if (verbose) {
+                  console.log(
+                    `  Block ${blockLabel}: visual still render skipped (${still.error ?? "unknown"})`
+                  );
+                }
+              } finally {
+                cleanupStill(still.tempDir);
+              }
             }
 
             // Validation passed!

@@ -116,12 +116,29 @@ export interface CacheConfig {
   evictTrigger: "stage-start" | "manual";
 }
 
+export interface VisualQualityConfig {
+  /** Enable the visual-quality feedback loop (render still + metrics + review) */
+  enabled: boolean;
+  /** Minimum height-relative coefficient for the largest font (e.g. 0.07 → height*0.07) */
+  minFontCoeff: number;
+  /** Minimum number of visible JSX elements a slide must contain */
+  minElements: number;
+  /** Minimum fraction (0..1) of the canvas grid that must carry visible content */
+  minCoverage: number;
+  /** Run the multimodal visual review (plan B) after deterministic metrics pass */
+  review: boolean;
+  /** Max number of review-driven regeneration rounds (separate from correctness retries) */
+  maxReviewRounds: number;
+}
+
 export interface AutoVideoConfig {
   voxcpm: VoxcpmConfig;
   anthropic: AnthropicConfig;
   imageGen: ImageGenConfig;
   render: RenderConfig;
   cache: CacheConfig;
+  /** Visual-quality feedback loop (optional; falls back to DEFAULT_VISUAL_QUALITY) */
+  visualQuality?: VisualQualityConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -177,4 +194,15 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     maxSizeGB: 20,
     evictTrigger: "stage-start",
   },
+  visualQuality: {
+    enabled: true,
+    minFontCoeff: 0.07,
+    minElements: 4,
+    minCoverage: 0.7,
+    review: true,
+    maxReviewRounds: 1,
+  },
 };
+
+/** Fallback used when a config object omits the visualQuality section. */
+export const DEFAULT_VISUAL_QUALITY: VisualQualityConfig = DEFAULT_CONFIG.visualQuality!;
