@@ -153,6 +153,46 @@
           </n-form-item>
         </n-form>
       </n-tab-pane>
+
+      <!-- 视觉质量 -->
+      <n-tab-pane name="visualQuality" tab="视觉质量">
+        <n-form label-placement="left" label-width="120" :style="{ paddingTop: '12px' }">
+          <n-form-item label="启用质量闭环">
+            <n-switch v-model:value="form.visualQuality.enabled" />
+            <span style="margin-left: 12px; font-size: 12px; color: #999">
+              动画组件生成后渲染一帧，按指标不达标自动重写
+            </span>
+          </n-form-item>
+          <template v-if="form.visualQuality.enabled">
+            <n-form-item label="最小字号比例">
+              <n-input-number
+                v-model:value="form.visualQuality.minFontCoeff"
+                :min="0" :max="0.2" :step="0.01" style="width: 100%"
+              >
+                <template #suffix>× height</template>
+              </n-input-number>
+            </n-form-item>
+            <n-form-item label="最少可见元素">
+              <n-input-number v-model:value="form.visualQuality.minElements" :min="1" :max="20" style="width: 100%" />
+            </n-form-item>
+            <n-form-item label="最小内容覆盖率">
+              <n-input-number
+                v-model:value="form.visualQuality.minCoverage"
+                :min="0" :max="1" :step="0.05" style="width: 100%"
+              />
+            </n-form-item>
+            <n-form-item label="多模态评审">
+              <n-switch v-model:value="form.visualQuality.review" />
+              <span style="margin-left: 12px; font-size: 12px; color: #999">
+                指标通过后再请模型看图精修（更慢、更贵）
+              </span>
+            </n-form-item>
+            <n-form-item v-if="form.visualQuality.review" label="最大评审轮数">
+              <n-input-number v-model:value="form.visualQuality.maxReviewRounds" :min="0" :max="3" style="width: 100%" />
+            </n-form-item>
+          </template>
+        </n-form>
+      </n-tab-pane>
     </n-tabs>
 
     <template #footer>
@@ -238,6 +278,14 @@ const form = reactive({
   musetalk: {
     url: '' as string,
   },
+  visualQuality: {
+    enabled: true as boolean,
+    minFontCoeff: 0.07 as number | null,
+    minElements: 4 as number | null,
+    minCoverage: 0.7 as number | null,
+    review: true as boolean,
+    maxReviewRounds: 1 as number | null,
+  },
 })
 
 // ── Test state ──────────────────────────────────────────────────────────
@@ -285,6 +333,13 @@ async function loadConfig() {
 
   form.musetalk.url = c.musetalk?.url ?? ''
 
+  form.visualQuality.enabled = c.visualQuality?.enabled ?? true
+  form.visualQuality.minFontCoeff = c.visualQuality?.minFontCoeff ?? 0.07
+  form.visualQuality.minElements = c.visualQuality?.minElements ?? 4
+  form.visualQuality.minCoverage = c.visualQuality?.minCoverage ?? 0.7
+  form.visualQuality.review = c.visualQuality?.review ?? true
+  form.visualQuality.maxReviewRounds = c.visualQuality?.maxReviewRounds ?? 1
+
   // Preserve key "set" status — if set, show placeholder text
   if (!c.anthropic.apiKey.set) form.anthropic.apiKey = ''
   if (!c.imageGen.apiKey.set) form.imageGen.apiKey = ''
@@ -330,6 +385,16 @@ async function onSave() {
     // MuseTalk
     patch.musetalk = {
       url: form.musetalk.url || null,
+    }
+
+    // Visual quality (booleans/numbers — sent as-is)
+    patch.visualQuality = {
+      enabled: form.visualQuality.enabled,
+      minFontCoeff: form.visualQuality.minFontCoeff,
+      minElements: form.visualQuality.minElements,
+      minCoverage: form.visualQuality.minCoverage,
+      review: form.visualQuality.review,
+      maxReviewRounds: form.visualQuality.maxReviewRounds,
     }
 
     const res = await apiPut<{ ok: boolean; config: AppConfigPublic }>('/api/config', patch)

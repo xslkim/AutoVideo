@@ -86,6 +86,14 @@ export interface AppConfig {
   musetalk?: {
     url?: string;
   };
+  visualQuality?: {
+    enabled?: boolean;
+    minFontCoeff?: number;
+    minElements?: number;
+    minCoverage?: number;
+    review?: boolean;
+    maxReviewRounds?: number;
+  };
 }
 
 export interface AppConfigPublic {
@@ -115,6 +123,14 @@ export interface AppConfigPublic {
   };
   musetalk: {
     url?: string;
+  };
+  visualQuality: {
+    enabled?: boolean;
+    minFontCoeff?: number;
+    minElements?: number;
+    minCoverage?: number;
+    review?: boolean;
+    maxReviewRounds?: number;
   };
 }
 

@@ -18,7 +18,9 @@ import { tts } from '../../src/cli/tts.js';
 import { visuals } from '../../src/cli/visuals.js';
 import { render } from '../../src/cli/render.js';
 import { loadConfig } from '../../src/config/load.js';
+import { readMeta } from '../../src/parser/meta.js';
 import type { AutoVideoConfig } from '../../src/config/defaults.js';
+import { DEFAULT_VISUAL_QUALITY } from '../../src/config/defaults.js';
 import type { ProgressEvent as CliProgressEvent } from '../../src/types/script.js';
 import type { TaskRecord, ProgressEvent, AppConfig } from '../types/api.js';
 
@@ -51,6 +53,46 @@ function copyDir(src: string, dest: string): void {
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
+  }
+}
+
+/**
+ * Sync avatar-related fields from project meta.md into script.json before render.
+ * Render reads script.json only; without this, meta.md changes (e.g. skipLipsync)
+ * are ignored until the user re-runs compile.
+ */
+function syncAvatarMetaToScript(projectDir: string, outDir: string): void {
+  const scriptPath = path.join(outDir, 'script.json');
+  const metaPath = path.join(projectDir, 'meta.md');
+  if (!fs.existsSync(scriptPath) || !fs.existsSync(metaPath)) return;
+
+  try {
+    const parsed = readMeta(metaPath);
+    const scriptRaw = JSON.parse(fs.readFileSync(scriptPath, 'utf-8')) as {
+      meta?: Record<string, unknown>;
+    };
+    if (!scriptRaw.meta) return;
+
+    scriptRaw.meta.skipLipsync = parsed.skipLipsync;
+    if (parsed.avatarRef) {
+      scriptRaw.meta.avatarRef = parsed.avatarRef;
+      scriptRaw.meta.avatarRadius = parsed.avatarRadius;
+    } else {
+      delete scriptRaw.meta.avatarRef;
+      delete scriptRaw.meta.avatarRadius;
+      delete scriptRaw.meta.skipLipsync;
+    }
+
+    fs.writeFileSync(scriptPath, JSON.stringify(scriptRaw, null, 2), 'utf-8');
+    console.log(
+      `[taskRunner] Synced avatar meta → script.json (skipLipsync=${parsed.skipLipsync})`,
+    );
+  } catch (err) {
+    console.warn(
+      `[taskRunner] Failed to sync avatar meta from meta.md: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
   }
 }
 
@@ -245,6 +287,17 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
       if (raw.musetalk) {
         (cfg as any).musetalk = { ...(cfg as any).musetalk, ...raw.musetalk };
       }
+
+      if (raw.visualQuality) {
+        cfg.visualQuality = cfg.visualQuality ?? { ...DEFAULT_VISUAL_QUALITY };
+        const vq = raw.visualQuality;
+        if (vq.enabled !== undefined) cfg.visualQuality.enabled = vq.enabled;
+        if (vq.minFontCoeff !== undefined) cfg.visualQuality.minFontCoeff = vq.minFontCoeff;
+        if (vq.minElements !== undefined) cfg.visualQuality.minElements = vq.minElements;
+        if (vq.minCoverage !== undefined) cfg.visualQuality.minCoverage = vq.minCoverage;
+        if (vq.review !== undefined) cfg.visualQuality.review = vq.review;
+        if (vq.maxReviewRounds !== undefined) cfg.visualQuality.maxReviewRounds = vq.maxReviewRounds;
+      }
     } catch {
       // Malformed config — use defaults
     }
@@ -398,6 +451,8 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
           );
         }
 
+        syncAvatarMetaToScript(projectDir, outDir);
+
         await render({
           scriptPath,
           config,
@@ -449,6 +504,7 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
 
         // Stage 4: render (65–95%)
         if (signal.aborted) break;
+        syncAvatarMetaToScript(projectDir, outDir);
         await render({
           scriptPath,
           config,
@@ -476,31 +532,7 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
         // files uploaded after the last compile are picked up by merge.
         // This does NOT re-compile; script.json is left unchanged.
         snapshotSourceFiles(projectDir, outDir);
-
-        // If the snapshot has an avatarRef but script.json doesn't (e.g. avatar
-        // was added after the last compile), patch script.json so the lipsync
-        // overlay step runs correctly.
-        {
-          const snapshotMetaPath = path.join(outDir, '_snapshot', 'meta.md');
-          if (fs.existsSync(snapshotMetaPath)) {
-            const snapshotMeta = fs.readFileSync(snapshotMetaPath, 'utf-8');
-            const avatarMatch = snapshotMeta.match(/^avatarRef:\s*(.+)$/m);
-            if (avatarMatch) {
-              const snapshotAvatarPath = path.resolve(
-                path.join(outDir, '_snapshot'),
-                avatarMatch[1].trim(),
-              );
-              if (fs.existsSync(snapshotAvatarPath)) {
-                const scriptRaw = JSON.parse(fs.readFileSync(scriptPath, 'utf-8')) as Record<string, any>;
-                if (!scriptRaw?.meta?.avatarRef) {
-                  scriptRaw.meta.avatarRef = snapshotAvatarPath;
-                  fs.writeFileSync(scriptPath, JSON.stringify(scriptRaw, null, 2), 'utf-8');
-                  console.log(`[taskRunner] Patched script.json with avatarRef: ${snapshotAvatarPath}`);
-                }
-              }
-            }
-          }
-        }
+        syncAvatarMetaToScript(projectDir, outDir);
 
         // merge progress mapping: concat 60 / loudnorm 30 / qa 10
         await render({

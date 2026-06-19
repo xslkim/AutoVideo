@@ -9,6 +9,7 @@ import {
   resolveImageGenProvider,
 } from '../../src/ai/image-gen.js';
 import type { ImageGenConfig } from '../../src/config/defaults.js';
+import { DEFAULT_VISUAL_QUALITY } from '../../src/config/defaults.js';
 
 const CONFIG_FILE = '.autovideo-web/config.json';
 
@@ -72,6 +73,14 @@ function resolveConfig(repoRoot: string): AppConfig {
     musetalk: {
       url: stored.musetalk?.url || process.env.MUSETALK_URL || 'http://localhost:8001',
     },
+    visualQuality: {
+      enabled: stored.visualQuality?.enabled ?? DEFAULT_VISUAL_QUALITY.enabled,
+      minFontCoeff: stored.visualQuality?.minFontCoeff ?? DEFAULT_VISUAL_QUALITY.minFontCoeff,
+      minElements: stored.visualQuality?.minElements ?? DEFAULT_VISUAL_QUALITY.minElements,
+      minCoverage: stored.visualQuality?.minCoverage ?? DEFAULT_VISUAL_QUALITY.minCoverage,
+      review: stored.visualQuality?.review ?? DEFAULT_VISUAL_QUALITY.review,
+      maxReviewRounds: stored.visualQuality?.maxReviewRounds ?? DEFAULT_VISUAL_QUALITY.maxReviewRounds,
+    },
   };
 }
 
@@ -112,6 +121,14 @@ function publicConfig(full: AppConfig): AppConfigPublic {
     musetalk: {
       url: full.musetalk?.url,
     },
+    visualQuality: {
+      enabled: full.visualQuality?.enabled,
+      minFontCoeff: full.visualQuality?.minFontCoeff,
+      minElements: full.visualQuality?.minElements,
+      minCoverage: full.visualQuality?.minCoverage,
+      review: full.visualQuality?.review,
+      maxReviewRounds: full.visualQuality?.maxReviewRounds,
+    },
   };
 }
 
@@ -122,7 +139,7 @@ function publicConfig(full: AppConfig): AppConfigPublic {
 function mergeConfig(stored: AppConfig, patch: Partial<AppConfig>): AppConfig {
   const merged: AppConfig = { ...stored, version: 1 };
 
-  for (const svc of ['anthropic', 'imageGen', 'voxcpm', 'musetalk'] as const) {
+  for (const svc of ['anthropic', 'imageGen', 'voxcpm', 'musetalk', 'visualQuality'] as const) {
     const patchSvc = patch[svc];
     if (!patchSvc) continue;
     merged[svc] = { ...(stored[svc] || {}) };
