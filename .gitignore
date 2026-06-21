@@ -16,3 +16,6 @@ third_servers/*/.venv/
 third_servers/*/repo/
 third_servers/*/.model/
 third_servers/*/models/
+
+# local config (real paths, not committed)
+autovideo.config.json

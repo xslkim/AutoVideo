@@ -74,6 +74,12 @@ step "Framework npm dependencies"
 npm install
 info "npm dependencies installed."
 
+# 本地 config(从 example 复制;用户按需改真实路径)
+if [[ ! -f autovideo.config.json && -f autovideo.config.example.json ]]; then
+  cp autovideo.config.example.json autovideo.config.json
+  info "已从 example 创建 autovideo.config.json — 请修改其中的真实路径(模型权重 / endpoint)"
+fi
+
 # ── Step 4: VoxCPM2 TTS (required for narration) ───────────────────────────
 if [[ "$SKIP_TTS" == "true" ]]; then
   warn "Skipping VoxCPM TTS (--skip-tts) — TTS stage will be unavailable."
