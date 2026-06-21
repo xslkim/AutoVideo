@@ -187,7 +187,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   emit(40, "确定输出目录");
 
   // ── Step 4: Determine output directory ─────────────────────────────────
-  const outDir = resolveOutDir(meta.title, outFlag, meta.slug);
+  const outDir = resolveOutDir(meta.title, outFlag, meta.slug, dirname(projectPath));
   if (verbose) console.log("[compile] Output directory:", outDir);
 
   if (signal?.aborted) throw new CompileError("Compile cancelled", "ERR_CANCELLED");

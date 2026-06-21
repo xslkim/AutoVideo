@@ -90,21 +90,27 @@ export function slugify(title: string): string {
  *
  * Priority:
  * 1. Explicit --out flag (absolute or relative to cwd)
- * 2. meta.md `slug:` field override → `./build/{slug}/`
- * 3. Auto slug from title → `./build/{slug(title)}/`
+ * 2. meta.md `slug:` field override → `{projectDir}/build/{slug}/`
+ * 3. Auto slug from title → `{projectDir}/build/{slug(title)}/`
+ *
+ * When `projectDir` is omitted (e.g. in unit tests), falls back to
+ * `./build/{slug}/` relative to cwd for backwards compatibility.
  *
  * @param title - Video title from meta
  * @param outFlag - Explicit --out flag value (if provided)
  * @param slugOverride - slug field from meta.md (if provided)
+ * @param projectDir - project.json's directory; build output goes inside it
  */
 export function resolveOutDir(
   title: string,
   outFlag?: string,
-  slugOverride?: string
+  slugOverride?: string,
+  projectDir?: string
 ): string {
   if (outFlag) {
     return resolve(outFlag);
   }
   const slug = slugOverride ? slugify(slugOverride) : slugify(title);
-  return resolve("build", slug);
+  // Build output lives inside the project directory: project/{name}/build/{slug}/
+  return projectDir ? resolve(projectDir, "build", slug) : resolve("build", slug);
 }
