@@ -153,7 +153,7 @@ export interface AutoVideoConfig {
 export const DEFAULT_CONFIG: AutoVideoConfig = {
   voxcpm: {
     endpoint: "http://127.0.0.1:8000",
-    modelDir: "/home/ubuntu/model/voxcpm/VoxCPM2",
+    modelDir: "/path/to/VoxCPM2",
     cfgValue: 2.0,
     inferenceTimesteps: 10,
     denoise: false,

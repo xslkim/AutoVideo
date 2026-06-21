@@ -12,10 +12,10 @@
 
 ```bash
 # 输入：项目目录（已含 meta.md + script.md）
-PROJECT_DIR=/home/ubuntu/AutoVideo/project/MyVideo
+PROJECT_DIR=AutoVideo/project/MyVideo
 
 # 一键构建（必须用 --out 把产物放到项目目录内）
-cd /home/ubuntu/AutoVideo
+cd AutoVideo
 npx tsx bin/autovideo.ts compile $PROJECT_DIR/project.json \
   --out $PROJECT_DIR/build/$(basename $PROJECT_DIR)
 # 之后 tts / visuals / render 会继续在同一目录内写产物
@@ -52,7 +52,7 @@ project/MyVideo/
 快速检查：
 
 ```bash
-PROJECT_DIR=/home/ubuntu/AutoVideo/project/MyVideo
+PROJECT_DIR=AutoVideo/project/MyVideo
 test -f "$PROJECT_DIR/meta.md"   && echo "OK: meta.md"   || echo "MISSING: meta.md"
 test -f "$PROJECT_DIR/script.md" && echo "OK: script.md" || echo "MISSING: script.md (或 part*.md)"
 ```
@@ -62,7 +62,7 @@ test -f "$PROJECT_DIR/script.md" && echo "OK: script.md" || echo "MISSING: scrip
 跑 `compile` 阶段就能验证 Markdown 语法是否合规——它只解析、不调外部服务：
 
 ```bash
-cd /home/ubuntu/AutoVideo
+cd AutoVideo
 
 # 读取 meta.md 里的 slug 字段（或用项目名代替）
 SLUG=my-video-slug   # 改成 meta.md 中的 slug 值
@@ -116,7 +116,7 @@ bash build.sh --cache-dir=./cache    # 指定缓存目录
 如果没有项目自带脚本，且已有 `project.json`：
 
 ```bash
-cd /home/ubuntu/AutoVideo
+cd AutoVideo
 SLUG=my-video-slug   # 改成 meta.md 中的 slug 值
 
 # ⚠️ 必须用 --out 把产物写到项目目录内
@@ -132,7 +132,7 @@ npx tsx bin/autovideo.ts build $PROJECT_DIR/project.json \
 需要逐阶段控制时使用：
 
 ```bash
-cd /home/ubuntu/AutoVideo
+cd AutoVideo
 SLUG=my-video-slug   # 改成 meta.md 中的 slug 值
 
 # ⚠️ BUILD 路径必须在 PROJECT_DIR 内
@@ -327,7 +327,7 @@ npx tsx bin/autovideo.ts doctor
 
 ```bash
 # 0. 设定项目目录（所有产物都应在这个目录内）
-PROJECT_DIR=/home/ubuntu/AutoVideo/project/MicroGpt
+PROJECT_DIR=AutoVideo/project/MicroGpt
 SLUG=microgpt-py-survival-guide        # 与 meta.md 中的 slug 保持一致
 BUILD=$PROJECT_DIR/build/$SLUG         # ⚠️ 产物目录在项目目录内，不是根目录
 
@@ -336,7 +336,7 @@ test -f "$PROJECT_DIR/meta.md"   && echo "OK: meta.md"   || echo "MISSING: meta.
 test -f "$PROJECT_DIR/part1.md"  && echo "OK: part1.md"  || echo "MISSING: part1.md"
 
 # 2. 验证语法（--out 指向项目目录内）
-cd /home/ubuntu/AutoVideo
+cd AutoVideo
 npx tsx bin/autovideo.ts compile "$PROJECT_DIR/project.json" \
   --out "$BUILD" --verbose
 
