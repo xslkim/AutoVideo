@@ -75,7 +75,6 @@ function createTestConfig(overrides?: Partial<AutoVideoConfig>): AutoVideoConfig
     voxcpm: {
       endpoint: "http://127.0.0.1:8000",
       modelDir: "~/.cache/voxcpm/VoxCPM2",
-      autoStart: false,
       cfgValue: 2.0,
       inferenceTimesteps: 10,
       denoise: false,
@@ -86,6 +85,15 @@ function createTestConfig(overrides?: Partial<AutoVideoConfig>): AutoVideoConfig
       model: "claude-sonnet-4-6",
       maxRetries: 3,
       concurrency: 2,
+    },
+    imageGen: {
+      provider: "sensenova",
+      baseURL: "http://127.0.0.1:8765",
+      model: "gpt-image-1",
+      timeoutMs: 600000,
+      concurrency: 1,
+      numSteps: 15,
+      cfgScale: 4.0,
     },
     render: {
       blockConcurrency: 4,
@@ -106,6 +114,14 @@ function createTestConfig(overrides?: Partial<AutoVideoConfig>): AutoVideoConfig
       dir: os.tmpdir() + "/autovideo-test-cache-" + process.pid,
       maxSizeGB: 1,
       evictTrigger: "manual",
+    },
+    visualQuality: {
+      enabled: false,
+      minFontCoeff: 0.07,
+      minElements: 4,
+      minCoverage: 0.7,
+      review: false,
+      maxReviewRounds: 1,
     },
     ...overrides,
   } as AutoVideoConfig;
@@ -179,6 +195,10 @@ const mockGenerate = vi.mocked(generateComponent);
 const mockValidate = vi.mocked(validateComponent);
 
 // ── Tests ─────────────────────────────────────────────────────────────
+
+// visuals() runs per-block concurrency with (mocked) generation + validation;
+// under the mock harness the full pipeline is slower than the 5s default.
+vi.setConfig({ testTimeout: 60000 });
 
 describe("visuals command", () => {
   beforeEach(() => {

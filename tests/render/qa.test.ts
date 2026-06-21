@@ -79,8 +79,6 @@ async function createColoredMp4(
     "lavfi",
     "-i",
     `color=c=0x336699:s=${width}x${height}:d=${durationSec}:r=${fps}`,
-    "-vf",
-    `drawtext=text='TEST':fontsize=72:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2`,
     "-c:v",
     "libx264",
     "-pix_fmt",

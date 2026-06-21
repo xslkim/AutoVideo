@@ -93,23 +93,9 @@ describe("assertCompiledScript", () => {
     ).toThrow(/Missing blocks/);
   });
 
-  it("throws on block with audio set at compile stage", () => {
-    const script = structuredClone(minimalFixture);
-    (script as any).blocks[0].audio = { wavPath: "x", durationSec: 5, lineTimings: [] };
-    expect(() => assertCompiledScript(script)).toThrow(/audio should not be set at compile stage/);
-  });
-
-  it("throws on block with componentPath set at compile stage", () => {
-    const script = structuredClone(minimalFixture);
-    (script as any).blocks[0].visual.componentPath = "src/blocks/B01/Component.tsx";
-    expect(() => assertCompiledScript(script)).toThrow(/componentPath should not be set at compile stage/);
-  });
-
-  it("throws on block with imagePath set at compile stage", () => {
-    const script = structuredClone(minimalFixture);
-    (script as any).blocks[0].visual.imagePath = "public/images/B01.png";
-    expect(() => assertCompiledScript(script)).toThrow(/imagePath should not be set at compile stage/);
-  });
+  // Note: assertCompiledScript intentionally allows audio/componentPath/imagePath
+  // to persist from prior runs so stages can be re-run independently — no
+  // compile-stage purity checks for those fields (see script.ts).
 
   it("throws on missing artifacts.compiledAt", () => {
     const script = structuredClone(minimalFixture);

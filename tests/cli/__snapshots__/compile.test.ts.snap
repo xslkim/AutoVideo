@@ -32,6 +32,7 @@ exports[`compile > should produce stable script.json snapshot for 2-block fixtur
       "visual": {
         "description": "屏幕中央显示大标题 "Hello World"，白色大字，渐显",
       },
+      "visualMode": "animation",
     },
     {
       "enter": "slide-left",
@@ -55,6 +56,7 @@ exports[`compile > should produce stable script.json snapshot for 2-block fixtur
       "visual": {
         "description": "显示图片 assets/90c144a4.png，居中展示，清晰可读",
       },
+      "visualMode": "animation",
     },
   ],
   "meta": {
@@ -62,10 +64,11 @@ exports[`compile > should produce stable script.json snapshot for 2-block fixtur
     "fps": 30,
     "height": 1080,
     "schemaVersion": "1.0",
+    "skipLipsync": false,
     "subtitleSafeBottom": 162,
     "theme": "dark-code",
     "title": "Test Video",
-    "voiceRef": "/home/ubuntu/AutoVideo/tests/fixtures/compile-test/B00.wav",
+    "voiceRef": "/home/xsl/AutoVideo/tests/fixtures/compile-test/B00.wav",
     "width": 1920,
   },
 }
