@@ -309,7 +309,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         // skipLipsync: false (default) — per-block MuseTalk generation
         const lipsyncDir = path.join(buildDir, "output", "lipsync");
         fs.mkdirSync(lipsyncDir, { recursive: true });
-        const musetalkUrl = (config as any).musetalk?.url ?? "http://localhost:8001";
+        const musetalkUrl = config.musetalk?.url ?? "http://localhost:8001";
         const blockCount = blocks.length;
 
         for (let i = 0; i < blockCount; i++) {

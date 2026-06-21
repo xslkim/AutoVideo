@@ -10,3 +10,9 @@ web/dist/
 *.log
 __pycache__/
 api_key.txt
+
+# third_servers: clone 的上游仓库、虚拟环境与模型权重不进 git
+third_servers/*/.venv/
+third_servers/*/repo/
+third_servers/*/.model/
+third_servers/*/models/

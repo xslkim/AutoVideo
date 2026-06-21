@@ -45,6 +45,13 @@ export interface StaticMetrics {
   hardcodedFontSizes: number[];
   /** Count of visible JSX elements */
   elementCount: number;
+  /**
+   * True only if EVERY fontSize usage could be resolved to a px value. When
+   * false, maxFontPx is an underestimate (some sizes use expressions we can't
+   * statically evaluate, e.g. Math.min(w,h)*k), so the font check must be
+   * skipped to avoid false negatives.
+   */
+  fontFullyMeasured: boolean;
 }
 
 export interface ImageMetrics {
@@ -129,6 +136,24 @@ function scanFontValue(
   }
 }
 
+/** Resolve a node's font-size subtree to a px value + whether it's canvas-relative. */
+function resolveNodePx(
+  node: any,
+  dims: { width: number; height: number },
+): { px: number; isRelative: boolean } | null {
+  const out: { relative: { dim: "width" | "height"; coeff: number }[]; hardcoded: number[] } = {
+    relative: [],
+    hardcoded: [],
+  };
+  scanFontValue(node, out);
+  const px = [
+    ...out.relative.map((r) => r.coeff * (r.dim === "width" ? dims.width : dims.height)),
+    ...out.hardcoded,
+  ];
+  if (px.length === 0) return null;
+  return { px: Math.max(...px), isRelative: out.relative.length > 0 };
+}
+
 export function computeStaticMetrics(
   tsxPath: string,
   dims: { width: number; height: number },
@@ -139,14 +164,61 @@ export function computeStaticMetrics(
     ast = parse(code, { sourceType: "module", plugins: ["typescript", "jsx"] });
   } catch {
     // Parse failures are caught by the correctness gate; treat as empty here.
-    return { maxFontPx: 0, usesRelativeFont: false, hardcodedFontSizes: [], elementCount: 0 };
+    return { maxFontPx: 0, usesRelativeFont: false, hardcodedFontSizes: [], elementCount: 0, fontFullyMeasured: false };
   }
 
-  const fontValues: { relative: { dim: "width" | "height"; coeff: number }[]; hardcoded: number[] } = {
-    relative: [],
-    hardcoded: [],
-  };
+  // Pass 1: resolve `const x = height*0.08` style size variables, so that
+  // `fontSize: x` / `fontSize={x}` (very common in animation/SVG components)
+  // can be measured instead of read as 0.
+  const varSizes = new Map<string, { px: number; isRelative: boolean }>();
+  (function collectVars(node: any): void {
+    if (!node || typeof node !== "object") return;
+    if (node.type === "VariableDeclarator" && node.id?.type === "Identifier" && node.init) {
+      const r = resolveNodePx(node.init, dims);
+      if (r) varSizes.set(node.id.name, r);
+    }
+    for (const key of Object.keys(node)) {
+      if (key === "loc" || key === "start" || key === "end" || key === "range" || key === "type") continue;
+      const child = node[key];
+      if (Array.isArray(child)) for (const item of child) { if (item && typeof item === "object") collectVars(item); }
+      else if (child && typeof child === "object") collectVars(child);
+    }
+  })(ast);
+
+  const resolvedPx: number[] = [];
+  const hardcoded: number[] = [];
+  let usesRelativeFont = false;
+  let unresolvedFont = false;
   let elementCount = 0;
+
+  /** Record a fontSize value node (object-property or JSX-attribute). */
+  function recordFont(value: any): void {
+    if (!value) return;
+    // `fontSize={x}` → JSX expression container
+    const expr = value.type === "JSXExpressionContainer" ? value.expression : value;
+    if (expr?.type === "Identifier" && varSizes.has(expr.name)) {
+      const r = varSizes.get(expr.name)!;
+      resolvedPx.push(r.px);
+      if (r.isRelative) usesRelativeFont = true;
+      return;
+    }
+    if ((expr?.type === "StringLiteral") && !isNaN(Number(expr.value))) {
+      hardcoded.push(Number(expr.value));
+      resolvedPx.push(Number(expr.value));
+      return;
+    }
+    const r = resolveNodePx(expr, dims);
+    if (r) {
+      resolvedPx.push(r.px);
+      if (r.isRelative) usesRelativeFont = true;
+      // direct numeric literal(s) count as hard-coded for the lint hint
+      if (expr?.type === "NumericLiteral" || expr?.type === "Literal") hardcoded.push(r.px);
+    } else {
+      // A fontSize we couldn't statically evaluate (e.g. Math.min(w,h)*k,
+      // function calls). Mark measurement incomplete so the font gate is skipped.
+      unresolvedFont = true;
+    }
+  }
 
   function walk(node: any): void {
     if (!node || typeof node !== "object") return;
@@ -156,14 +228,23 @@ export function computeStaticMetrics(
       if (name && name !== "Fragment") elementCount++;
     }
 
-    // fontSize property inside any object expression
+    // fontSize as an object property: { fontSize: ... }
     if (
       (node.type === "ObjectProperty" || node.type === "Property") &&
       node.key &&
       ((node.key.type === "Identifier" && node.key.name === "fontSize") ||
         ((node.key.type === "StringLiteral" || node.key.type === "Literal") && node.key.value === "fontSize"))
     ) {
-      scanFontValue(node.value, fontValues);
+      recordFont(node.value);
+    }
+
+    // fontSize as a JSX attribute: <text fontSize={...}> (SVG)
+    if (
+      node.type === "JSXAttribute" &&
+      node.name?.type === "JSXIdentifier" &&
+      node.name.name === "fontSize"
+    ) {
+      recordFont(node.value);
     }
 
     for (const key of Object.keys(node)) {
@@ -180,16 +261,12 @@ export function computeStaticMetrics(
   }
   walk(ast);
 
-  const relativePx = fontValues.relative.map((r) =>
-    r.coeff * (r.dim === "width" ? dims.width : dims.height),
-  );
-  const maxFontPx = Math.max(0, ...relativePx, ...fontValues.hardcoded);
-
   return {
-    maxFontPx,
-    usesRelativeFont: fontValues.relative.length > 0,
-    hardcodedFontSizes: fontValues.hardcoded,
+    maxFontPx: resolvedPx.length ? Math.max(...resolvedPx) : 0,
+    usesRelativeFont,
+    hardcodedFontSizes: hardcoded,
     elementCount,
+    fontFullyMeasured: !unresolvedFont,
   };
 }
 
@@ -290,7 +367,11 @@ export async function assessVisualMetrics(args: {
   const issues: string[] = [];
   const targetFontPx = Math.round(height * thresholds.minFontCoeff);
 
-  if (staticM.maxFontPx < targetFontPx) {
+  // Only apply the font check when EVERY fontSize could be resolved. If any
+  // size uses an expression we can't evaluate (Math.min(w,h)*k, calls, …),
+  // maxFontPx is an underestimate → skip to avoid false negatives. Likewise
+  // maxFontPx===0 means nothing measurable (dynamic/canvas text), not "tiny".
+  if (staticM.fontFullyMeasured && staticM.maxFontPx > 0 && staticM.maxFontPx < targetFontPx) {
     issues.push(
       `最大字号约 ${Math.round(staticM.maxFontPx)}px，低于要求的 ${targetFontPx}px（height×${thresholds.minFontCoeff}）。请把主标题/核心元素显著放大。`,
     );

@@ -1,5 +1,5 @@
 /**
- * Task API + SSE routes — WEB_PRD.md §5.4
+ * Task API + SSE routes — docs/architecture/WEB_PRD.md §5.4
  *
  * Endpoints:
  *   GET    /api/tasks              → task list (last 50, ?project= filter)
@@ -130,7 +130,7 @@ export function createTaskRoutes(taskQueue: TaskQueue) {
   // -------------------------------------------------------------------------
   // GET /api/tasks/:id/events — SSE progress stream
   //
-  // Event format (WEB_PRD.md §5.4):
+  // Event format (docs/architecture/WEB_PRD.md §5.4):
   //   event: progress
   //   data: {"percent":60,"step":"...","stage":"...","blockId":"..."}
   //

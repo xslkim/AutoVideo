@@ -189,14 +189,14 @@ export async function checkVoxCPMService(config: AutoVideoConfig): Promise<Check
       name: "VoxCPM2 service",
       status: "WARN",
       detail: `${endpoint}/health → HTTP ${code}`,
-      fix: `Start VoxCPM2 service or enable autoStart. Run: ~/tts-server/start-voxcpm.sh`,
+      fix: `Start the VoxCPM2 service. Run: bash third_servers/voxcpm-tts/start.sh (see third_servers/voxcpm-tts/README.md)`,
     };
   } catch {
     return {
       name: "VoxCPM2 service",
       status: "WARN",
       detail: `unreachable at ${endpoint}`,
-      fix: `Start VoxCPM2 service or enable autoStart. Run: ~/tts-server/start-voxcpm.sh`,
+      fix: `Start the VoxCPM2 service. Run: bash third_servers/voxcpm-tts/start.sh (see third_servers/voxcpm-tts/README.md)`,
     };
   }
 }
@@ -232,7 +232,7 @@ async function checkVoxCPMModel(config: AutoVideoConfig): Promise<CheckResult> {
     name: "VoxCPM2 model weights",
     status: "FAIL",
     detail: `not found at ${modelDir}`,
-    fix: "Download VoxCPM2 model weights. Run: bash install.sh (or manually download to ~/.cache/voxcpm/VoxCPM2)",
+    fix: "Download VoxCPM2 weights, then set voxcpm.modelDir in autovideo.config.json to the weights dir. Run: bash install.sh",
   };
 }
 

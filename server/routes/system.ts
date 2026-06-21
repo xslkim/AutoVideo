@@ -67,7 +67,6 @@ function resolveConfig(repoRoot: string): AppConfig {
     voxcpm: {
       endpoint: stored.voxcpm?.endpoint || process.env.VOXCPM_ENDPOINT || undefined,
       modelDir: stored.voxcpm?.modelDir || process.env.VOXCPM_MODEL_DIR || undefined,
-      autoStart: stored.voxcpm?.autoStart ?? undefined,
       concurrency: stored.voxcpm?.concurrency ?? undefined,
     },
     musetalk: {
@@ -115,7 +114,6 @@ function publicConfig(full: AppConfig): AppConfigPublic {
     voxcpm: {
       endpoint: full.voxcpm?.endpoint,
       modelDir: full.voxcpm?.modelDir,
-      autoStart: full.voxcpm?.autoStart,
       concurrency: full.voxcpm?.concurrency,
     },
     musetalk: {

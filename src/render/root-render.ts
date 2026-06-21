@@ -9,7 +9,7 @@
  * stage. It is distinct from the preview Root.tsx (T6.5).
  *
  * @see PRD §6.4 step 3 — Root.tsx (render mode)
- * @see TASKS.md T6.1
+ * @see docs/archive/cli/TASKS.md T6.1
  */
 
 import type { Script } from "../types/script.js";

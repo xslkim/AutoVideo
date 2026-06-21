@@ -268,7 +268,6 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
       if (raw.voxcpm) {
         if (raw.voxcpm.endpoint) cfg.voxcpm.endpoint = raw.voxcpm.endpoint;
         if (raw.voxcpm.modelDir) cfg.voxcpm.modelDir = raw.voxcpm.modelDir;
-        if (raw.voxcpm.autoStart !== undefined) cfg.voxcpm.autoStart = raw.voxcpm.autoStart;
         if (raw.voxcpm.concurrency !== undefined) cfg.voxcpm.concurrency = raw.voxcpm.concurrency;
       }
 
@@ -285,7 +284,7 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
       }
 
       if (raw.musetalk) {
-        (cfg as any).musetalk = { ...(cfg as any).musetalk, ...raw.musetalk };
+        cfg.musetalk = { ...cfg.musetalk, ...raw.musetalk };
       }
 
       if (raw.visualQuality) {
@@ -466,7 +465,7 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
       }
 
       // ── build (orchestrated: compile → tts → visuals → render) ───────
-      // Aggregate weights (WEB_PRD.md §4.5):
+      // Aggregate weights (docs/architecture/WEB_PRD.md §4.5):
       //   compile 5% / tts 25% / visuals 35% / render 30% / finish 5%
       case 'build': {
         snapshotSourceFiles(projectDir, outDir);

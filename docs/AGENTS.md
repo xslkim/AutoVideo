@@ -135,7 +135,7 @@ npx tsx bin/autovideo.ts doctor   # 一键检查环境
 - 视觉组件在子进程沙盒（PATH/HOME/LANG 白名单 + 可选 `prlimit` / `unshare -n`）中校验
 - Remotion 渲染分两种入口：`src/render/root-render.ts`（程序化渲染）与 `src/preview/root-preview.ts`（Studio 预览）
 - 仓库总体目录：`bin/`、`src/`、`remotion/`、`templates/`、`schemas/`、`tests/`
-- 详细任务进度与本仓库自身的开发自动化工具见 `PROGRESS.md` / `TASKS.md` / `AGENT_README.md`（与视频生成无关）
+- 历史开发任务跟踪见 `docs/archive/`（CLI / Web / Lipsync 的 PRD / TASKS / PROGRESS，均已完工）
 
 ---
 

@@ -14,10 +14,8 @@
 export interface VoxcpmConfig {
   /** voxcpm2-api service endpoint */
   endpoint: string;
-  /** Model weights directory (for autoStart) */
+  /** Model weights directory (used for cache-key versioning) */
   modelDir: string;
-  /** Auto-start voxcpm2-api when unreachable */
-  autoStart: boolean;
   /** Classifier-free guidance strength */
   cfgValue: number;
   /** Diffusion inference steps */
@@ -107,6 +105,11 @@ export interface ImageGenConfig {
   cfgScale?: number;
 }
 
+export interface MusetalkConfig {
+  /** MuseTalk lipsync service URL (e.g. "http://localhost:8001") */
+  url?: string;
+}
+
 export interface CacheConfig {
   /** Cache root directory (supports ~ expansion) */
   dir: string;
@@ -137,6 +140,8 @@ export interface AutoVideoConfig {
   imageGen: ImageGenConfig;
   render: RenderConfig;
   cache: CacheConfig;
+  /** MuseTalk lipsync service (optional; only needed for avatar lip-sync) */
+  musetalk?: MusetalkConfig;
   /** Visual-quality feedback loop (optional; falls back to DEFAULT_VISUAL_QUALITY) */
   visualQuality?: VisualQualityConfig;
 }
@@ -149,7 +154,6 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
   voxcpm: {
     endpoint: "http://127.0.0.1:8000",
     modelDir: "/home/ubuntu/model/voxcpm/VoxCPM2",
-    autoStart: true,
     cfgValue: 2.0,
     inferenceTimesteps: 10,
     denoise: false,
@@ -193,6 +197,9 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     dir: "~/.autovideo/cache",
     maxSizeGB: 20,
     evictTrigger: "stage-start",
+  },
+  musetalk: {
+    url: "http://localhost:8001",
   },
   visualQuality: {
     enabled: true,

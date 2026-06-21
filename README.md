@@ -1,110 +1,97 @@
 # AutoVideo
 
-Markdown 教学脚本 → MP4 视频的自动化工具链。
-通过 **Claude AI** 生成视觉组件，**VoxCPM2** 生成旁白音频，**Remotion** 渲染视频。
+Markdown 教学脚本 → MP4 视频的自动化工具链。**Claude** 生成视觉组件,**VoxCPM2** 合成中文旁白,**Remotion** 渲染视频。
 
 ```
 Markdown → compile → TTS → visuals → render → MP4
 ```
 
----
+## 服务依赖
 
-## 给 AI Agent 使用
+AutoVideo 通过 HTTP 调用若干 AI 服务。框架只连接 endpoint,**不负责启动服务**。
 
-视频制作分两个步骤，每一步都有独立文档：
+| 服务 | 用途 | 必需? | 部署指引 |
+|------|------|--------|---------|
+| **Claude API** | 视觉组件生成 / 评审 | ✅ | 设 `ANTHROPIC_API_KEY`,或用 `claude` CLI 登录 |
+| **VoxCPM2** (TTS) | 旁白语音合成 | ✅ | [`third_servers/voxcpm-tts/`](third_servers/voxcpm-tts/) |
+| **SenseNova-U1** | 文生图(image 视觉模式) | ⬜ | [`third_servers/sensenova-t2i/`](third_servers/sensenova-t2i/) |
+| **MuseTalk** | 口型同步(avatar 模式) | ⬜ | [`third_servers/musetalk-lipsync/`](third_servers/musetalk-lipsync/) |
 
-| 步骤 | 任务 | 文档 |
-|------|------|------|
-| **1. 编写输入资源** | 产出 `meta.md` + `script.md` | [`AUTHORING.md`](AUTHORING.md) |
-| **2. 构建生成视频** | 用上述两个文件跑出 MP4 | [`BUILD.md`](BUILD.md) |
+## 快速开始
 
-总入口与架构概览见 [`AGENTS.md`](AGENTS.md)。
-
-最简短的一键构建：
+### 1. 安装(Ubuntu 22.04+)
 
 ```bash
-cd /home/ubuntu/AutoVideo
-npx tsx bin/autovideo.ts build project/MyVideo/project.json
+bash install.sh                      # 框架 + 全部服务
+# 或仅框架: bash install.sh --skip-services
+```
+
+各服务的端口、健康检查与单独启动方式见 [`third_servers/README.md`](third_servers/README.md)。
+
+### 2. 启动需要的服务
+
+```bash
+bash third_servers/voxcpm-tts/start.sh &           # TTS(必需)
+# 可选:
+bash third_servers/sensenova-t2i/start.sh &
+bash third_servers/musetalk-lipsync/start.sh &
+```
+
+### 3. 创建并构建视频
+
+```bash
+npx tsx bin/autovideo.ts init my-video && cd my-video
+# 编辑 meta.md / script.md(见 docs/AUTHORING.md)
+npx tsx bin/autovideo.ts build project.json
 # → build/<slug>/output/final_normalized.mp4
 ```
 
----
-
-## 给开发者
-
-### 安装
-
+或用 **Web UI**:
 ```bash
-git clone https://github.com/yourname/AutoVideo.git
-cd AutoVideo
-
-# 一键安装依赖（Ubuntu 22.04+）
-bash install.sh
-
-# 或手动
-npm install
+npm run dev:web    # 后端 :3030 + 前端 :5173
 ```
 
-### 创建项目
-
-```bash
-npx tsx bin/autovideo.ts init my-video
-cd my-video
-```
-
-模板会创建 `project.json` / `meta.md` / `script.md` / `hero.png`。
-
-### 常用命令
+## 命令
 
 | 命令 | 说明 |
 |------|------|
-| `autovideo init <dir>` | 从模板创建新项目 |
-| `autovideo build <project.json>` | 一键构建：compile → tts → visuals → render |
-| `autovideo compile <project.json>` | 解析 Markdown → script.json |
-| `autovideo tts <script.json>` | 生成旁白音频 |
-| `autovideo visuals <script.json>` | AI 生成视觉组件 |
-| `autovideo render <script.json>` | 渲染为 MP4 |
-| `autovideo preview <script.json>` | 打开 Remotion Studio 预览 |
+| `autovideo init <dir>` | 从模板创建项目 |
+| `autovideo build <project.json>` | 一键:compile → tts → visuals → render |
+| `autovideo compile` / `tts` / `visuals` / `render` | 单阶段执行 |
+| `autovideo preview` | Remotion Studio 预览 |
+| `autovideo doctor` | 环境与服务连通性诊断 |
 | `autovideo cache [stats\|clean]` | 缓存管理 |
-| `autovideo doctor` | 环境诊断 |
-
-完整命令选项、构建脚本、故障排查见 [`BUILD.md`](BUILD.md)；
-输入文件规范、块语法、视觉描述写法见 [`AUTHORING.md`](AUTHORING.md)。
-
-### 前置依赖
-
-- Node.js 20+
-- Python 3.10+ + VoxCPM2（TTS 服务）
-- ffmpeg 5.0+
-- Claude API key（`ANTHROPIC_API_KEY` 或 `~/.claude/settings.json`）
-
-```bash
-npx tsx bin/autovideo.ts doctor   # 检查环境
-```
-
-### 开发
-
-```bash
-npm install
-npm test
-npx tsc --noEmit
-```
-
----
 
 ## 文档
 
-视频生成相关（按 Agent 任务分工）：
+| 文档 | 内容 |
+|------|------|
+| [`docs/AGENTS.md`](docs/AGENTS.md) | 总入口 + 管线架构概览 |
+| [`docs/AUTHORING.md`](docs/AUTHORING.md) | 编写 `meta.md` / `script.md`(块语法、视觉描述) |
+| [`docs/BUILD.md`](docs/BUILD.md) | 构建命令、故障排查 |
+| [`third_servers/README.md`](third_servers/README.md) | 第三方服务部署 |
+| [`CLAUDE.md`](CLAUDE.md) | 给 Claude Code 的项目指令 |
+| [`docs/architecture/`](docs/architecture/) | 产品规格(PRD) |
+| [`docs/archive/`](docs/archive/) | 历史开发文档(CLI / Web / Lipsync 任务跟踪) |
 
-- **[AGENTS.md](AGENTS.md)** — 总入口 + 管线架构概览
-- **[AUTHORING.md](AUTHORING.md)** — 步骤 1：怎么写 `meta.md` / `script.md`
-- **[BUILD.md](BUILD.md)** — 步骤 2：怎么把上述两个文件构建成 MP4
+## 前置依赖
 
-项目内部开发：
+- **Ubuntu 22.04**(`install.sh` 目标平台)
+- Node.js 20+、ffmpeg 5.0+
+- Python 3.10+(TTS / SenseNova / MuseTalk 服务)
+- **NVIDIA GPU(3090 / 4090)**——文生图与唇形同步需要;TTS 可 CPU 运行
+- Claude API key
 
-- **[AGENT_README.md](AGENT_README.md)** — `agent.py` 使用说明（自动开发 AutoVideo 本身的工具，与生成视频无关）
-- **[PRD.md](PRD.md)** — 产品需求文档
-- **[TASKS.md](TASKS.md)** / **[PROGRESS.md](PROGRESS.md)** — 开发任务跟踪
+```bash
+npx tsx bin/autovideo.ts doctor   # 一键检查
+```
+
+## 技术栈
+
+- **CLI 核心**(`src/`):TypeScript + Commander,四阶段管线
+- **Web 后端**(`server/`):Hono + @hono/node-server(import 复用 CLI)
+- **Web 前端**(`web/`):Vue 3 + Vite + Naive UI + Pinia
+- **渲染**(`remotion/`):Remotion
 
 ## License
 

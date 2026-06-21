@@ -1,8 +1,7 @@
 {
   "voxcpm": {
     "endpoint": "http://127.0.0.1:8000",
-    "modelDir": "/home/xsl/models/VoxCPM2",
-    "autoStart": true,
+    "modelDir": "/path/to/VoxCPM2",
     "cfgValue": 2.0,
     "inferenceTimesteps": 10,
     "denoise": false,
@@ -26,6 +25,9 @@
     "concurrency": 1,
     "numSteps": 15,
     "cfgScale": 4.0
+  },
+  "musetalk": {
+    "url": "http://127.0.0.1:8001"
   },
   "cache": {
     "dir": "~/.autovideo/cache",

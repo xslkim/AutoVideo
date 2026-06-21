@@ -1,4 +1,4 @@
-// 共享类型定义 — 源自 WEB_PRD.md 附录 B
+// 共享类型定义 — 源自 docs/architecture/WEB_PRD.md 附录 B
 // 前端通过 path alias 引用
 
 export type Stage = 'compile' | 'tts' | 'visuals' | 'render' | 'build' | 'merge';
@@ -80,7 +80,6 @@ export interface AppConfig {
   voxcpm?: {
     endpoint?: string;
     modelDir?: string;
-    autoStart?: boolean;
     concurrency?: number;
   };
   musetalk?: {
@@ -118,7 +117,6 @@ export interface AppConfigPublic {
   voxcpm: {
     endpoint?: string;
     modelDir?: string;
-    autoStart?: boolean;
     concurrency?: number;
   };
   musetalk: {

@@ -199,14 +199,8 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
 
   const client = new VoxcpmClient({ endpoint: voxcpmCfg.endpoint });
 
-  let serverProcess: ReturnType<typeof ensureVoxcpmServer> extends Promise<infer T> ? T : never;
-
   try {
-    serverProcess = await ensureVoxcpmServer(client, {
-      endpoint: voxcpmCfg.endpoint,
-      modelDir: voxcpmCfg.modelDir,
-      autoStart: voxcpmCfg.autoStart,
-    }, verbose);
+    await ensureVoxcpmServer(client, { endpoint: voxcpmCfg.endpoint }, verbose);
   } catch (err) {
     throw new TtsError(
       `VoxCPM server unavailable: ${err instanceof Error ? err.message : err}\n` +
@@ -515,11 +509,6 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
     console.log(
       `[tts] Complete: ${cacheHits} cache hits, ${apiCalls} API calls`
     );
-  }
-
-  // Clean up server process if we started it
-  if (serverProcess.process) {
-    serverProcess.process.kill("SIGTERM");
   }
 
   emit(100, "语音合成完成");

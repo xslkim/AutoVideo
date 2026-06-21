@@ -16,7 +16,7 @@
  *   already handles this by checking `block.audio`)
  *
  * @see PRD §6.5 — preview stage
- * @see TASKS.md T7.1, T7.2
+ * @see docs/archive/cli/TASKS.md T7.1, T7.2
  */
 
 import path from "node:path";
