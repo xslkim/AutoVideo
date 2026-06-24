@@ -6,6 +6,11 @@
 #   ./start.sh prod     # 生产模式（先 build，再启动 server :3030）
 #   ./start.sh build    # 仅执行 build，不启动服务器
 #   ./start.sh check    # 仅检查环境，不启动
+#
+# dev/prod 模式会自动拉起已部署的 AI 服务（TTS / 文生图 / 口型），退出时自动停止。
+# 环境变量：
+#   AV_SKIP_SERVICES=1            # 不启动任何 AI 服务（仅 Web）
+#   AV_SERVICES="tts t2i"        # 只启动指定服务（默认 auto = 自动探测已部署的全部）
 
 set -euo pipefail
 
@@ -109,7 +114,7 @@ start_dev() {
   info "后端  http://localhost:3030"
   info "前端  http://localhost:5173"
   echo
-  exec npm run dev:web
+  npm run dev:web
 }
 
 # ── 启动生产模式 ──────────────────────────────────────────────────────────────
@@ -130,7 +135,97 @@ start_prod() {
   HOST="${HOST:-127.0.0.1}"
   info "启动服务 http://${HOST}:${PORT}"
   echo
-  exec npm run start:web
+  npm run start:web
+}
+
+# ── 第三方 AI 服务 ──────────────────────────────────────────────────────────────
+SERVICES_DIR="$REPO_DIR/third_servers"
+LOG_DIR="$REPO_DIR/logs"
+AV_SERVICES="${AV_SERVICES:-auto}"          # auto = 自动探测已部署的全部
+AV_SKIP_SERVICES="${AV_SKIP_SERVICES:-0}"
+SERVICES_STARTED=()
+
+svc_port() {
+  case "$1" in
+    tts)     echo "${VOXCPM_PORT:-8000}" ;;
+    t2i)     echo "${SENSENOVA_PORT:-${PORT:-8765}}" ;;
+    lipsync) echo "${MUSE_PORT:-8001}" ;;
+  esac
+}
+
+svc_script() {
+  case "$1" in
+    tts)     echo "$SERVICES_DIR/voxcpm-tts/start.sh" ;;
+    t2i)     echo "$SERVICES_DIR/sensenova-t2i/start.sh" ;;
+    lipsync) echo "$SERVICES_DIR/musetalk-lipsync/start.sh" ;;
+  esac
+}
+
+# 端口被监听 → 返回 0
+port_busy() { (echo > "/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1; }
+
+# 该服务在本机是否已部署(venv / repo 就位) → 返回 0
+svc_deployable() {
+  case "$1" in
+    tts)     [[ -x "$SERVICES_DIR/voxcpm-tts/.venv/bin/python" ]] \
+               && { [[ -d "$SERVICES_DIR/voxcpm-tts/models/VoxCPM2" ]] || [[ -n "${VOXCPM_MODEL_DIR:-}" ]]; } ;;
+    t2i)     [[ -f "$SERVICES_DIR/sensenova-t2i/repo/.venv/bin/activate" ]] ;;
+    lipsync) [[ -f "$SERVICES_DIR/musetalk-lipsync/repo/lipsync_server.py" ]] ;;
+  esac
+}
+
+start_services() {
+  if [[ "$AV_SKIP_SERVICES" == "1" ]]; then
+    warn "AV_SKIP_SERVICES=1 —— 跳过 AI 服务,仅启动 Web"
+    return 0
+  fi
+  section "启动 AI 服务"
+  mkdir -p "$LOG_DIR"
+
+  local list="$AV_SERVICES"
+  [[ "$list" == "auto" ]] && list="tts t2i lipsync"
+
+  local svc port
+  for svc in $list; do
+    port="$(svc_port "$svc")"
+    if [[ -z "$port" ]]; then warn "未知服务 '$svc',跳过"; continue; fi
+    if port_busy "$port"; then
+      ok "$svc 已在 :$port 运行,复用"
+      continue
+    fi
+    if ! svc_deployable "$svc"; then
+      if [[ "$AV_SERVICES" == "auto" ]]; then
+        warn "$svc 未部署,跳过(参见 third_servers/ 下对应目录)"
+        continue
+      fi
+      warn "$svc 未部署,但被显式指定,仍尝试启动"
+    fi
+    info "启动 $svc → :$port  (日志: logs/$svc.log)"
+    bash "$(svc_script "$svc")" > "$LOG_DIR/$svc.log" 2>&1 &
+    SERVICES_STARTED+=("$svc")
+  done
+
+  # 仅阻塞等待 TTS(必需且加载较快);GPU 服务后台预热,不卡 Web 启动
+  if [[ " ${SERVICES_STARTED[*]:-} " == *" tts "* ]]; then
+    local p; p="$(svc_port tts)"
+    info "等待 TTS 就绪(:$p)..."
+    local ready=0
+    for _ in $(seq 1 40); do
+      if curl -s -m 2 "http://127.0.0.1:$p/health" >/dev/null 2>&1; then ready=1; break; fi
+      sleep 3
+    done
+    if [[ "$ready" == "1" ]]; then ok "TTS 就绪"; else warn "TTS 未在约 120s 内就绪,详见 logs/tts.log"; fi
+  fi
+  if [[ " ${SERVICES_STARTED[*]:-} " == *" t2i "* || " ${SERVICES_STARTED[*]:-} " == *" lipsync "* ]]; then
+    info "文生图/口型为 GPU 服务,首次加载需数分钟;可用 'npx tsx bin/autovideo.ts doctor' 复查"
+  fi
+}
+
+stop_services() {
+  [[ ${#SERVICES_STARTED[@]} -eq 0 ]] && return 0
+  echo
+  info "停止本次启动的 AI 服务: ${SERVICES_STARTED[*]}"
+  bash "$SERVICES_DIR/stop.sh" "${SERVICES_STARTED[@]}" >/dev/null 2>&1 || true
 }
 
 # ── 主流程 ────────────────────────────────────────────────────────────────────
@@ -152,6 +247,8 @@ case "$MODE" in
   dev)
     check_env
     install_deps
+    trap stop_services EXIT INT TERM
+    start_services
     start_dev
     ;;
   prod)
@@ -162,6 +259,8 @@ case "$MODE" in
       warn "未找到构建产物，自动执行构建..."
       build_all
     fi
+    trap stop_services EXIT INT TERM
+    start_services
     start_prod
     ;;
   *)
