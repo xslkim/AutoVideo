@@ -28,10 +28,14 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-模型权重需从 VoxCPM2 上游自行下载,然后设置环境变量:
+模型权重需从 VoxCPM2 上游自行下载,默认放到服务目录内的 `models/VoxCPM2/`
+(已被 `.gitignore` 忽略),无需设置环境变量:
 ```bash
-export VOXCPM_MODEL_DIR=/path/to/VoxCPM2
+mkdir -p models
+# 直接放权重: models/VoxCPM2/{config.json,model.safetensors,...}
+# 或软链接到已有权重: ln -s /path/to/VoxCPM2 models/VoxCPM2
 ```
+也可通过 `VOXCPM_MODEL_DIR` 覆盖默认路径。
 
 ## 启动
 
@@ -43,7 +47,7 @@ bash start.sh                   # 前台启动
 
 | 变量 | 默认 | 说明 |
 |------|------|------|
-| `VOXCPM_MODEL_DIR` | (必填) | VoxCPM2 权重目录 |
+| `VOXCPM_MODEL_DIR` | `<服务目录>/models/VoxCPM2` | VoxCPM2 权重目录 |
 | `VOXCPM_HOST` | `127.0.0.1` | 监听地址 |
 | `VOXCPM_PORT` | `8000` | 监听端口 |
 | `VOXCPM_ENABLE_DENOISER` | `1` | 是否启用降噪 |

@@ -42,6 +42,13 @@ bash third_servers/musetalk-lipsync/install.sh && bash third_servers/musetalk-li
 
 启动后在 AutoVideo 的 Web 设置面板填入各 endpoint,或写入 `autovideo.config.json`。运行 `autovideo doctor` 可检查连通性。
 
+停止服务(按监听端口定位进程,优雅关停):
+
+```bash
+bash third_servers/stop.sh                 # 停止全部
+bash third_servers/stop.sh tts             # 只停某个: tts | t2i | lipsync
+```
+
 ## 端口与健康检查约定
 
 | 服务 | 健康检查 |

@@ -1,7 +1,7 @@
 {
   "voxcpm": {
     "endpoint": "http://127.0.0.1:8000",
-    "modelDir": "/path/to/VoxCPM2",
+    "modelDir": "third_servers/voxcpm-tts/models/VoxCPM2",
     "cfgValue": 2.0,
     "inferenceTimesteps": 10,
     "denoise": false,
