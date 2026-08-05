@@ -24,8 +24,18 @@ export interface VoxcpmConfig {
   denoise: boolean;
   /** VoxCPM internal bad-case retry */
   retryBadcase: boolean;
+  /** Run wetext normalization (numbers, units, symbols) before synthesis */
+  normalize: boolean;
   /** Max concurrent TTS lines */
   concurrency: number;
+}
+
+export interface TtsConfig {
+  /**
+   * Which speech engine the TTS stage uses. Engine-specific settings live in
+   * that engine's own section (e.g. `voxcpm`).
+   */
+  provider: "voxcpm";
 }
 
 export interface AnthropicConfig {
@@ -61,6 +71,38 @@ export interface LoudnormConfig {
   audioBitrate: string;
 }
 
+/**
+ * Encoding quality for block partials.
+ *
+ * Remotion's own defaults are `imageFormat: "jpeg"` + `jpegQuality: 80` + `crf: 18`,
+ * which puts a lossy JPEG step in front of x264. On dark slides with thin text and
+ * hairlines that shows up as ringing around glyphs, so AutoVideo defaults to
+ * lossless PNG frame capture instead.
+ */
+export interface QualityConfig {
+  /** Frame capture format. "png" is lossless; "jpeg" is faster but adds artifacts. */
+  imageFormat: "png" | "jpeg";
+  /** JPEG quality 1–100; only read when imageFormat is "jpeg". */
+  jpegQuality: number;
+  /** x264 constant rate factor, 1–51. Lower is better quality and a bigger file. */
+  crf: number;
+  /** x264 speed/compression tradeoff. "slow" buys ~10 % bitrate at ~1.6× the time. */
+  x264Preset:
+    | "ultrafast"
+    | "superfast"
+    | "veryfast"
+    | "faster"
+    | "fast"
+    | "medium"
+    | "slow"
+    | "slower"
+    | "veryslow";
+  /** Output pixel format. yuv420p is the only universally playable choice. */
+  pixelFormat: "yuv420p" | "yuv422p" | "yuv444p";
+  /** Color primaries/transfer tagging. Explicit bt709 avoids washed-out playback. */
+  colorSpace: "bt709" | "bt2020-ncl" | "default";
+}
+
 export interface RenderConfig {
   /** Max concurrent block renders */
   blockConcurrency: number;
@@ -80,6 +122,8 @@ export interface RenderConfig {
   defaultExitSec: number;
   /** Loudnorm normalization settings */
   loudnorm: LoudnormConfig;
+  /** Video encoding quality for block partials and the avatar overlay pass */
+  quality: QualityConfig;
 }
 
 export type ImageGenProvider = "openai" | "sensenova";
@@ -124,6 +168,11 @@ export interface VisualQualityConfig {
   enabled: boolean;
   /** Minimum height-relative coefficient for the largest font (e.g. 0.07 → height*0.07) */
   minFontCoeff: number;
+  /**
+   * Minimum height-relative coefficient for the smallest font (e.g. 0.030 →
+   * 32px on 1080p). Captions below this are unreadable on a phone.
+   */
+  minAnyFontCoeff: number;
   /** Minimum number of visible JSX elements a slide must contain */
   minElements: number;
   /** Minimum fraction (0..1) of the canvas grid that must carry visible content */
@@ -135,6 +184,7 @@ export interface VisualQualityConfig {
 }
 
 export interface AutoVideoConfig {
+  tts: TtsConfig;
   voxcpm: VoxcpmConfig;
   anthropic: AnthropicConfig;
   imageGen: ImageGenConfig;
@@ -151,6 +201,9 @@ export interface AutoVideoConfig {
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_CONFIG: AutoVideoConfig = {
+  tts: {
+    provider: "voxcpm",
+  },
   voxcpm: {
     endpoint: "http://127.0.0.1:8000",
     modelDir: "/path/to/VoxCPM2",
@@ -158,6 +211,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     inferenceTimesteps: 10,
     denoise: false,
     retryBadcase: true,
+    normalize: true,
     concurrency: 4,
   },
   anthropic: {
@@ -192,6 +246,14 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
       twoPass: true,
       audioBitrate: "192k",
     },
+    quality: {
+      imageFormat: "png",
+      jpegQuality: 100,
+      crf: 16,
+      x264Preset: "medium",
+      pixelFormat: "yuv420p",
+      colorSpace: "bt709",
+    },
   },
   cache: {
     dir: "~/.autovideo/cache",
@@ -204,6 +266,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
   visualQuality: {
     enabled: true,
     minFontCoeff: 0.07,
+    minAnyFontCoeff: 0.028,
     minElements: 4,
     minCoverage: 0.7,
     review: true,
@@ -213,3 +276,15 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
 
 /** Fallback used when a config object omits the visualQuality section. */
 export const DEFAULT_VISUAL_QUALITY: VisualQualityConfig = DEFAULT_CONFIG.visualQuality!;
+
+/** Fallback used when a config object omits render.quality. */
+export const DEFAULT_QUALITY: QualityConfig = DEFAULT_CONFIG.render.quality;
+
+/**
+ * Fraction of the frame height reserved at the bottom for subtitles.
+ *
+ * The subtitle band itself is ~14 % of the height at two lines, so 0.15 left
+ * only single-digit pixels of clearance and slides read as if they collide
+ * with the text. 0.20 gives a comfortable gap on every aspect ratio.
+ */
+export const SUBTITLE_SAFE_BOTTOM_PCT = 0.2;

@@ -2,16 +2,22 @@
  * Multimodal visual review (plan B).
  *
  * After the deterministic metrics (plan A) pass, optionally ask a multimodal
- * model to look at the rendered still and critique it like a design reviewer.
- * The model only judges the image and returns structured JSON — it never
- * writes code. Its suggestions are folded back into the generator's
+ * model to look at the rendered frame(s) and critique them like a design
+ * reviewer. The model only judges images and returns structured JSON — it
+ * never writes code. Its suggestions are folded back into the generator's
  * retryContext to drive a quality-focused regeneration.
  *
+ * Passing several frames sampled across the block's timeline (rather than one
+ * mid-frame still) lets this catch motion problems a single image cannot show:
+ * everything animating in lockstep, nothing moving during the hold, elements
+ * that just vanish on exit. With one frame it falls back to a composition-only
+ * review.
+ *
  * Transport:
- *   - CLI mode (default here): spawn `claude -p` which reads the PNG via its
+ *   - CLI mode (default here): spawn `claude -p` which reads the PNGs via its
  *     Read tool (requires --dangerously-skip-permissions). Uses whatever model
  *     `claude login` / settings.json selects (opus, confirmed multimodal).
- *   - SDK mode: send the image as a base64 content block to the Messages API.
+ *   - SDK mode: send each image as a base64 content block to the Messages API.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -39,13 +45,18 @@ export interface VisualReviewResult {
 }
 
 interface VisualReviewInput {
-  /** Absolute path to the rendered still PNG */
-  pngPath: string;
+  /**
+   * Absolute paths to rendered frames, in timeline order (earliest first).
+   * Pass several frames spread across the block's duration — a single still
+   * can judge composition but says nothing about motion. A single-entry
+   * array falls back to a composition-only review.
+   */
+  pngPaths: string[];
   /** The intended visual description for this slide */
   visualDescription: string;
 }
 
-const REVIEW_INSTRUCTIONS = `You are a strict art director reviewing a single FULLSCREEN slide from an educational video.
+const COMPOSITION_ONLY_INSTRUCTIONS = `You are a strict art director reviewing a single FULLSCREEN slide from an educational video.
 You are given the rendered slide image and the intended description.
 
 Judge ONLY visual quality, not factual correctness:
@@ -63,8 +74,39 @@ Respond with ONLY a JSON object, no markdown fences, no extra prose:
 }
 Be demanding: a centered title on a mostly empty background is NOT a pass.`;
 
+/** Used when several frames across the timeline are available. */
+const MOTION_REVIEW_INSTRUCTIONS = `You are a strict motion-design director reviewing an animated FULLSCREEN slide from an educational video.
+You are given several frames sampled in order across the slide's timeline (frame 1 = earliest, last frame = latest), plus the intended description.
+
+Judge composition AND choreography, not factual correctness:
+
+Composition (each frame):
+- Does the content fill the canvas, or does it float small in a large empty area?
+- Are the title / key elements large and clearly the focal point?
+- Is there clear visual hierarchy, grouping, and use of color/accent?
+- Is the composition balanced (no big empty corners / dead bands)?
+
+Choreography (comparing frames across time):
+- Do elements arrive at different times (staggered), or does everything appear in one lockstep cut between two frames?
+- Is anything still moving/changing in the later frames, or is the slide static after the first one or two frames (a "dead hold")?
+- Does the slide feel like a designed sequence rather than a single screenshot held for several seconds?
+- If elements are present in the final frame that weren't in the first, did they arrive with a deliberate animation rather than just appearing?
+
+Respond with ONLY a JSON object, no markdown fences, no extra prose:
+{
+  "pass": <true if the sequence is visually rich, well-composed, AND well-choreographed; false otherwise>,
+  "issues": [ "<short concrete problem, note which frame(s) if relevant>", ... ],
+  "suggestions": [ "<short concrete fix the generator should apply, e.g. 'stagger the three cards' entrance' or 'add ambient motion during the hold'>", ... ]
+}
+Be demanding: a static composition that merely looks fine in one frame is NOT a pass if nothing moves across the sequence.`;
+
+/** A single frame can only judge composition; several frames unlock the choreography checks. */
+export function reviewInstructionsFor(pngPaths: string[]): string {
+  return pngPaths.length > 1 ? MOTION_REVIEW_INSTRUCTIONS : COMPOSITION_ONLY_INSTRUCTIONS;
+}
+
 /** Extract the first balanced JSON object from arbitrary model text. */
-function extractJson(text: string): any | null {
+export function extractJson(text: string): any | null {
   const start = text.indexOf("{");
   if (start < 0) return null;
   let depth = 0;
@@ -85,7 +127,7 @@ function extractJson(text: string): any | null {
 }
 
 /** Turn a parsed critique into a pass flag + generator feedback. */
-function toResult(parsed: any, raw: string): VisualReviewResult {
+export function toResult(parsed: any, raw: string): VisualReviewResult {
   if (!parsed || typeof parsed.pass !== "boolean") {
     // Unparseable / malformed → don't block the pipeline.
     return { pass: true, feedback: "", raw };
@@ -99,7 +141,7 @@ function toResult(parsed: any, raw: string): VisualReviewResult {
   ];
   if (issues.length) lines.push("问题：", ...issues.map((s, i) => `  ${i + 1}. ${s}`));
   if (suggestions.length) lines.push("建议：", ...suggestions.map((s, i) => `  ${i + 1}. ${s}`));
-  lines.push("保持技术契约不变（默认导出、AnimationProps、仅 import react/remotion），只改进视觉密度、层次与构图。");
+  lines.push("保持技术契约不变（默认导出、AnimationProps、仅 import react/remotion），只改进视觉密度、层次、构图与动效编排。");
   return { pass: false, feedback: lines.join("\n"), raw };
 }
 
@@ -113,10 +155,15 @@ async function reviewViaCLI(
   signal?: AbortSignal,
 ): Promise<VisualReviewResult> {
   const cliPath = config.cliPath || "claude";
+  const instructions = reviewInstructionsFor(input.pngPaths);
+  const imageLines =
+    input.pngPaths.length > 1
+      ? input.pngPaths.map((p, i) => `Frame ${i + 1}/${input.pngPaths.length} (timeline order): ${p}`)
+      : [`Read the image at: ${input.pngPaths[0]}`];
   const prompt = [
-    REVIEW_INSTRUCTIONS,
+    instructions,
     "",
-    `Read the image at: ${input.pngPath}`,
+    ...imageLines,
     `Intended description of the slide: ${input.visualDescription}`,
   ].join("\n");
 
@@ -187,21 +234,23 @@ async function reviewViaSDK(
       : undefined,
   });
 
-  const base64 = readFileSync(input.pngPath).toString("base64");
+  const instructions = reviewInstructionsFor(input.pngPaths);
+  const content: Array<Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam> = [];
+  for (let i = 0; i < input.pngPaths.length; i++) {
+    if (input.pngPaths.length > 1) {
+      content.push({ type: "text", text: `Frame ${i + 1}/${input.pngPaths.length} (timeline order):` });
+    }
+    const base64 = readFileSync(input.pngPaths[i]).toString("base64");
+    content.push({ type: "image", source: { type: "base64", media_type: "image/png", data: base64 } });
+  }
+  content.push({ type: "text", text: `Intended description of the slide: ${input.visualDescription}` });
+
   const response = await client.messages.create(
     {
       model,
       max_tokens: 1024,
-      system: REVIEW_INSTRUCTIONS,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: "image/png", data: base64 } },
-            { type: "text", text: `Intended description of the slide: ${input.visualDescription}` },
-          ],
-        },
-      ],
+      system: instructions,
+      messages: [{ role: "user", content }],
     },
     { signal },
   );

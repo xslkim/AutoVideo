@@ -289,6 +289,7 @@ export async function generateComponent(
   const response: Message = await client.messages.create({
     model,
     max_tokens: 8192,
+    thinking: { type: "disabled" } as any, // DeepSeek: 避免 thinking 吃掉输出预算
     system: input.systemPrompt,
     messages,
   }, {

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "fs";
 import * as path from "path";
 import { initCommand } from "../../src/cli/init";
+import { loadPronunciationDict } from "../../src/tts/pronounce";
 import * as os from "os";
 
 describe("init command", () => {
@@ -26,6 +27,16 @@ describe("init command", () => {
     expect(fs.existsSync(path.join(target, "hero.png"))).toBe(true);
     expect(fs.existsSync(path.join(target, "autovideo.config.json"))).toBe(true);
     expect(fs.existsSync(path.join(target, "README.md"))).toBe(true);
+    expect(fs.existsSync(path.join(target, "dict.md"))).toBe(true);
+  });
+
+  it("should ship a dict.md that parses to zero active rules", async () => {
+    const target = path.join(tmpDir, "dict-project");
+    await initCommand(target);
+
+    // Every example is commented out, so a fresh project behaves exactly as if
+    // the dictionary were absent.
+    expect(loadPronunciationDict(target)).toEqual([]);
   });
 
   it("should create target directory if it doesn't exist", async () => {

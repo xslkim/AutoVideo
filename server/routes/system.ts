@@ -75,6 +75,8 @@ function resolveConfig(repoRoot: string): AppConfig {
     visualQuality: {
       enabled: stored.visualQuality?.enabled ?? DEFAULT_VISUAL_QUALITY.enabled,
       minFontCoeff: stored.visualQuality?.minFontCoeff ?? DEFAULT_VISUAL_QUALITY.minFontCoeff,
+      minAnyFontCoeff:
+        stored.visualQuality?.minAnyFontCoeff ?? DEFAULT_VISUAL_QUALITY.minAnyFontCoeff,
       minElements: stored.visualQuality?.minElements ?? DEFAULT_VISUAL_QUALITY.minElements,
       minCoverage: stored.visualQuality?.minCoverage ?? DEFAULT_VISUAL_QUALITY.minCoverage,
       review: stored.visualQuality?.review ?? DEFAULT_VISUAL_QUALITY.review,
@@ -122,6 +124,7 @@ function publicConfig(full: AppConfig): AppConfigPublic {
     visualQuality: {
       enabled: full.visualQuality?.enabled,
       minFontCoeff: full.visualQuality?.minFontCoeff,
+      minAnyFontCoeff: full.visualQuality?.minAnyFontCoeff,
       minElements: full.visualQuality?.minElements,
       minCoverage: full.visualQuality?.minCoverage,
       review: full.visualQuality?.review,

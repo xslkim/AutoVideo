@@ -28,7 +28,7 @@ import {
   type Block,
   type ProgressEvent,
 } from "../types/script.js";
-import type { AutoVideoConfig } from "../config/defaults.js";
+import { DEFAULT_QUALITY, type AutoVideoConfig } from "../config/defaults.js";
 import { generateRenderRoot } from "../render/root-render.js";
 import { renderBlocks, type RenderBlocksResult } from "../render/render-blocks.js";
 import { concatPartials } from "../render/concat.js";
@@ -51,6 +51,56 @@ function shouldGenerateMuseTalkLipsync(meta: Script["meta"]): boolean {
 /** Overlay looping avatar.mp4 without MuseTalk (only when skipLipsync: true). */
 function shouldOverlayRawAvatarLoop(meta: Script["meta"]): boolean {
   return Boolean(meta.avatarRef) && meta.skipLipsync === true;
+}
+
+/**
+ * Encoder settings for the avatar overlay pass. This is the only stage after
+ * Remotion that re-encodes video, so it has to match render.quality or the
+ * lossless-PNG capture upstream is wasted.
+ */
+function resolveOverlayEncode(config: AutoVideoConfig) {
+  const q = { ...DEFAULT_QUALITY, ...(config.render?.quality ?? {}) };
+  return {
+    crf: q.crf,
+    x264Preset: q.x264Preset,
+    pixelFormat: q.pixelFormat,
+    colorSpace: q.colorSpace,
+  };
+}
+
+/**
+ * Stretches of the finished timeline with no subtitle on screen.
+ *
+ * Subtitles are burned in, so this is the only place QA can look at the
+ * bottom strip and tell slide content apart from the subtitles themselves.
+ * Blocks are laid end to end in the same order they are concatenated, and
+ * within a block the audio (and therefore every line timing) starts after the
+ * enter animation.
+ */
+function computeSubtitleQuietWindows(
+  blocks: Block[]
+): { startSec: number; endSec: number }[] {
+  const windows: { startSec: number; endSec: number }[] = [];
+  let blockStartSec = 0;
+
+  for (const block of blocks) {
+    const total = block.timing?.totalSec ?? 0;
+    const enter = block.timing?.enterSec ?? 0;
+    const timings = block.audio?.lineTimings ?? [];
+
+    let cursor = blockStartSec;
+    for (const t of timings) {
+      const lineStart = blockStartSec + enter + t.startMs / 1000;
+      if (lineStart > cursor) windows.push({ startSec: cursor, endSec: lineStart });
+      cursor = Math.max(cursor, blockStartSec + enter + t.endMs / 1000);
+    }
+    const blockEnd = blockStartSec + total;
+    if (blockEnd > cursor) windows.push({ startSec: cursor, endSec: blockEnd });
+
+    blockStartSec = blockEnd;
+  }
+
+  return windows;
 }
 
 // ── Error class ───────────────────────────────────────────────────────
@@ -301,7 +351,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         const concatAvatarSize = await probeVideoSize(meta.avatarRef);
         await overlayLipsync(
           concatFinalPath, meta.avatarRef, concatAvatarOut,
-          { width: concatAvatarSize.width, height: concatAvatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left" },
+          { width: concatAvatarSize.width, height: concatAvatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left", encode: resolveOverlayEncode(config) },
           signal,
         );
         fs.renameSync(concatAvatarOut, concatFinalPath);
@@ -361,7 +411,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         const concatAvatarSize = await probeVideoSize(meta.avatarRef);
         await overlayLipsync(
           concatFinalPath, lipsyncFullPath, concatLipsyncOut,
-          { width: concatAvatarSize.width, height: concatAvatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left" },
+          { width: concatAvatarSize.width, height: concatAvatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left", encode: resolveOverlayEncode(config) },
           signal,
         );
         fs.renameSync(concatLipsyncOut, concatFinalPath);
@@ -390,7 +440,12 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     const qaOut: QAResult = await runQA(
       normedPath, partialsDirQA,
       { width: meta.width, height: meta.height, fps: meta.fps },
-      blocks.map((b) => ({ id: b.id, totalSec: b.timing?.totalSec ?? 0 }))
+      blocks.map((b) => ({ id: b.id, totalSec: b.timing?.totalSec ?? 0 })),
+      5,
+      {
+        safeBottom: meta.subtitleSafeBottom,
+        quietWindows: computeSubtitleQuietWindows(blocks),
+      }
     );
 
     if (qaOut.errors.length > 0) {
@@ -401,6 +456,11 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         qaOut.errors.map((e) => `  - ${e}`).join("\n"),
         "ERR_QA_FAILED"
       );
+    }
+
+    if (qaOut.warnings.length > 0) {
+      console.warn(`[render] QA warnings:`);
+      for (const w of qaOut.warnings) console.warn(`  ⚠ ${w}`);
     }
 
     script.artifacts.renderedAt = new Date().toISOString();
@@ -653,7 +713,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         finalAbsPath,
         meta.avatarRef,
         finalWithAvatarPath,
-        { width: avatarSize.width, height: avatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left" },
+        { width: avatarSize.width, height: avatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left", encode: resolveOverlayEncode(config) },
         signal,
       );
     } else if (shouldGenerateMuseTalkLipsync(meta)) {
@@ -663,7 +723,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         finalAbsPath,
         lipsyncFullPath,
         finalWithAvatarPath,
-        { width: avatarSize.width, height: avatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left" },
+        { width: avatarSize.width, height: avatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left", encode: resolveOverlayEncode(config) },
         signal,
       );
       try { fs.unlinkSync(lipsyncFullPath); } catch {}
@@ -721,7 +781,12 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     blocksToConcat.map((b) => ({
       id: b.id,
       totalSec: b.timing?.totalSec ?? 0,
-    }))
+    })),
+    5,
+    {
+      safeBottom: meta.subtitleSafeBottom,
+      quietWindows: computeSubtitleQuietWindows(blocksToConcat),
+    }
   );
 
   if (qaResult.errors.length > 0) {

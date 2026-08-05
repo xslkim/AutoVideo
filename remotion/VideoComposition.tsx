@@ -242,6 +242,7 @@ export const BlockComposition: React.FC<BlockCompositionProps> = ({
           frame={frame}
           fps={fps}
           theme={theme}
+          subtitleSafeBottom={script.meta.subtitleSafeBottom}
         />
       ) : null}
 

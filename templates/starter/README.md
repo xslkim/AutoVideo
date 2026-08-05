@@ -34,6 +34,7 @@ Output will be in `build/my-video/output/final_normalized.mp4`.
 
 - **Edit `script.md`**: Add or modify content blocks with `--- visual ---` and `--- narration ---` sections.
 - **Edit `meta.md`**: Change title, aspect ratio, theme, or FPS.
+- **Edit `dict.md`**: Fix how the voice reads technical terms and acronyms (`IMU => I M U`). Optional — delete the file if you don't need it.
 - **Replace `hero.png`**: Swap in your own image. Reference it in visual descriptions as `./hero.png`.
 - **Edit `autovideo.config.json`**: Adjust TTS, rendering, and caching settings.
 
@@ -44,6 +45,7 @@ Output will be in `build/my-video/output/final_normalized.mp4`.
 ├── meta.md                   # Global settings (title, aspect, theme, fps)
 ├── B00.wav                   # Reference voice (you provide this)
 ├── script.md                 # Content blocks
+├── dict.md                   # Optional pronunciation overrides for TTS
 ├── hero.png                  # Example image asset
 ├── autovideo.config.json     # Optional configuration overrides
 └── README.md                 # This file

@@ -286,6 +286,35 @@ export interface OverlayOptions {
   radius: number;
   /** Position on screen */
   position: "bottom-left";
+  /**
+   * Re-encode settings for the composited output. The overlay filter forces a
+   * full re-encode, so without explicit values ffmpeg falls back to its own
+   * defaults (crf 23) and throws away the quality the Remotion pass produced.
+   */
+  encode?: {
+    crf: number;
+    x264Preset: string;
+    pixelFormat: string;
+    colorSpace: "bt709" | "bt2020-ncl" | "default";
+  };
+}
+
+const DEFAULT_OVERLAY_ENCODE: NonNullable<OverlayOptions["encode"]> = {
+  crf: 16,
+  x264Preset: "medium",
+  pixelFormat: "yuv420p",
+  colorSpace: "bt709",
+};
+
+/** ffmpeg color tagging flags for a color space, empty for "default". */
+function colorSpaceArgs(colorSpace: string): string[] {
+  if (colorSpace === "bt709") {
+    return ["-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"];
+  }
+  if (colorSpace === "bt2020-ncl") {
+    return ["-colorspace", "bt2020nc", "-color_primaries", "bt2020", "-color_trc", "smpte2084"];
+  }
+  return [];
 }
 
 /**
@@ -303,6 +332,7 @@ export async function overlayLipsync(
   signal?: AbortSignal,
 ): Promise<void> {
   const { width, height, margin, radius, position } = options;
+  const encode = { ...DEFAULT_OVERLAY_ENCODE, ...(options.encode ?? {}) };
 
   // Calculate overlay position
   let overlayPos: string;
@@ -339,6 +369,11 @@ export async function overlayLipsync(
     "-stream_loop", "-1",   // loop avatar from the beginning when it runs out
     "-i", lipsyncVideoPath,
     "-filter_complex", filterComplex,
+    "-c:v", "libx264",
+    "-crf", String(encode.crf),
+    "-preset", encode.x264Preset,
+    "-pix_fmt", encode.pixelFormat,
+    ...colorSpaceArgs(encode.colorSpace),
     "-c:a", "copy",
     "-shortest",            // stop encoding when the main video ends
     outputPath,

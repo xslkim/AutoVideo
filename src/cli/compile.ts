@@ -27,12 +27,21 @@ import {
   type AssetProcessResult,
 } from "../parser/assets.js";
 import { resolveOutDir } from "../utils/slugify.js";
+import { SUBTITLE_SAFE_BOTTOM_PCT } from "../config/defaults.js";
+import {
+  loadPronunciationDict,
+  applyPronunciation,
+  DICT_FILENAME,
+  PronunciationError,
+} from "../tts/pronounce.js";
+import { scaleFontMentions } from "../compile/font-scale.js";
 
 import type {
   Script,
   Block,
   AnimationPreset,
   AspectRatio,
+  NarrationLine,
   ProgressEvent,
 } from "../types/script.js";
 
@@ -219,13 +228,52 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   emit(70, "组装 Script 对象");
 
   // ── Step 6: Compute subtitleSafeBottom ─────────────────────────────────
-  const subtitleSafeBottom = Math.floor(meta.height * 0.15);
+  const subtitleSafeBottom = Math.floor(meta.height * SUBTITLE_SAFE_BOTTOM_PCT);
+
+  // ── Step 6.5: Load the pronunciation dictionary (optional) ─────────────
+  let pronunciationRules;
+  try {
+    pronunciationRules = loadPronunciationDict(project.projectDir);
+  } catch (err) {
+    if (err instanceof PronunciationError) {
+      throw new CompileError(err.message, "ERR_DICT_INVALID");
+    }
+    throw err;
+  }
+  if (verbose && pronunciationRules.length > 0) {
+    console.log(
+      `[compile] Loaded ${pronunciationRules.length} pronunciation rule(s) from ${DICT_FILENAME}`
+    );
+  }
+
+  /**
+   * Attach `speakText` when the dictionary actually rewrites a line. Leaving
+   * it off for unchanged lines keeps script.json readable and keeps the audio
+   * cache key identical to the no-dictionary case.
+   */
+  const withSpeakText = (line: NarrationLine): NarrationLine => {
+    if (pronunciationRules.length === 0) return line;
+    const speakText = applyPronunciation(line.ttsText, pronunciationRules);
+    return speakText === line.ttsText ? line : { ...line, speakText };
+  };
 
   // ── Step 7: Assemble Script ────────────────────────────────────────────
   // Merge processed visual descriptions back into blocks
   const scriptBlocks: Block[] = rawBlocks.map((raw, idx) => {
     // Find the matching processed block (same index)
     const processedBlock = assetResult.blocks[idx];
+
+    const rawDescription = processedBlock
+      ? processedBlock.visualDescription
+      : raw.visualDescription;
+    const fontScaled = scaleFontMentions(rawDescription, meta.height);
+    if (verbose && fontScaled.scale !== 1) {
+      console.log(
+        `[compile] Block ${raw.id}: scaled font sizes ×${fontScaled.scale.toFixed(
+          2,
+        )} (smallest was ${fontScaled.originalMinPx}px)`,
+      );
+    }
 
     return {
       id: raw.id,
@@ -240,12 +288,10 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
         ? { videoSource: processedBlock.videoSource }
         : {}),
       visual: {
-        description: processedBlock
-          ? processedBlock.visualDescription
-          : raw.visualDescription,
+        description: fontScaled.description,
       },
       narration: {
-        lines: raw.narrationLines,
+        lines: raw.narrationLines.map(withSpeakText),
         ...(raw.explicitDurationSec !== undefined && {
           explicitDurationSec: raw.explicitDurationSec,
         }),

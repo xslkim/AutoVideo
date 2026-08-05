@@ -48,6 +48,18 @@ export interface Theme {
     maxWidthPct: number;
     backgroundColor: string;
     paddingPx: number;
+    /** Font weight; CJK subtitles need 500–600 to stay legible over imagery */
+    fontWeight?: number;
+    /** Outline colour painted behind glyphs so text survives bright backgrounds */
+    strokeColor?: string;
+    /** Outline width in px at 1080p; scaled with the frame height */
+    strokeWidthPx?: number;
+    /** Corner radius of the text capsule */
+    borderRadiusPx?: number;
+    /** Gap between the capsule and the bottom edge of the frame */
+    bottomMarginPx?: number;
+    /** Hard cap on wrapped lines; longer text is scaled down to fit */
+    maxLines?: number;
   };
 }
 
@@ -92,4 +104,6 @@ export interface SubtitleOverlayProps {
   frame: number;
   fps: number;
   theme: Theme;
+  /** Height of the reserved bottom band; the capsule never grows past it */
+  subtitleSafeBottom: number;
 }

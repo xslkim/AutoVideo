@@ -38,7 +38,54 @@ describe("computeStaticMetrics", () => {
     expect(m.hardcodedFontSizes).toEqual([]);
     // largest = height * 0.09 = 97.2
     expect(Math.round(m.maxFontPx)).toBe(97);
+    // smallest = height * 0.03 = 32.4 (below width * 0.02 = 38.4)
+    expect(Math.round(m.minFontPx)).toBe(32);
     expect(m.elementCount).toBe(3); // div + 2 span
+  });
+
+  it("resolves sizes derived from other size variables", () => {
+    const p = writeTsx(`
+      import React from "react";
+      export default function C({ height }: any) {
+        const body = height * 0.04;
+        const title = body * 2;
+        return (
+          <div style={{ fontSize: title }}>
+            <span style={{ fontSize: body }}>a</span>
+          </div>
+        );
+      }
+    `);
+    const m = computeStaticMetrics(p, DIMS);
+    expect(m.fontFullyMeasured).toBe(true);
+    expect(m.usesRelativeFont).toBe(true);
+    expect(m.hardcodedFontSizes).toEqual([]);
+    // A subtree scan used to read `body * 2` as 2px.
+    expect(Math.round(m.maxFontPx)).toBe(86); // 1080*0.04*2
+    expect(Math.round(m.minFontPx)).toBe(43); // 1080*0.04
+  });
+
+  it("keeps both branches of a conditional size", () => {
+    const p = writeTsx(`
+      import React from "react";
+      export default function C({ height, compact }: any) {
+        return <p style={{ fontSize: compact ? height * 0.02 : height * 0.06 }}>x</p>;
+      }
+    `);
+    const m = computeStaticMetrics(p, DIMS);
+    expect(Math.round(m.maxFontPx)).toBe(65);
+    expect(Math.round(m.minFontPx)).toBe(22);
+  });
+
+  it("marks measurement incomplete for sizes it cannot evaluate", () => {
+    const p = writeTsx(`
+      import React from "react";
+      export default function C({ items }: any) {
+        return <div>{items.map((it: any) => <span style={{ fontSize: it.size }}>{it.t}</span>)}</div>;
+      }
+    `);
+    const m = computeStaticMetrics(p, DIMS);
+    expect(m.fontFullyMeasured).toBe(false);
   });
 
   it("flags hard-coded font sizes and finds the largest", () => {
@@ -77,11 +124,33 @@ describe("assessVisualMetrics (static-only)", () => {
     `);
     const res = await assessVisualMetrics({
       tsxPath: p, width: 1920, height: 1080,
-      thresholds: { minFontCoeff: 0.07, minElements: 4, minCoverage: 0.7 },
+      thresholds: { minFontCoeff: 0.07, minAnyFontCoeff: 0.028, minElements: 4, minCoverage: 0.7 },
     });
     expect(res.pass).toBe(false);
     expect(res.feedback).toContain("最大字号");
     expect(res.feedback).toContain("可见元素");
+  });
+
+  it("fails a slide whose captions are below the readability floor", async () => {
+    const p = writeTsx(`
+      import React from "react";
+      export default function C({ height }: any) {
+        return (
+          <div style={{ fontSize: height * 0.09 }}>
+            <span style={{ fontSize: height * 0.05 }}>a</span>
+            <span style={{ fontSize: height * 0.05 }}>b</span>
+            <small style={{ fontSize: height * 0.015 }}>note</small>
+          </div>
+        );
+      }
+    `);
+    const res = await assessVisualMetrics({
+      tsxPath: p, width: 1920, height: 1080,
+      thresholds: { minFontCoeff: 0.07, minAnyFontCoeff: 0.028, minElements: 4, minCoverage: 0.7 },
+    });
+    expect(res.pass).toBe(false);
+    expect(res.feedback).toContain("最小字号");
+    expect(res.feedback).not.toContain("最大字号");
   });
 
   it("passes a slide that meets font and element thresholds (no image check)", async () => {
@@ -99,7 +168,7 @@ describe("assessVisualMetrics (static-only)", () => {
     `);
     const res = await assessVisualMetrics({
       tsxPath: p, width: 1920, height: 1080,
-      thresholds: { minFontCoeff: 0.07, minElements: 4, minCoverage: 0.7 },
+      thresholds: { minFontCoeff: 0.07, minAnyFontCoeff: 0.028, minElements: 4, minCoverage: 0.7 },
     });
     expect(res.pass).toBe(true);
     expect(res.feedback).toBe("");

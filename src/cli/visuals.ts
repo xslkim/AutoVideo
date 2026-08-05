@@ -100,20 +100,14 @@ function is429(err: unknown): boolean {
 }
 
 /**
- * Compute promptVersion: MD5 first 8 chars of system prompt content.
- * Falls back to a default if the prompt file does not exist.
+ * Cache-key component derived from the system prompt.
+ *
+ * Hash the prompt we actually send. An earlier version hashed a prompt file
+ * that was never shipped, so the fallback constant made every prompt edit a
+ * no-op for cached blocks.
  */
-function computePromptVersion(): string {
-  try {
-    const promptPath = path.resolve(
-      new URL(".", import.meta.url).pathname,
-      "../ai/prompts/component.md"
-    );
-    const content = fs.readFileSync(promptPath, "utf-8");
-    return crypto.createHash("md5").update(content).digest("hex").slice(0, 8);
-  } catch {
-    return "default1";
-  }
+function computePromptVersion(systemPrompt: string): string {
+  return crypto.createHash("md5").update(systemPrompt).digest("hex").slice(0, 8);
 }
 
 /**
@@ -143,6 +137,7 @@ function buildComponentKey(opts: {
   promptVersion: string;
   assetHashes: string[];
   claudeModel: string;
+  subtitleSafeBottom: number;
 }): ComponentKey {
   return {
     descriptionHash: crypto
@@ -155,6 +150,7 @@ function buildComponentKey(opts: {
     promptVersion: opts.promptVersion,
     assetHashesJson: JSON.stringify(opts.assetHashes),
     claudeModel: opts.claudeModel,
+    subtitleSafeBottom: opts.subtitleSafeBottom,
   };
 }
 
@@ -195,33 +191,85 @@ The available canvas is \`width × (height - subtitleSafeBottom)\`. **You MUST f
 
 ### Font sizes (assume 1080p; scale proportionally if width/height differ)
 
-Use these as MINIMUMS unless the description gives explicit larger values:
+These are HARD FLOORS. **No visible text may be smaller than \`height * 0.028\` (≈ 30 px on 1080p)** — the video is watched on phones, where anything below that is illegible.
 
 | Element | Min font-size | Suggested |
 |---|---|---|
 | Hero / main title | \`height * 0.07\` (≈ 76 px) | \`height * 0.09\` (≈ 96 px) |
 | Section title | \`height * 0.045\` (≈ 50 px) | \`height * 0.055\` (≈ 60 px) |
-| Body text / list item | \`height * 0.025\` (≈ 28 px) | \`height * 0.030\` (≈ 32 px) |
-| Caption / label | \`height * 0.018\` (≈ 20 px) | \`height * 0.022\` (≈ 24 px) |
-| Code block (mono) | \`height * 0.022\` (≈ 24 px) | \`height * 0.026\` (≈ 28 px) |
+| Body text / list item | \`height * 0.030\` (≈ 32 px) | \`height * 0.036\` (≈ 39 px) |
+| Caption / label | \`height * 0.028\` (≈ 30 px) | \`height * 0.032\` (≈ 35 px) |
+| Code block (mono) | \`height * 0.028\` (≈ 30 px) | \`height * 0.032\` (≈ 35 px) |
 
-Compute all font sizes from \`width\` / \`height\` props (e.g. \`fontSize: height * 0.07\`) so they scale across aspect ratios. Do NOT hardcode 16 px / 22 px / 32 px small values.
+The floors WIN over the description. If the description names a specific pixel size (\`18px\`, \`24px\`, "small caption"), treat it as a relative hint about hierarchy, not an absolute value: keep the ordering it implies but raise every size until the smallest one clears the floor. Never emit a smaller size just because the description asked for it.
+
+If enforcing the floors makes the content overflow, **remove content** — drop secondary annotations, shorten labels, split into fewer items. Do not shrink text to fit.
+
+Compute all font sizes from \`width\` / \`height\` props (e.g. \`fontSize: height * 0.07\`) so they scale across aspect ratios. Do NOT hardcode pixel values.
 
 ### Composition rules
 
 - Center primary content both horizontally and vertically within the available area, OR use a clear grid (2-col, 3-col, header+body) that spans nearly the full width.
 - When showing multiple items (lists, cards, steps): lay them out as a row or grid that occupies ≥ 80 % of the canvas width with generous internal spacing between items, instead of stacking them in a narrow column in the middle.
 - For code/terminal blocks: the block container should occupy at least 70 % of the canvas width and 50 % of the available height.
-- Reserve the bottom \`subtitleSafeBottom\` pixels — do NOT place text or important elements there.
+- Reserve the bottom \`subtitleSafeBottom\` pixels — subtitles are drawn there and will cover anything you put underneath. Nothing visible may extend below \`height - subtitleSafeBottom\`: size the root container as \`height - subtitleSafeBottom\` (or add that much bottom padding) rather than positioning elements individually and hoping they clear it. Background fills and decorations may span the full height.
 - Avoid empty corners: distribute weight so the upper-third, middle, and lower-third (above subtitleSafeBottom) all carry visible content.
+
+## Motion design (CRITICAL — this is reviewed separately from layout)
+
+A slide with great layout but flat motion still reads as cheap. \`frame\`, \`durationInFrames\`, and \`fps\` are given precisely so you choreograph the whole timeline, not just an entrance fade.
+
+### The three failure modes to avoid
+
+1. **Lockstep entrance** — every element fades/slides in with the exact same start frame and duration. It reads as one flat cut, not a composition. BANNED.
+2. **Dead hold** — everything finishes animating by frame ~20 and then nothing moves for the remaining 3-4 seconds. The slide looks like a static screenshot with a video file's runtime. BANNED.
+3. **Abrupt exit** — elements just disappear on the last frame instead of leaving with intent.
+
+### Required pattern: staggered entrance
+
+Give each visual group its own delay so they arrive in a deliberate sequence (title → supporting elements → decoration), each with its own short easing curve:
+
+\`\`\`tsx
+const frame = useCurrentFrame();
+
+// delayFrames: when this element starts; durationFrames: how long its own
+// entrance takes. Stagger delayFrames across groups — do NOT reuse the same
+// value for everything.
+const enterProgress = (delayFrames: number, durationFrames = 14) =>
+  interpolate(frame - delayFrames, [0, durationFrames], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+    easing: Easing.out(Easing.cubic),
+  });
+
+const titleP = enterProgress(0);         // arrives first
+const subtitleP = enterProgress(8);      // 8 frames later
+const card1P = enterProgress(16);
+const card2P = enterProgress(22);        // cards themselves stagger too
+\`\`\`
+
+Use \`spring({ frame: frame - delayFrames, fps, config: { damping: 200 } })\` instead of \`interpolate\` for elements that should feel like they settle into place (cards, badges, the hero title) rather than just fade.
+
+### Required pattern: keep something alive during the hold
+
+After the entrance finishes, at least one element must keep animating for the rest of the block — a slow pulse on an accent, a subtly drifting background gradient, a blinking cursor, a counter ticking up, a progress bar filling, a line being drawn. Base it on \`frame\` directly (not gated by the entrance), e.g. \`Math.sin(frame / 20) * 4\` for a gentle breathing offset. Keep it subtle enough not to compete with body text for attention.
+
+### Exit
+
+Reverse the stagger for the exit (last-in-first-out, or fade the whole group together over the final \`durationInFrames * 0.15\` frames) rather than letting elements vanish on the final frame. Use \`Easing.in(Easing.cubic)\` — accelerating away reads as intentional, linear reads as a glitch.
 
 ### Self-check before returning
 
 Before emitting code, mentally verify:
 1. Is the largest font size ≥ \`height * 0.07\`? If not, increase it.
-2. Does the content cluster cover ≥ 70 % of the canvas area? If not, enlarge elements or add supporting structure.
-3. Are outer margins ≤ 6 % of the smaller canvas dimension? If not, reduce them.
-4. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding small pixel values? If not, refactor.`;
+2. Is the SMALLEST font size ≥ \`height * 0.028\`? If not, raise it — or delete that text.
+3. Does the content cluster cover ≥ 70 % of the canvas area? If not, enlarge elements or add supporting structure.
+4. Are outer margins ≤ 6 % of the smaller canvas dimension? If not, reduce them.
+5. Does every visible element end above \`height - subtitleSafeBottom\`? If not, shrink the content area.
+6. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
+7. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
+8. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add ambient motion.
+9. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.`;
 }
 
 // ── Main visuals function ─────────────────────────────────────────────
@@ -268,9 +316,9 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
   fs.mkdirSync(blocksDir, { recursive: true });
 
   // Compute promptVersion and model
-  const promptVersion = computePromptVersion();
-  const claudeModel = config.anthropic.model;
   const systemPrompt = buildDefaultSystemPrompt();
+  const promptVersion = computePromptVersion(systemPrompt);
+  const claudeModel = config.anthropic.model;
 
   // Setup cache
   const cacheStore = new CacheStore({
@@ -398,6 +446,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
         promptVersion,
         assetHashes,
         claudeModel,
+        subtitleSafeBottom: script.meta.subtitleSafeBottom,
       });
 
       // Check cache (unless --force for this block)
@@ -490,65 +539,80 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
             // rather than failing the whole block.
             const isLastAttempt = attempt === MAX_RETRIES - 1;
             if (vq.enabled && !isLastAttempt) {
+              // Three frames spread across the timeline — early (during
+              // entrance), mid (settled/hold), late (near exit) — so the
+              // multimodal review can judge choreography, not just one
+              // composition. The mid frame doubles as the still that the
+              // deterministic coverage/edge metrics use.
               const still = await renderComponentStill(componentFile, {
                 buildOutDir,
                 width: script.meta.width,
                 height: script.meta.height,
                 fps: script.meta.fps,
+                frameFractions: [0.06, 0.5, 0.9],
               });
+              const framePaths = still.ok ? still.pngPaths ?? [] : [];
+              const pngPath = framePaths[1] ?? framePaths[0];
+              if (!pngPath && verbose) {
+                console.log(
+                  `  Block ${blockLabel}: visual still render skipped (${still.error ?? "unknown"}) — static metrics only`
+                );
+              }
               try {
-                if (still.ok && still.pngPath) {
-                  const metrics = await assessVisualMetrics({
-                    tsxPath: componentFile,
-                    pngPath: still.pngPath,
-                    width: script.meta.width,
-                    height: script.meta.height,
-                    thresholds: {
-                      minFontCoeff: vq.minFontCoeff,
-                      minElements: vq.minElements,
-                      minCoverage: vq.minCoverage,
+                // Static metrics (font sizes, element count) do not need the
+                // still, so they run even when the render failed — a broken
+                // headless Chrome must not silently disable the whole gate.
+                const metrics = await assessVisualMetrics({
+                  tsxPath: componentFile,
+                  pngPath,
+                  width: script.meta.width,
+                  height: script.meta.height,
+                  thresholds: {
+                    minFontCoeff: vq.minFontCoeff,
+                    minAnyFontCoeff: vq.minAnyFontCoeff,
+                    minElements: vq.minElements,
+                    minCoverage: vq.minCoverage,
+                  },
+                  safeBottom: script.meta.subtitleSafeBottom,
+                });
+                if (!metrics.pass) {
+                  if (verbose) {
+                    console.log(
+                      `  Block ${blockLabel}: visual metrics below threshold (coverage ${
+                        metrics.image ? Math.round(metrics.image.coverage * 100) : "n/a"
+                      }, font ${Math.round(metrics.static.minFontPx)}–${Math.round(
+                        metrics.static.maxFontPx
+                      )}px, elements ${metrics.static.elementCount}) — regenerating`
+                    );
+                  }
+                  throw new VisualsError(metrics.feedback);
+                }
+
+                // Plan B: multimodal review (only after metrics pass, capped
+                // by maxReviewRounds to bound cost/time). Feeding all sampled
+                // frames lets it judge motion across time, not just one still.
+                if (framePaths.length > 0 && vq.review && reviewRounds < vq.maxReviewRounds) {
+                  const review = await reviewVisual(
+                    { pngPaths: framePaths, visualDescription: block.visual.description },
+                    {
+                      useCLI: anthropicConfig.useCLI,
+                      cliPath: anthropicConfig.cliPath,
+                      apiKey: anthropicConfig.apiKey,
+                      baseURL: anthropicConfig.baseURL,
+                      model: anthropicConfig.model,
+                      maxRetries: anthropicConfig.maxRetries,
                     },
-                  });
-                  if (!metrics.pass) {
+                    abortController.signal
+                  );
+                  if (!review.pass) {
+                    reviewRounds++;
                     if (verbose) {
                       console.log(
-                        `  Block ${blockLabel}: visual metrics below threshold (coverage ${
-                          metrics.image ? Math.round(metrics.image.coverage * 100) : "?"
-                        }%, maxFont ${Math.round(metrics.static.maxFontPx)}px, elements ${metrics.static.elementCount}) — regenerating`
+                        `  Block ${blockLabel}: visual review requested changes (round ${reviewRounds}/${vq.maxReviewRounds}) — regenerating`
                       );
                     }
-                    throw new VisualsError(metrics.feedback);
+                    throw new VisualsError(review.feedback);
                   }
-
-                  // Plan B: multimodal review (only after metrics pass, capped
-                  // by maxReviewRounds to bound cost/time).
-                  if (vq.review && reviewRounds < vq.maxReviewRounds) {
-                    const review = await reviewVisual(
-                      { pngPath: still.pngPath, visualDescription: block.visual.description },
-                      {
-                        useCLI: anthropicConfig.useCLI,
-                        cliPath: anthropicConfig.cliPath,
-                        apiKey: anthropicConfig.apiKey,
-                        baseURL: anthropicConfig.baseURL,
-                        model: anthropicConfig.model,
-                        maxRetries: anthropicConfig.maxRetries,
-                      },
-                      abortController.signal
-                    );
-                    if (!review.pass) {
-                      reviewRounds++;
-                      if (verbose) {
-                        console.log(
-                          `  Block ${blockLabel}: visual review requested changes (round ${reviewRounds}/${vq.maxReviewRounds}) — regenerating`
-                        );
-                      }
-                      throw new VisualsError(review.feedback);
-                    }
-                  }
-                } else if (verbose) {
-                  console.log(
-                    `  Block ${blockLabel}: visual still render skipped (${still.error ?? "unknown"})`
-                  );
                 }
               } finally {
                 cleanupStill(still.tempDir);

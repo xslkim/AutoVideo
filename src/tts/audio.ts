@@ -8,8 +8,6 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync, unlinkSync } from "node:fs";
-import { resolve, dirname } from "node:path";
 
 /**
  * Get the duration of a WAV file in seconds using ffprobe.
@@ -57,67 +55,93 @@ export function generateSilenceWav(
 }
 
 /**
- * Concatenate an array of WAV buffers into a single WAV file.
- * Each WAV is followed by 200ms of silence (except the last one).
+ * Fade applied at both ends of every line before stitching.
  *
- * This uses ffmpeg concat demuxer for reliable concatenation.
+ * Synthesized lines rarely start or end exactly at zero amplitude, and a hard
+ * splice on a non-zero sample is an audible click on every line boundary.
+ * Twelve milliseconds is short enough to be inaudible as a fade and long
+ * enough to kill the discontinuity.
+ */
+const SEAM_FADE_SEC = 0.012;
+
+export interface ConcatOptions {
+  /**
+   * Silence after each line, in seconds. Index i is the gap following line i;
+   * the entry for the last line is ignored. Falls back to `gapSec`.
+   */
+  gapsSec?: number[];
+  /** Uniform gap used when `gapsSec` is absent. */
+  gapSec?: number;
+  /** Boundary fade length in seconds; 0 disables it. */
+  fadeSec?: number;
+}
+
+/** Format a number for an ffmpeg filter argument (no exponent notation). */
+function ff(n: number): string {
+  return n.toFixed(4);
+}
+
+/**
+ * Concatenate line WAVs into a single block WAV, inserting silence between
+ * lines and fading each seam.
  *
- * @param lineWavPaths - Array of absolute paths to line WAV files
- * @param outputPath - Where to write the concatenated output
- * @param gapSec - Silence gap between lines in seconds (default 0.2)
+ * Gaps must match whatever was handed to `computeLineTimings`, or the
+ * subtitles drift away from the voice.
+ *
  * @returns Duration of the output WAV in seconds
  */
 export function concatenateWavsWithGaps(
   lineWavPaths: string[],
   outputPath: string,
-  gapSec = 0.2
+  options: ConcatOptions = {}
 ): number {
   if (lineWavPaths.length === 0) {
     throw new Error("No WAV files to concatenate");
   }
 
-  const outDir = dirname(outputPath);
+  const { gapsSec, gapSec = 0.2, fadeSec = SEAM_FADE_SEC } = options;
+  const last = lineWavPaths.length - 1;
 
-  // Generate a silence file for gaps
-  const silencePath = resolve(outDir, ".silence_gap.wav");
-  generateSilenceWav(gapSec, silencePath);
+  const inputs: string[] = [];
+  const filters: string[] = [];
+  const labels: string[] = [];
 
-  try {
-    // Build concat list: line1 + silence + line2 + silence + ... + lineN
-    const concatParts: string[] = [];
-    for (let i = 0; i < lineWavPaths.length; i++) {
-      concatParts.push(`file '${lineWavPaths[i]}'`);
-      if (i < lineWavPaths.length - 1) {
-        concatParts.push(`file '${silencePath}'`);
-      }
+  for (let i = 0; i < lineWavPaths.length; i++) {
+    inputs.push("-i", lineWavPaths[i]);
+
+    const duration = getWavDurationSec(lineWavPaths[i]);
+    // Never fade more than a quarter of a very short line.
+    const fade = Math.max(0, Math.min(fadeSec, duration / 4));
+
+    const chain = ["aformat=sample_fmts=s16:sample_rates=48000:channel_layouts=mono"];
+    if (fade > 0) {
+      chain.push(`afade=t=in:st=0:d=${ff(fade)}`);
+      chain.push(`afade=t=out:st=${ff(Math.max(0, duration - fade))}:d=${ff(fade)}`);
     }
 
-    const concatListPath = resolve(outDir, ".concat_list.txt");
-    writeFileSync(concatListPath, concatParts.join("\n") + "\n", "utf-8");
+    const gap = i === last ? 0 : (gapsSec?.[i] ?? gapSec);
+    if (gap > 0) chain.push(`apad=pad_dur=${ff(gap)}`);
 
-    try {
-      execFileSync(
-        "ffmpeg",
-        [
-          "-f", "concat",
-          "-safe", "0",
-          "-i", concatListPath,
-          "-acodec", "pcm_s16le",
-          "-ar", "48000",
-          "-ac", "1",
-          "-y",
-          outputPath,
-        ],
-        { encoding: "utf-8", timeout: 60_000 }
-      );
-    } finally {
-      // Clean up concat list
-      try { unlinkSync(concatListPath); } catch { /* ignore */ }
-    }
-  } finally {
-    // Clean up silence file
-    try { unlinkSync(silencePath); } catch { /* ignore */ }
+    filters.push(`[${i}:a]${chain.join(",")}[a${i}]`);
+    labels.push(`[a${i}]`);
   }
+
+  filters.push(`${labels.join("")}concat=n=${lineWavPaths.length}:v=0:a=1[out]`);
+
+  execFileSync(
+    "ffmpeg",
+    [
+      ...inputs,
+      "-filter_complex", filters.join(";"),
+      "-map", "[out]",
+      "-acodec", "pcm_s16le",
+      "-ar", "48000",
+      "-ac", "1",
+      "-y",
+      outputPath,
+    ],
+    { encoding: "utf-8", timeout: 120_000 }
+  );
 
   return getWavDurationSec(outputPath);
 }

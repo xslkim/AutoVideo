@@ -24,6 +24,12 @@ export interface SpeakOptions {
   inferenceTimesteps: number;
   denoise: boolean;
   retryBadcase: boolean;
+  /**
+   * Run wetext normalization server-side (numbers, units, symbols → spoken
+   * Chinese). The server defaults this to false; leaving it off makes tokens
+   * like "cam0", "0.1" and "16:9" reach the model unnormalized.
+   */
+  normalize: boolean;
 }
 
 export class VoxcpmClient {
@@ -101,6 +107,7 @@ export class VoxcpmClient {
         inference_timesteps: opts.inferenceTimesteps,
         denoise: opts.denoise,
         retry_badcase: opts.retryBadcase,
+        normalize: opts.normalize,
       }),
       signal: signal ?? AbortSignal.timeout(this.timeout),
     });

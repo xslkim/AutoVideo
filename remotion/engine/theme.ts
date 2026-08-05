@@ -66,10 +66,16 @@ const DARK_CODE: Theme = {
   subtitle: {
     fontFamily: "Noto Sans SC, Noto Sans, Noto Color Emoji, sans-serif",
     fontSizePct: 0.04,
-    lineHeight: 1.5,
+    lineHeight: 1.4,
     maxWidthPct: 0.8,
-    backgroundColor: "rgba(0, 0, 0, 0.35)",
-    paddingPx: 12,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    paddingPx: 14,
+    fontWeight: 600,
+    strokeColor: "rgba(0, 0, 0, 0.9)",
+    strokeWidthPx: 3,
+    borderRadiusPx: 12,
+    bottomMarginPx: 28,
+    maxLines: 2,
   },
 };
 

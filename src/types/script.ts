@@ -83,6 +83,12 @@ export interface Theme {
     maxWidthPct: number;
     backgroundColor: string;
     paddingPx: number;
+    fontWeight?: number;
+    strokeColor?: string;
+    strokeWidthPx?: number;
+    borderRadiusPx?: number;
+    bottomMarginPx?: number;
+    maxLines?: number;
   };
 }
 
@@ -97,6 +103,12 @@ export interface NarrationLine {
   ttsText: string;
   /** Highlight ranges based on ttsText character offsets (markers stripped) */
   highlights: { start: number; end: number }[];
+  /**
+   * Synthesis-only rewrite of ttsText produced by the project's dict.md.
+   * Present only when the dictionary changed something; subtitles always
+   * render ttsText, never this.
+   */
+  speakText?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +268,7 @@ export interface SubtitleOverlayProps {
   frame: number;
   fps: number;
   theme: Theme;
+  subtitleSafeBottom: number;
 }
 
 // ---------------------------------------------------------------------------

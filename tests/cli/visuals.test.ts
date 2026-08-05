@@ -118,6 +118,7 @@ function createTestConfig(overrides?: Partial<AutoVideoConfig>): AutoVideoConfig
     visualQuality: {
       enabled: false,
       minFontCoeff: 0.07,
+      minAnyFontCoeff: 0.028,
       minElements: 4,
       minCoverage: 0.7,
       review: false,

@@ -24,12 +24,13 @@ export type CacheType = "audio" | "component" | "partial" | "images";
 
 /** Manifest entry key → type-specific key details */
 export interface AudioKey {
+  /** The exact string handed to the engine (post-dictionary rewrite) */
   ttsText: string;
   voiceRefHash: string;
-  cfgValue: number;
-  inferenceTimesteps: number;
-  denoise: boolean;
-  voxcpmModelVersion: string;
+  /** TTS engine identifier — audio from different engines must not be shared */
+  provider?: string;
+  /** Serialized engine settings that affect the waveform */
+  providerParamsJson?: string;
 }
 
 export interface ComponentKey {
@@ -40,6 +41,13 @@ export interface ComponentKey {
   promptVersion: string;
   assetHashesJson: string;
   claudeModel: string;
+  /**
+   * Layout depends on the reserved bottom band, and the band is not derivable
+   * from width/height alone, so it has to be part of the key — otherwise
+   * changing the safe-area ratio silently reuses components laid out for the
+   * old one.
+   */
+  subtitleSafeBottom?: number;
 }
 
 export interface PartialKey {
@@ -52,6 +60,8 @@ export interface PartialKey {
   enter: string;
   exit: string;
   remotionVersion: string;
+  /** Serialized render.quality settings — partials encoded differently must not mix */
+  qualityJson?: string;
 }
 
 export interface ImageKey {

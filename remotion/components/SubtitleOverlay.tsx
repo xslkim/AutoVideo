@@ -31,6 +31,65 @@ function findCurrentLine(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: estimate wrapped line count without touching the DOM
+// ---------------------------------------------------------------------------
+
+/**
+ * Approximate the rendered width of `text` in `em` units.
+ *
+ * Remotion renders each frame independently, so measuring real layout would
+ * need a layout effect and a re-render. A character-class estimate is accurate
+ * enough here: full-width CJK glyphs are one em, Latin averages just over half.
+ */
+function estimateWidthEm(text: string): number {
+  let em = 0;
+  for (const ch of text) {
+    em += /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(ch)
+      ? 1
+      : 0.55;
+  }
+  return em;
+}
+
+/**
+ * Pick the largest font size that keeps the caption within `maxLines` lines
+ * and inside the reserved bottom band.
+ */
+function fitFontSize(args: {
+  text: string;
+  baseFontSize: number;
+  textBoxWidth: number;
+  bandHeight: number;
+  lineHeight: number;
+  verticalPadding: number;
+  maxLines: number;
+}): { fontSize: number; lines: number } {
+  const { text, baseFontSize, textBoxWidth, bandHeight, lineHeight, verticalPadding, maxLines } =
+    args;
+
+  const widthEm = estimateWidthEm(text);
+  let fontSize = baseFontSize;
+
+  const linesAt = (size: number) =>
+    Math.max(1, Math.ceil((widthEm * size) / Math.max(1, textBoxWidth)));
+
+  let lines = linesAt(fontSize);
+  if (lines > maxLines) {
+    fontSize = (fontSize * maxLines) / lines;
+    lines = linesAt(fontSize);
+  }
+
+  // Even at maxLines the capsule must clear the reserved band.
+  const capsuleHeight = lines * fontSize * lineHeight + verticalPadding;
+  if (capsuleHeight > bandHeight) {
+    fontSize *= bandHeight / capsuleHeight;
+    lines = linesAt(fontSize);
+  }
+
+  return { fontSize, lines };
+}
+
+// ---------------------------------------------------------------------------
 // Helper: render ttsText with highlight spans
 // ---------------------------------------------------------------------------
 
@@ -94,8 +153,9 @@ const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   frame,
   fps,
   theme,
+  subtitleSafeBottom,
 }) => {
-  const { height } = useVideoConfig();
+  const { width, height } = useVideoConfig();
 
   // How far into the audio timeline we are (may be negative during enter)
   const audioFrame = frame - audioStartFrame;
@@ -119,34 +179,69 @@ const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   }
 
   const { subtitle } = theme;
-  const fontSize = height * subtitle.fontSizePct;
+
+  // All px tokens in the theme are authored against 1080p and scale with height.
+  const scale = height / 1080;
+  const paddingY = subtitle.paddingPx * scale;
+  const paddingX = subtitle.paddingPx * 2 * scale;
+  const bottomMargin = (subtitle.bottomMarginPx ?? 0) * scale;
+  const strokeWidth = (subtitle.strokeWidthPx ?? 0) * scale;
+  const borderRadius = (subtitle.borderRadiusPx ?? 0) * scale;
+
+  const capsuleMaxWidth = width * subtitle.maxWidthPct;
+  const { fontSize } = fitFontSize({
+    text: line.ttsText,
+    baseFontSize: height * subtitle.fontSizePct,
+    textBoxWidth: capsuleMaxWidth - paddingX * 2,
+    // Reserve the bottom margin out of the band so the capsule always sits
+    // inside the area the slide components were told to keep clear.
+    bandHeight: subtitleSafeBottom - bottomMargin,
+    lineHeight: subtitle.lineHeight,
+    verticalPadding: paddingY * 2,
+    maxLines: subtitle.maxLines ?? 2,
+  });
+
+  const strokeColor = subtitle.strokeColor;
+  const textStroke = strokeColor && strokeWidth > 0
+    ? {
+        // paintOrder keeps the outline behind the glyph instead of eating into it
+        paintOrder: "stroke fill",
+        WebkitTextStroke: `${strokeWidth}px ${strokeColor}`,
+      }
+    : {};
 
   return React.createElement(
     "div",
     {
       style: {
         position: "absolute",
-        bottom: 0,
-        left: "50%",
-        transform: "translateX(-50%)",
-        width: `${subtitle.maxWidthPct * 100}%`,
-        backgroundColor: subtitle.backgroundColor,
-        padding: `${subtitle.paddingPx}px`,
+        left: 0,
+        right: 0,
+        bottom: bottomMargin,
         display: "flex",
         justifyContent: "center",
-        alignItems: "center",
-        fontFamily: subtitle.fontFamily,
-        fontSize,
-        lineHeight: subtitle.lineHeight,
-        color: theme.colors.fg,
-        textAlign: "center" as const,
-        boxSizing: "border-box" as const,
+        alignItems: "flex-end",
         pointerEvents: "none" as const,
       },
     },
     React.createElement(
-      "span",
-      null,
+      "div",
+      {
+        style: {
+          maxWidth: capsuleMaxWidth,
+          backgroundColor: subtitle.backgroundColor,
+          borderRadius,
+          padding: `${paddingY}px ${paddingX}px`,
+          fontFamily: subtitle.fontFamily,
+          fontWeight: subtitle.fontWeight ?? 400,
+          fontSize,
+          lineHeight: subtitle.lineHeight,
+          color: theme.colors.fg,
+          textAlign: "center" as const,
+          boxSizing: "border-box" as const,
+          ...textStroke,
+        },
+      },
       renderHighlightedText(line.ttsText, line.highlights, theme.colors.accent),
     ),
   );

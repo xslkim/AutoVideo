@@ -161,10 +161,18 @@
             </span>
           </n-form-item>
           <template v-if="form.visualQuality.enabled">
-            <n-form-item label="最小字号比例">
+            <n-form-item label="主标题最小字号比例">
               <n-input-number
                 v-model:value="form.visualQuality.minFontCoeff"
                 :min="0" :max="0.2" :step="0.01" style="width: 100%"
+              >
+                <template #suffix>× height</template>
+              </n-input-number>
+            </n-form-item>
+            <n-form-item label="正文最小字号比例">
+              <n-input-number
+                v-model:value="form.visualQuality.minAnyFontCoeff"
+                :min="0" :max="0.1" :step="0.002" style="width: 100%"
               >
                 <template #suffix>× height</template>
               </n-input-number>
@@ -277,6 +285,7 @@ const form = reactive({
   visualQuality: {
     enabled: true as boolean,
     minFontCoeff: 0.07 as number | null,
+    minAnyFontCoeff: 0.028 as number | null,
     minElements: 4 as number | null,
     minCoverage: 0.7 as number | null,
     review: true as boolean,
@@ -330,6 +339,7 @@ async function loadConfig() {
 
   form.visualQuality.enabled = c.visualQuality?.enabled ?? true
   form.visualQuality.minFontCoeff = c.visualQuality?.minFontCoeff ?? 0.07
+  form.visualQuality.minAnyFontCoeff = c.visualQuality?.minAnyFontCoeff ?? 0.028
   form.visualQuality.minElements = c.visualQuality?.minElements ?? 4
   form.visualQuality.minCoverage = c.visualQuality?.minCoverage ?? 0.7
   form.visualQuality.review = c.visualQuality?.review ?? true
@@ -385,6 +395,7 @@ async function onSave() {
     patch.visualQuality = {
       enabled: form.visualQuality.enabled,
       minFontCoeff: form.visualQuality.minFontCoeff,
+      minAnyFontCoeff: form.visualQuality.minAnyFontCoeff,
       minElements: form.visualQuality.minElements,
       minCoverage: form.visualQuality.minCoverage,
       review: form.visualQuality.review,

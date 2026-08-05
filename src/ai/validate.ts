@@ -245,7 +245,10 @@ export async function validateStatic(tsxPath: string, tsconfigPath: string): Pro
  */
 export interface RenderStillResult {
   ok: boolean;
+  /** First rendered frame; kept for callers that only need one still. */
   pngPath?: string;
+  /** Every rendered frame, in the order of `frameFractions` (default: one mid-frame). */
+  pngPaths?: string[];
   tempDir: string;
   error?: string;
 }
@@ -260,9 +263,17 @@ export async function renderComponentStill(
     durationSec?: number;
     theme?: Record<string, unknown>;
     projectRoot?: string;
+    /**
+     * Fractions (0..1) of `durationSec` to render, one PNG each. A single
+     * mid-frame still cannot show motion — pass several fractions spread
+     * across the timeline (e.g. [0.05, 0.35, 0.65, 0.95]) to inspect
+     * choreography instead of just composition. Defaults to one mid-frame.
+     */
+    frameFractions?: number[];
   },
 ): Promise<RenderStillResult> {
   const { buildOutDir, width, height, fps, durationSec = 5, theme } = options;
+  const fractions = options.frameFractions?.length ? options.frameFractions : [0.5];
   // Unique temp dir so concurrent block renders never collide.
   // Must be absolute — the bundler requires an absolute output path.
   const tempDir = path.resolve(
@@ -271,7 +282,6 @@ export async function renderComponentStill(
     `still-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   );
   fs.mkdirSync(tempDir, { recursive: true });
-  const outputPath = path.join(tempDir, "still.png");
 
   try {
     const componentRelPath = path.relative(tempDir, tsxPath).replace(/\\/g, "/");
@@ -289,12 +299,19 @@ export async function renderComponentStill(
     const serveUrl = await bundler.bundle({ entryPoint: rootPath, publicDir, outDir: bundleDir });
     const composition = await renderer.selectComposition({ serveUrl, id: "SmokeTest", inputProps: {} });
     const totalFrames = Math.max(1, Math.floor(durationSec * fps));
-    const midFrame = Math.floor(totalFrames / 2);
 
-    await renderer.renderStill({ composition, serveUrl, frame: midFrame, output: outputPath, imageFormat: "png" });
+    const pngPaths: string[] = [];
+    for (let i = 0; i < fractions.length; i++) {
+      const frame = Math.min(totalFrames - 1, Math.max(0, Math.round(fractions[i] * (totalFrames - 1))));
+      const outputPath = path.join(tempDir, `still-${i}.png`);
+      await renderer.renderStill({ composition, serveUrl, frame, output: outputPath, imageFormat: "png" });
+      pngPaths.push(outputPath);
+    }
 
-    if (!fs.existsSync(outputPath)) return { ok: false, tempDir, error: "Render output PNG not found" };
-    return { ok: true, pngPath: outputPath, tempDir };
+    if (pngPaths.some((p) => !fs.existsSync(p))) {
+      return { ok: false, tempDir, error: "Render output PNG not found" };
+    }
+    return { ok: true, pngPath: pngPaths[0], pngPaths, tempDir };
   } catch (err: unknown) {
     return { ok: false, tempDir, error: err instanceof Error ? err.message : String(err) };
   }

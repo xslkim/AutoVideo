@@ -10,7 +10,7 @@
  *   4. Compute voiceRefHash / voxcpmModelVersion
  *   5. p-limit(voxcpm.concurrency) for line-level concurrency
  *   6. Per line: cache lookup → miss → client.speak() → put cache
- *   7. Block concatenation: concat all line WAVs + 200ms silence → public/audio/B**.wav
+ *   7. Block concatenation: concat all line WAVs + punctuation-aware silence → public/audio/B**.wav
  *   8. Compute lineTimings and write back to script.json.blocks[].audio
  *   9. Failure: 3 retries (5s interval), then AbortController cancel
  */
@@ -23,8 +23,8 @@ import { execFileSync } from "node:child_process";
 import pLimit from "p-limit";
 import { CacheStore, type AudioKey } from "../cache/store.js";
 import { computeLineTimings, type LineTiming } from "../tts/timings.js";
-import { VoxcpmClient } from "../tts/voxcpm-client.js";
-import { ensureVoxcpmServer } from "../tts/voxcpm-server.js";
+import { computeGapsMs } from "../tts/gaps.js";
+import { createTtsProvider, TtsProviderError } from "../tts/provider.js";
 import {
   concatenateWavsWithGaps,
   getWavDurationSec,
@@ -91,24 +91,6 @@ const SILENCE_GAP_MS = 200;
 function md5File(filePath: string): string {
   const buf = fs.readFileSync(filePath);
   return crypto.createHash("md5").update(buf).digest("hex");
-}
-
-/**
- * Compute the voxcpmModelVersion from model config.
- * Hashes the config.json (or falls back to directory mtime).
- */
-function computeVoxcpmModelVersion(modelDir: string): string {
-  const configPath = path.join(modelDir, "config.json");
-  if (fs.existsSync(configPath)) {
-    return md5File(configPath).slice(0, 16);
-  }
-  // Fallback: hash the directory listing
-  try {
-    const files = fs.readdirSync(modelDir).sort().join(",");
-    return crypto.createHash("md5").update(files).digest("hex").slice(0, 16);
-  } catch {
-    return "unknown";
-  }
 }
 
 /**
@@ -195,15 +177,16 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
     return { script, cacheHits: 0, apiCalls: 0 };
   }
 
-  // ── Step 2: Ensure VoxCPM server is running ───────────────────────
+  // ── Step 2: Ensure the TTS engine is reachable ────────────────────
 
-  const client = new VoxcpmClient({ endpoint: voxcpmCfg.endpoint });
+  const provider = createTtsProvider(config);
 
   try {
-    await ensureVoxcpmServer(client, { endpoint: voxcpmCfg.endpoint }, verbose);
+    await provider.ensureReady(verbose);
   } catch (err) {
+    const detail = err instanceof TtsProviderError || err instanceof Error ? err.message : String(err);
     throw new TtsError(
-      `VoxCPM server unavailable: ${err instanceof Error ? err.message : err}\n` +
+      `TTS engine "${provider.name}" unavailable: ${detail}\n` +
         "Run `autovideo doctor` to check your setup.",
       "ERR_VOXCPM_OFFLINE"
     );
@@ -221,7 +204,7 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
 
   let voiceId: string;
   try {
-    voiceId = await client.registerVoice(voiceRefPath);
+    voiceId = await provider.registerVoice(voiceRefPath);
     if (verbose) console.log(`[tts] Registered voice: ${voiceId}`);
   } catch (err) {
     throw new TtsError(
@@ -233,11 +216,12 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
   // ── Step 4: Compute cache-related hashes ──────────────────────────
 
   const voiceRefHash = md5File(voiceRefPath);
-  const voxcpmModelVersion = computeVoxcpmModelVersion(voxcpmCfg.modelDir);
+  const providerParamsJson = JSON.stringify(provider.cacheDescriptor());
 
   if (verbose) {
+    console.log(`[tts] provider: ${provider.name}`);
     console.log(`[tts] voiceRefHash: ${voiceRefHash.slice(0, 8)}...`);
-    console.log(`[tts] voxcpmModelVersion: ${voxcpmModelVersion.slice(0, 8)}...`);
+    console.log(`[tts] providerParams: ${providerParamsJson}`);
   }
 
   emit(10, "服务就绪，开始处理语音行");
@@ -286,19 +270,19 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
     const block = blocks[bi];
     for (let li = 0; li < block.narration.lines.length; li++) {
       const line = block.narration.lines[li];
+      // dict.md rewrites reach the engine but never the subtitles.
+      const spoken = line.speakText ?? line.ttsText;
       const cacheKey: AudioKey = {
-        ttsText: line.ttsText,
+        ttsText: spoken,
         voiceRefHash,
-        cfgValue: voxcpmCfg.cfgValue,
-        inferenceTimesteps: voxcpmCfg.inferenceTimesteps,
-        denoise: voxcpmCfg.denoise,
-        voxcpmModelVersion,
+        provider: provider.name,
+        providerParamsJson,
       };
       tasks.push({
         blockId: block.id,
         blockIndex: bi,
         lineIndex: li,
-        ttsText: line.ttsText,
+        ttsText: spoken,
         cacheKey,
       });
     }
@@ -351,15 +335,9 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
       if (abortController.signal.aborted) return;
 
       try {
-        const wavBuffer = await client.speak(
-          {
-            text: ttsText,
-            voiceId,
-            cfgValue: voxcpmCfg.cfgValue,
-            inferenceTimesteps: voxcpmCfg.inferenceTimesteps,
-            denoise: voxcpmCfg.denoise,
-            retryBadcase: voxcpmCfg.retryBadcase,
-          },
+        const wavBuffer = await provider.speak(
+          ttsText,
+          voiceId,
           abortController.signal
         );
 
@@ -466,16 +444,19 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
       lineDurationsSec.push(result.durationSec);
     }
 
-    // Concatenate with 200ms gaps
+    // Pause length follows the punctuation each line ends with, so a comma
+    // does not get the same beat as a full stop. The same gaps feed the
+    // subtitle timings below — they must not diverge.
+    const gapsMs = computeGapsMs(block.narration.lines.map((l) => l.ttsText));
+
     const outputPath = path.resolve(audioDir, `${block.id}.wav`);
-    const totalDurationSec = concatenateWavsWithGaps(
-      lineWavPaths,
-      outputPath
-    );
+    const totalDurationSec = concatenateWavsWithGaps(lineWavPaths, outputPath, {
+      gapsSec: gapsMs.map((ms) => ms / 1000),
+    });
 
     // ── Step 8: Compute lineTimings ──────────────────────────────
 
-    const lineTimings: LineTiming[] = computeLineTimings(lineDurationsSec);
+    const lineTimings: LineTiming[] = computeLineTimings(lineDurationsSec, gapsMs);
 
     // Write audio field to block
     (block as any).audio = {

@@ -13,6 +13,7 @@ import path from "node:path";
 import os from "node:os";
 import http from "node:http";
 import { tts, type TtsOptions } from "../../src/cli/tts.js";
+import { gapAfterMs } from "../../src/tts/gaps.js";
 import type { AutoVideoConfig } from "../../src/config/defaults.js";
 import type { Script } from "../../src/types/script.js";
 
@@ -196,11 +197,11 @@ function makeTestScript(voiceRefPath: string): Script {
         visual: { description: "Test visual B01" },
         narration: {
           lines: [
-            { text: "第一行内容", ttsText: "第一行内容", highlights: [] },
-            { text: "第二行内容", ttsText: "第二行内容", highlights: [] },
-            { text: "第三行内容", ttsText: "第三行内容", highlights: [] },
+            { text: "第一行内容，", ttsText: "第一行内容，", highlights: [] },
+            { text: "第二行内容。", ttsText: "第二行内容。", highlights: [] },
+            { text: "第三行内容：", ttsText: "第三行内容：", highlights: [] },
             { text: "第四行内容", ttsText: "第四行内容", highlights: [] },
-            { text: "第五行内容", ttsText: "第五行内容", highlights: [] },
+            { text: "第五行内容。", ttsText: "第五行内容。", highlights: [] },
           ],
         },
       },
@@ -306,10 +307,11 @@ describe("TTS command", () => {
         expect(timings[i].endMs).toBeGreaterThan(timings[i].startMs);
       }
 
-      // Verify consecutive line gap is 200ms
+      // The gap before each line is the one implied by the previous line's
+      // trailing punctuation.
       for (let i = 1; i < timings.length; i++) {
         const gap = timings[i].startMs - timings[i - 1].endMs;
-        expect(gap).toBe(200);
+        expect(gap).toBe(gapAfterMs(block.narration.lines[i - 1].ttsText));
       }
     }
 

@@ -60,7 +60,7 @@ const theme = getTheme("dark-code");
 
 const SubtitleTestComp: React.FC = () => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, height } = useVideoConfig();
 
   return (
     <AbsoluteFill style={{ backgroundColor: theme.colors.bg }}>
@@ -84,6 +84,7 @@ const SubtitleTestComp: React.FC = () => {
         frame={frame}
         fps={fps}
         theme={theme}
+        subtitleSafeBottom={Math.round(height * 0.2)}
       />
     </AbsoluteFill>
   );

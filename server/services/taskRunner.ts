@@ -292,6 +292,7 @@ function loadWebConfig(repoRoot: string): AutoVideoConfig {
         const vq = raw.visualQuality;
         if (vq.enabled !== undefined) cfg.visualQuality.enabled = vq.enabled;
         if (vq.minFontCoeff !== undefined) cfg.visualQuality.minFontCoeff = vq.minFontCoeff;
+        if (vq.minAnyFontCoeff !== undefined) cfg.visualQuality.minAnyFontCoeff = vq.minAnyFontCoeff;
         if (vq.minElements !== undefined) cfg.visualQuality.minElements = vq.minElements;
         if (vq.minCoverage !== undefined) cfg.visualQuality.minCoverage = vq.minCoverage;
         if (vq.review !== undefined) cfg.visualQuality.review = vq.review;

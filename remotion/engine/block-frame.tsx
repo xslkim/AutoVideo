@@ -14,6 +14,7 @@ import {
   useVideoConfig,
   AbsoluteFill,
   interpolate,
+  Easing,
 } from "remotion";
 import type { AnimationPreset, BlockFrameProps } from "./types.js";
 
@@ -21,12 +22,18 @@ import type { AnimationPreset, BlockFrameProps } from "./types.js";
 // Animation preset → CSS transform / opacity mapping
 // ---------------------------------------------------------------------------
 
+/** Ease-out: fast start, gentle settle — how something arriving on screen should move. */
+const ENTER_EASING = Easing.out(Easing.cubic);
+/** Ease-in: slow start, accelerating away — how something leaving should move. */
+const EXIT_EASING = Easing.in(Easing.cubic);
+
 function getEnterStyle(
   preset: AnimationPreset,
   progress: number,
 ): React.CSSProperties {
-  // progress: 0 → 1 (start → fully entered)
-  const eased = progress;
+  // progress: 0 → 1 (start → fully entered). A linear `progress` here reads as
+  // mechanical — every block used to snap in at constant velocity.
+  const eased = ENTER_EASING(progress);
 
   switch (preset) {
     case "fade":
@@ -71,7 +78,7 @@ function getExitStyle(
   progress: number,
 ): React.CSSProperties {
   // progress: 0 → 1 (start exit → fully exited)
-  const eased = progress;
+  const eased = EXIT_EASING(progress);
 
   switch (preset) {
     case "fade":

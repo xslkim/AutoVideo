@@ -88,6 +88,7 @@ export interface AppConfig {
   visualQuality?: {
     enabled?: boolean;
     minFontCoeff?: number;
+    minAnyFontCoeff?: number;
     minElements?: number;
     minCoverage?: number;
     review?: boolean;
@@ -125,6 +126,7 @@ export interface AppConfigPublic {
   visualQuality: {
     enabled?: boolean;
     minFontCoeff?: number;
+    minAnyFontCoeff?: number;
     minElements?: number;
     minCoverage?: number;
     review?: boolean;

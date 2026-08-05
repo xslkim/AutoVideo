@@ -17,7 +17,7 @@ import {
 import pLimit from 'p-limit';
 
 import type { Script, Block } from '../types/script.js';
-import type { AutoVideoConfig } from '../config/defaults.js';
+import { DEFAULT_QUALITY, type AutoVideoConfig } from '../config/defaults.js';
 import { CacheStore, type PartialKey } from '../cache/store.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -98,6 +98,8 @@ export async function renderBlocks(
   const browserExecutable = renderConfig.browser ?? null;
   // WSL2 / Linux: default to single-process mode to avoid multi-process startup failures
   const enableMultiProcessOnLinux = renderConfig.enableMultiProcessOnLinux ?? false;
+
+  const quality = { ...DEFAULT_QUALITY, ...(renderConfig.quality ?? {}) };
 
   const partialsDir = path.join(buildDir, 'output', 'partials');
   ensureDir(partialsDir);
@@ -190,6 +192,10 @@ export async function renderBlocks(
         enter: block.enter ?? 'fade',
         exit: block.exit ?? 'fade',
         remotionVersion,
+        // Encoding settings are part of the identity of a partial: mixing
+        // partials produced under different settings would splice visibly
+        // different quality (and possibly different pix_fmt) into one video.
+        qualityJson: JSON.stringify(quality),
       };
 
       if (!isForce) {
@@ -234,6 +240,12 @@ export async function renderBlocks(
             inputProps: { blockId },
             concurrency: framesConcurrencyPerBlock,
             codec: 'h264',
+            imageFormat: quality.imageFormat,
+            jpegQuality: quality.imageFormat === 'jpeg' ? quality.jpegQuality : undefined,
+            crf: quality.crf,
+            x264Preset: quality.x264Preset,
+            pixelFormat: quality.pixelFormat,
+            colorSpace: quality.colorSpace,
             cancelSignal,
             timeoutInMilliseconds: browserTimeoutMs,
             browserExecutable,

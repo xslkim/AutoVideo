@@ -145,6 +145,10 @@
                       "type": "string",
                       "description": "Plain text for TTS (markers stripped)"
                     },
+                    "speakText": {
+                      "type": "string",
+                      "description": "Synthesis-only rewrite of ttsText from the project dict.md; subtitles still render ttsText"
+                    },
                     "highlights": {
                       "type": "array",
                       "items": {
