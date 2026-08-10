@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { doctorAction } from "../../src/cli/doctor.js";
 
-describe("doctor command", () => {
+// doctorAction probes the real system (ffmpeg, Chromium, VoxCPM over HTTP,
+// disk space) — on slower machines each invocation can exceed the 5s default.
+describe("doctor command", { timeout: 30000 }, () => {
   it("should output a table with all 11 check items", async () => {
     const logs: string[] = [];
     const origLog = console.log;
