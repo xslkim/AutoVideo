@@ -1,0 +1,85 @@
+import { describe, it, expect } from "vitest";
+
+import { lintPronunciation, suggestReading, formatPronunciationLint } from "../../src/tts/lint.js";
+import { parsePronunciationDict } from "../../src/tts/pronounce.js";
+import type { Block } from "../../src/types/script.js";
+
+function blockWith(text: string): Block {
+  return {
+    id: "B01",
+    title: "t",
+    enter: "fade",
+    exit: "fade",
+    visualMode: "animation",
+    visual: { description: "" },
+    narration: { lines: [{ text, ttsText: text, highlights: [] }] },
+  };
+}
+
+describe("suggestReading heuristics", () => {
+  it("spells out ALL_CAPS acronyms", () => {
+    expect(suggestReading("GGUF")).toBe("G G U F");
+    expect(suggestReading("HTTP")).toBe("H T T P");
+  });
+
+  it("expands dotted file names", () => {
+    expect(suggestReading("llama.cpp")).toBe("llama C plus plus");
+    expect(suggestReading("index.ts")).toBe("index T S");
+    expect(suggestReading("app.vue")).toBe("app view");
+  });
+
+  it("splits quantization strings", () => {
+    expect(suggestReading("Q4_K_M")).toBe("Q 4 K M");
+  });
+
+  it("splits camelCase brands", () => {
+    expect(suggestReading("PagedAttention")).toBe("Paged Attention");
+    expect(suggestReading("TensorRT")).toBe("Tensor RT");
+  });
+
+  it("expands hyphenated compounds", () => {
+    expect(suggestReading("TensorRT-LLM")).toBe("Tensor RT L L M");
+  });
+
+  it("returns undefined for proper nouns (needs LLM)", () => {
+    expect(suggestReading("Georgi")).toBeUndefined();
+  });
+});
+
+describe("lintPronunciation", () => {
+  it("flags terms no rule covers", () => {
+    const rules = parsePronunciationDict("GPU => G P U\n");
+    const blocks = [blockWith("GPU 上跑 TensorRT 和 PagedAttention")];
+    const findings = lintPronunciation(blocks, rules);
+    const terms = findings.map((f) => f.term);
+    expect(terms).toContain("TensorRT");
+    expect(terms).toContain("PagedAttention");
+    expect(terms).not.toContain("GPU");
+  });
+
+  it("skips plain English words that read fine", () => {
+    const blocks = [blockWith("server 和 local 还有 model")];
+    expect(lintPronunciation(blocks, [])).toEqual([]);
+  });
+
+  it("sorts by occurrence count, most frequent first", () => {
+    const blocks = [
+      blockWith("vLLM 和 vLLM 和 vLLM"),
+      blockWith("PagedAttention 和 vLLM"),
+    ];
+    const findings = lintPronunciation(blocks, []);
+    expect(findings[0].term).toBe("vLLM");
+    expect(findings[0].occurrences).toBe(4);
+  });
+
+  it("marks multi-word proper nouns as needsLLM", () => {
+    const blocks = [blockWith("Georgi Gerganov 发起了它")];
+    const findings = lintPronunciation(blocks, []);
+    const name = findings.find((f) => f.term === "Georgi Gerganov");
+    expect(name?.needsLLM).toBe(true);
+  });
+
+  it("formatPronunciationLint renders null for empty findings", () => {
+    expect(formatPronunciationLint([])).toBeNull();
+  });
+});

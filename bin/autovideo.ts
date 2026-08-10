@@ -11,6 +11,7 @@ import { buildCommand } from "../src/cli/build.js";
 import { registerCacheCommand } from "../src/cli/cache.js";
 import { doctorCommand } from "../src/cli/doctor.js";
 import { initCommand } from "../src/cli/init.js";
+import { dictSuggestCommand } from "../src/cli/dict.js";
 import { loadConfig } from "../src/config/load.js";
 
 const program = new Command();
@@ -167,6 +168,16 @@ program
   .option("--verbose", "detailed logging")
   .action(async (dir, opts) => {
     await initCommand(dir, opts);
+  });
+
+const dict = program.command("dict").description("Pronunciation dictionary helpers");
+dict
+  .command("suggest")
+  .description("Ask an LLM how to read terms the heuristics can't handle, append as comments to dict.md")
+  .argument("<project>", "path to project.json")
+  .option("--verbose", "detailed logging")
+  .action(async (project, opts) => {
+    await dictSuggestCommand(project, opts);
   });
 
 program.parse();

@@ -22,7 +22,8 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import os from "node:os";
 import crypto from "node:crypto";
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,16 @@ export class PronunciationError extends Error {
 
 /** Default dictionary file name, resolved relative to the project directory. */
 export const DICT_FILENAME = "dict.md";
+
+/**
+ * Repository-level shared dictionary, at the repository root next to
+ * package.json. Distributed with git so every project on every machine sees
+ * the same base rules.
+ */
+export const REPO_DICT_FILENAME = "dict.global.md";
+
+/** Machine-level dictionary directory name under the XDG config home. */
+const MACHINE_DICT_DIR = join(os.homedir(), ".config", "autovideo");
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -112,13 +123,87 @@ export function parsePronunciationDict(content: string): PronunciationRule[] {
 }
 
 /**
- * Load `dict.md` from a project directory. Returns an empty rule set when the
+ * Load `dict.md` from a single directory. Returns an empty rule set when the
  * file is absent — the dictionary is entirely optional.
  */
-export function loadPronunciationDict(projectDir: string): PronunciationRule[] {
-  const dictPath = join(projectDir, DICT_FILENAME);
+export function loadPronunciationDict(dictDir: string): PronunciationRule[] {
+  return loadDictFile(join(dictDir, DICT_FILENAME));
+}
+
+/** Load one dictionary file by absolute path; absent file → empty rule set. */
+function loadDictFile(dictPath: string): PronunciationRule[] {
   if (!existsSync(dictPath)) return [];
   return parsePronunciationDict(readFileSync(dictPath, "utf-8"));
+}
+
+/**
+ * Load the effective rule set for a project by layering up to three sources,
+ * lowest precedence first:
+ *
+ *   1. repo-level `dict.global.md` (found by walking up from the project dir)
+ *   2. machine-level `~/.config/autovideo/dict.md`
+ *   3. project-level `<projectDir>/dict.md`
+ *
+ * All matching rules are merged and re-sorted by `mergeRules`, so a project
+ * can override a global literal by writing the same term again (the later,
+ * i.e. more local, source wins).
+ */
+export function loadPronunciationDicts(projectDir: string): PronunciationRule[] {
+  const layers: PronunciationRule[][] = [];
+
+  const repoDict = findUp(projectDir, REPO_DICT_FILENAME);
+  if (repoDict) layers.push(loadDictFile(join(repoDict, REPO_DICT_FILENAME)));
+
+  if (existsSync(join(MACHINE_DICT_DIR, DICT_FILENAME))) {
+    layers.push(loadPronunciationDict(MACHINE_DICT_DIR));
+  }
+
+  layers.push(loadPronunciationDict(projectDir));
+
+  return mergeRules(layers);
+}
+
+/**
+ * Merge rule layers (lowest precedence first) into one list.
+ *
+ * Literals are keyed by their pattern: a later layer's literal replaces an
+ * earlier one with the same pattern. Regex rules are all kept, in layer
+ * order. The final list matches the shape `parsePronunciationDict` produces:
+ * literals longest-first, then regexes in authored order.
+ */
+function mergeRules(layers: PronunciationRule[][]): PronunciationRule[] {
+  const literals = new Map<string, PronunciationRule>();
+  const regexes: PronunciationRule[] = [];
+
+  for (const layer of layers) {
+    for (const rule of layer) {
+      if (rule.isRegex) {
+        regexes.push(rule);
+      } else {
+        literals.set(rule.pattern, rule);
+      }
+    }
+  }
+
+  const mergedLiterals = [...literals.values()].sort(
+    (a, b) => b.pattern.length - a.pattern.length,
+  );
+  return [...mergedLiterals, ...regexes];
+}
+
+/**
+ * Walk up from `startDir` looking for a directory that contains `filename`.
+ * Returns the containing directory, or null when the filesystem root is
+ * reached without a match.
+ */
+function findUp(startDir: string, filename: string): string | null {
+  let dir = resolve(startDir);
+  for (;;) {
+    if (existsSync(join(dir, filename))) return dir;
+    const parent = resolve(dir, "..");
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 // ---------------------------------------------------------------------------
