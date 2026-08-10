@@ -126,6 +126,28 @@ export interface RenderConfig {
   quality: QualityConfig;
 }
 
+/**
+ * HTML visual mode renderer settings (@visual: html).
+ *
+ * html blocks are rendered by a headless Chrome (puppeteer-core) that reuses
+ * the Remotion-installed Chrome Headless Shell — no extra browser download.
+ * See docs/architecture/HTML_VISUAL_PRD.md §4.3 for the browser resolution chain.
+ */
+export interface HtmlRenderConfig {
+  /** Master switch; false disables @visual: html (blocks fall back to animation). */
+  enabled: boolean;
+  /**
+   * Explicit Chrome executable path. null = walk the resolution chain:
+   * config.render.browser → @remotion/renderer ensureBrowser() →
+   * PUPPETEER_EXECUTABLE_PATH → system google-chrome/chromium.
+   */
+  browserExecutable: string | null;
+  /** Per-frame screenshot timeout in ms (default 30000). */
+  frameTimeoutMs: number;
+  /** window.__seek(t) evaluate timeout in ms (default 5000). */
+  seekTimeoutMs: number;
+}
+
 export type ImageGenProvider = "openai" | "sensenova";
 
 export interface ImageGenConfig {
@@ -194,6 +216,8 @@ export interface AutoVideoConfig {
   musetalk?: MusetalkConfig;
   /** Visual-quality feedback loop (optional; falls back to DEFAULT_VISUAL_QUALITY) */
   visualQuality?: VisualQualityConfig;
+  /** HTML visual mode renderer (@visual: html; optional; falls back to DEFAULT_HTML_RENDER) */
+  htmlRender?: HtmlRenderConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,10 +296,19 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     review: true,
     maxReviewRounds: 1,
   },
+  htmlRender: {
+    enabled: true,
+    browserExecutable: null,
+    frameTimeoutMs: 30000,
+    seekTimeoutMs: 5000,
+  },
 };
 
 /** Fallback used when a config object omits the visualQuality section. */
 export const DEFAULT_VISUAL_QUALITY: VisualQualityConfig = DEFAULT_CONFIG.visualQuality!;
+
+/** Fallback used when a config object omits the htmlRender section. */
+export const DEFAULT_HTML_RENDER: HtmlRenderConfig = DEFAULT_CONFIG.htmlRender!;
 
 /** Fallback used when a config object omits render.quality. */
 export const DEFAULT_QUALITY: QualityConfig = DEFAULT_CONFIG.render.quality;
