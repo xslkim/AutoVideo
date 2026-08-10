@@ -22,6 +22,8 @@ export interface ParsedDirectives {
   imageSource?: string;
   /** Video source path for video mode (e.g. "./assets/demo.mp4"). Always set for video mode. */
   videoSource?: string;
+  /** HTML source path for html mode (e.g. "./assets/arch.html"). Set → load external file; absent → inline. */
+  htmlSource?: string;
 }
 
 export class DirectiveError extends Error {
@@ -50,7 +52,7 @@ const DEFAULT_ENTER: AnimationPreset = "fade";
 const DEFAULT_EXIT: AnimationPreset = "fade";
 const DEFAULT_VISUAL_MODE: VisualMode = "animation";
 
-const VALID_VISUAL_MODES: readonly string[] = ["animation", "image", "video"];
+const VALID_VISUAL_MODES: readonly string[] = ["animation", "image", "video", "html"];
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -72,6 +74,7 @@ export function parseDirectives(lines: string[]): ParsedDirectives {
   let visualMode: VisualMode = DEFAULT_VISUAL_MODE;
   let imageSource: string | undefined;
   let videoSource: string | undefined;
+  let htmlSource: string | undefined;
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -131,12 +134,19 @@ export function parseDirectives(lines: string[]): ParsedDirectives {
           if (vidMatch) {
             visualMode = "video";
             videoSource = vidMatch[1].trim();
-          } else if (VALID_VISUAL_MODES.includes(value)) {
-            visualMode = value as VisualMode;
           } else {
-            console.warn(
-              `Invalid @visual "${value}". Must be one of: ${VALID_VISUAL_MODES.join(", ")}. Falling back to "${DEFAULT_VISUAL_MODE}".`,
-            );
+            // Match "html(./path)" syntax for external html file mode
+            const htmlMatch = value.match(/^html\((.+?)\)$/);
+            if (htmlMatch) {
+              visualMode = "html";
+              htmlSource = htmlMatch[1].trim();
+            } else if (VALID_VISUAL_MODES.includes(value)) {
+              visualMode = value as VisualMode;
+            } else {
+              console.warn(
+                `Invalid @visual "${value}". Must be one of: ${VALID_VISUAL_MODES.join(", ")}. Falling back to "${DEFAULT_VISUAL_MODE}".`,
+              );
+            }
           }
         }
         break;
@@ -152,5 +162,6 @@ export function parseDirectives(lines: string[]): ParsedDirectives {
     ...(explicitDurationSec !== undefined ? { explicitDurationSec } : {}),
     ...(imageSource !== undefined ? { imageSource } : {}),
     ...(videoSource !== undefined ? { videoSource } : {}),
+    ...(htmlSource !== undefined ? { htmlSource } : {}),
   };
 }

@@ -15,7 +15,7 @@ import {
 import type { VisualMode, CacheClearKind } from '../types/api.js';
 
 // Allowed visual modes
-const VISUAL_MODES: VisualMode[] = ['animation', 'image'];
+const VISUAL_MODES: VisualMode[] = ['animation', 'image', 'html'];
 
 // Allowed animation presets
 const ANIMATION_PRESETS = [

@@ -30,7 +30,7 @@ export interface TaskRecord {
   errorStack?: string;
 }
 
-export type VisualMode = 'animation' | 'image' | 'video';
+export type VisualMode = 'animation' | 'image' | 'video' | 'html';
 
 export type CacheClearKind = 'audio' | 'visual' | 'partial' | 'all';
 
@@ -41,10 +41,11 @@ export interface BlockStatus {
   visualMode: VisualMode;   // 默认 'animation'
   imageSource?: string;     // if set, image mode uses local file (no API needed)
   videoSource?: string;     // if set, video mode uses local mp4 (no API needed)
+  htmlSource?: string;      // if set, html mode loads external .html file
   enter: string;            // 入场动画，默认 'fade'
   exit: string;             // 出场动画，默认 'fade'
   audio: boolean;           // 来自 block.audio?.wavPath + 文件存在
-  visual: boolean;          // animation: block.visual.componentPath；image: block.visual.imagePath
+  visual: boolean;          // animation: componentPath；image: imagePath；html: htmlPath
   rendered: boolean;        // 来自 block.render?.partialPath + 文件存在
 }
 

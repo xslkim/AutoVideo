@@ -19,6 +19,8 @@ import pLimit from 'p-limit';
 import type { Script, Block } from '../types/script.js';
 import { DEFAULT_QUALITY, type AutoVideoConfig } from '../config/defaults.js';
 import { CacheStore, type PartialKey } from '../cache/store.js';
+import { renderHtmlBlock, HTML_RENDERER_VERSION } from './html-render.js';
+import { getTheme } from '../../remotion/engine/theme.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -112,30 +114,45 @@ export async function renderBlocks(
   const failures: Array<{ id: string; error: Error }> = [];
   let aborted = false;
 
-  // ── Step 1: Bundle once ──────────────────────────────────────────────────
-  const remotionRootPath = path.join(buildDir, 'remotion-root.tsx');
-  if (!fs.existsSync(remotionRootPath)) {
-    throw new Error(
-      `Remotion root not found at ${remotionRootPath}. Run root-render first.`
+  // ── Step 1: Bundle once (skip if all blocks are html) ───────────────────
+  // html blocks bypass Remotion entirely (puppeteer renderer); if every block
+  // is html there is nothing to bundle, so skip the Remotion bundle step.
+  const hasRemotionBlocks = script.blocks.some((b) => b.visualMode !== 'html');
+
+  let serveUrl: string | null = null;
+  if (hasRemotionBlocks) {
+    const remotionRootPath = path.join(buildDir, 'remotion-root.tsx');
+    if (!fs.existsSync(remotionRootPath)) {
+      throw new Error(
+        `Remotion root not found at ${remotionRootPath}. Run root-render first.`
+      );
+    }
+
+    console.log(`[render-blocks] Bundling Remotion project...`);
+    const bundleStartTime = Date.now();
+
+    serveUrl = await bundle({
+      entryPoint: remotionRootPath,
+      // Remotion bundles to a temp dir by default; we can specify publicDir
+      publicDir: path.join(buildDir, 'public'),
+    });
+
+    console.log(
+      `[render-blocks] Bundle complete in ${((Date.now() - bundleStartTime) / 1000).toFixed(1)}s → ${serveUrl}`
     );
+  } else {
+    console.log(`[render-blocks] All blocks are html mode — skipping Remotion bundle.`);
   }
-
-  console.log(`[render-blocks] Bundling Remotion project...`);
-  const bundleStartTime = Date.now();
-
-  const serveUrl = await bundle({
-    entryPoint: remotionRootPath,
-    // Remotion bundles to a temp dir by default; we can specify publicDir
-    publicDir: path.join(buildDir, 'public'),
-  });
-
-  console.log(
-    `[render-blocks] Bundle complete in ${((Date.now() - bundleStartTime) / 1000).toFixed(1)}s → ${serveUrl}`
-  );
 
   // ── Step 2: Render each block ───────────────────────────────────────────
   const limiter = pLimit(blockConcurrency);
   const { cancelSignal, cancel } = makeCancelSignal();
+
+  // html blocks use a standard AbortSignal (not Remotion's CancelSignal).
+  // Bridge the two: when cancel() fires (external abort or sibling failure),
+  // also abort the AbortController so in-flight html renders stop.
+  const htmlAbort = new AbortController();
+  cancelSignal(() => htmlAbort.abort());
 
   // Forward external signal cancellation to internal cancel
   if (externalSignal) {
@@ -156,6 +173,101 @@ export async function renderBlocks(
       const partialPath = path.join('output', 'partials', `${blockId}.mp4`);
       const fullPartialPath = path.join(buildDir, partialPath);
 
+      const audioPath = block.audio?.wavPath;
+      if (!audioPath) {
+        throw new Error(`Block ${blockId} has no audio.wavPath`);
+      }
+      const fullAudioPath = path.join(buildDir, audioPath);
+      const audioContent = fs.readFileSync(fullAudioPath);
+
+      const isForce = forceBlocks?.has(blockId);
+
+      // ── Cache store (shared by html and Remotion paths) ──────────────
+      const cache = new CacheStore({
+        cacheDir: config.cache?.dir ?? '~/.cache/autovideo',
+        maxSizeGB: config.cache?.maxSizeGB ?? 10,
+      });
+
+      // ══════════════════════════════════════════════════════════════════
+      // html mode: puppeteer renderer (bypasses Remotion entirely)
+      // ══════════════════════════════════════════════════════════════════
+      if (block.visualMode === 'html') {
+        if (!block.visual.htmlPath) {
+          throw new Error(`Block ${blockId}: html mode requires visual.htmlPath`);
+        }
+
+        // Cache key: HTML content hash + audio hash + renderer version (§9.1).
+        // componentHash field is reused for HTML content; remotionVersion is
+        // reused for the html renderer version tag.
+        const htmlContent = fs.readFileSync(
+          path.join(buildDir, block.visual.htmlPath),
+          'utf-8',
+        );
+
+        const htmlPartialKey: PartialKey = {
+          componentHash: crypto.createHash('md5').update(htmlContent).digest('hex'),
+          audioHash: crypto.createHash('md5').update(audioContent).digest('hex'),
+          theme: script.meta.theme,
+          width: script.meta.width,
+          height: script.meta.height,
+          fps: script.meta.fps,
+          enter: block.enter ?? 'fade',
+          exit: block.exit ?? 'fade',
+          remotionVersion: HTML_RENDERER_VERSION,
+          qualityJson: JSON.stringify({
+            ...quality,
+            subtitleSafeBottom: script.meta.subtitleSafeBottom,
+          }),
+        };
+
+        if (!isForce) {
+          const cached = await cache.get('partial', htmlPartialKey);
+          if (cached) {
+            copyFile(cached, fullPartialPath);
+            console.log(`[render-blocks] Cache hit (html): ${blockId}`);
+            cacheHits++;
+            results.push({ id: blockId, partialPath, cacheHit: true });
+            return;
+          }
+        }
+
+        console.log(`[render-blocks] Rendering html block ${blockId}...`);
+        renders++;
+
+        try {
+          const theme = getTheme(script.meta.theme);
+          await renderHtmlBlock(block, {
+            buildDir,
+            meta: script.meta,
+            theme,
+            quality,
+            outputMp4Path: fullPartialPath,
+            config,
+            signal: htmlAbort.signal,
+          });
+
+          await cache.put('partial', htmlPartialKey, fullPartialPath, htmlPartialKey);
+          results.push({ id: blockId, partialPath, cacheHit: false });
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          console.error(`[render-blocks] html block ${blockId} failed: ${error.message}`);
+          failures.push({ id: blockId, error });
+
+          if (!aborted) {
+            aborted = true;
+            cancel();
+            console.error(
+              `[render-blocks] Aborting all in-flight renders due to ${blockId} failure`,
+            );
+          }
+        }
+        return;
+      }
+
+      // ══════════════════════════════════════════════════════════════════
+      // Remotion path: animation / image / video modes
+      // ══════════════════════════════════════════════════════════════════
+
       // Compute cache key
       const componentPath = block.visual.componentPath;
       if (!componentPath) {
@@ -163,23 +275,9 @@ export async function renderBlocks(
       }
 
       const fullComponentPath = path.join(buildDir, componentPath);
-      const audioPath = block.audio?.wavPath;
-      if (!audioPath) {
-        throw new Error(`Block ${blockId} has no audio.wavPath`);
-      }
-      const fullAudioPath = path.join(buildDir, audioPath);
 
-      // Read component and audio content for cache key computation
+      // Read component content for cache key computation
       const componentContent = fs.readFileSync(fullComponentPath, 'utf-8');
-      const audioContent = fs.readFileSync(fullAudioPath);
-
-      const isForce = forceBlocks?.has(blockId);
-
-      // ── Cache lookup ────────────────────────────────────────────────────
-      const cache = new CacheStore({
-        cacheDir: config.cache?.dir ?? '~/.cache/autovideo',
-        maxSizeGB: config.cache?.maxSizeGB ?? 10,
-      });
 
       const remotionVersion = getRemotionVersion();
       const partialKey: PartialKey = {
@@ -224,7 +322,7 @@ export async function renderBlocks(
         try {
           // Select composition for this block
           const composition = await selectComposition({
-            serveUrl,
+            serveUrl: serveUrl!,
             id: 'Block',
             inputProps: { blockId },
             timeoutInMilliseconds: browserTimeoutMs,
@@ -235,7 +333,7 @@ export async function renderBlocks(
           // Render the block
           await renderMedia({
             composition,
-            serveUrl,
+            serveUrl: serveUrl!,
             outputLocation: fullPartialPath,
             inputProps: { blockId },
             concurrency: framesConcurrencyPerBlock,

@@ -13,9 +13,10 @@ export interface ParsedBlock {
   id: string
   title: string
   line: number          // 1-based
-  visualMode: 'animation' | 'image' | 'video'
+  visualMode: 'animation' | 'image' | 'video' | 'html'
   imageSource?: string
   videoSource?: string
+  htmlSource?: string
   enter: string
   exit: string
 }
@@ -48,9 +49,10 @@ export function parseScript(scriptMd: string): ParseResult {
     id: string
     title: string
     line: number
-    visualMode: 'animation' | 'image' | 'video'
+    visualMode: 'animation' | 'image' | 'video' | 'html'
     imageSource?: string
     videoSource?: string
+    htmlSource?: string
     enter: string
     exit: string
   }
@@ -97,14 +99,20 @@ export function parseScript(scriptMd: string): ParseResult {
             if (vidMatch) {
               current.visualMode = 'video'
               current.videoSource = vidMatch[1].trim()
-            } else if (value === 'animation' || value === 'image' || value === 'video') {
-              current.visualMode = value
             } else {
-              warnings.push({
-                line: lineNum,
-                message: `@visual 值非法: "${value}"，将降级为 animation`,
-              })
-              current.visualMode = 'animation'
+              const htmlMatch = value.match(/^html\((.+?)\)$/)
+              if (htmlMatch) {
+                current.visualMode = 'html'
+                current.htmlSource = htmlMatch[1].trim()
+              } else if (value === 'animation' || value === 'image' || value === 'video' || value === 'html') {
+                current.visualMode = value
+              } else {
+                warnings.push({
+                  line: lineNum,
+                  message: `@visual 值非法: "${value}"，将降级为 animation`,
+                })
+                current.visualMode = 'animation'
+              }
             }
           }
         } else if (key === 'enter') {
@@ -126,6 +134,7 @@ export function parseScript(scriptMd: string): ParseResult {
       visualMode: rb.visualMode,
       ...(rb.imageSource !== undefined ? { imageSource: rb.imageSource } : {}),
       ...(rb.videoSource !== undefined ? { videoSource: rb.videoSource } : {}),
+      ...(rb.htmlSource !== undefined ? { htmlSource: rb.htmlSource } : {}),
       enter: rb.enter,
       exit: rb.exit,
     })),

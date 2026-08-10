@@ -80,8 +80,8 @@
         </span>
         <span class="block-status">
           <span class="badge" :class="{ 'badge--on': block.audio }" title="音频">🎙</span>
-          <span class="badge" :class="{ 'badge--on': block.visual }" :title="block.visualMode === 'image' ? '图片' : block.visualMode === 'video' ? '视频' : '视觉'">
-            {{ block.visualMode === 'image' ? '🖼' : block.visualMode === 'video' ? '🎬' : '🎨' }}
+          <span class="badge" :class="{ 'badge--on': block.visual }" :title="block.visualMode === 'image' ? '图片' : block.visualMode === 'video' ? '视频' : block.visualMode === 'html' ? 'HTML' : '视觉'">
+            {{ block.visualMode === 'image' ? '🖼' : block.visualMode === 'video' ? '🎬' : block.visualMode === 'html' ? '🌐' : '🎨' }}
           </span>
           <span class="badge" :class="{ 'badge--on': block.rendered }" title="已渲染">🎬</span>
         </span>
@@ -138,7 +138,7 @@ interface DisplayBlock {
   id: string
   title: string
   line: number
-  visualMode: 'animation' | 'image' | 'video'
+  visualMode: 'animation' | 'image' | 'video' | 'html'
   audio: boolean
   visual: boolean
   rendered: boolean

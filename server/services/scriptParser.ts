@@ -26,7 +26,7 @@ interface ScriptJsonBlock {
   id: string;
   visualMode?: string;
   audio?: { wavPath?: string };
-  visual?: { componentPath?: string; imagePath?: string };
+  visual?: { componentPath?: string; imagePath?: string; htmlPath?: string };
   render?: { partialPath?: string };
 }
 
@@ -83,6 +83,7 @@ export function parseScript(scriptMd: string, buildDir: string): ParseResult {
     visualMode: VisualMode;
     imageSource?: string;
     videoSource?: string;
+    htmlSource?: string;
     enter: string;
     exit: string;
   }
@@ -129,14 +130,20 @@ export function parseScript(scriptMd: string, buildDir: string): ParseResult {
             if (vidMatch) {
               currentBlock.visualMode = 'video';
               currentBlock.videoSource = vidMatch[1].trim();
-            } else if (value === 'animation' || value === 'image' || value === 'video') {
-              currentBlock.visualMode = value as VisualMode;
             } else {
-              warnings.push({
-                line: lineNum,
-                message: `@visual 值非法: "${value}"，将降级为 animation`,
-              });
-              currentBlock.visualMode = 'animation';
+              const htmlMatch = value.match(/^html\((.+?)\)$/);
+              if (htmlMatch) {
+                currentBlock.visualMode = 'html';
+                currentBlock.htmlSource = htmlMatch[1].trim();
+              } else if (value === 'animation' || value === 'image' || value === 'video' || value === 'html') {
+                currentBlock.visualMode = value as VisualMode;
+              } else {
+                warnings.push({
+                  line: lineNum,
+                  message: `@visual 值非法: "${value}"，将降级为 animation`,
+                });
+                currentBlock.visualMode = 'animation';
+              }
             }
           }
         } else if (key === 'enter') {
@@ -181,6 +188,12 @@ export function parseScript(scriptMd: string, buildDir: string): ParseResult {
         const absComponentPath = path.join(buildDir, jb.visual.componentPath);
         visual = fs.existsSync(absComponentPath);
       }
+    } else if (visualMode === 'html') {
+      // html mode: check htmlPath (written by compile, no Component.tsx)
+      if (jb?.visual?.htmlPath) {
+        const absHtmlPath = path.join(buildDir, jb.visual.htmlPath);
+        visual = fs.existsSync(absHtmlPath);
+      }
     } else {
       // animation mode
       if (jb?.visual?.componentPath) {
@@ -207,6 +220,7 @@ export function parseScript(scriptMd: string, buildDir: string): ParseResult {
       visualMode,
       ...(rb.imageSource !== undefined ? { imageSource: rb.imageSource } : {}),
       ...(rb.videoSource !== undefined ? { videoSource: rb.videoSource } : {}),
+      ...(rb.htmlSource !== undefined ? { htmlSource: rb.htmlSource } : {}),
       enter: rb.enter,
       exit: rb.exit,
       audio,

@@ -26,6 +26,7 @@
     "p-limit": "^5.0.0",
     "pinyin-pro": "^3.28.1",
     "proper-lockfile": "^4.1.2",
+    "puppeteer-core": "^24.0.0",
     "hono": "^4.5.0",
     "@hono/node-server": "^1.12.0",
     "remotion": "^4.0.380",

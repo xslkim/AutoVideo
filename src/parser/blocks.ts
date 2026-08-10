@@ -32,6 +32,8 @@ export interface RawBlock {
   imageSource?: string;
   /** Video source path for video mode (e.g. "./assets/demo.mp4"), relative to script.md dir */
   videoSource?: string;
+  /** HTML source path for html mode (e.g. "./assets/arch.html"), relative to script.md dir */
+  htmlSource?: string;
   /** Visual description text (raw, between --- visual --- and next --- or EOF) */
   visualDescription: string;
   /** Parsed narration lines */
@@ -250,6 +252,7 @@ export function parseBlockFile(filePath: string): RawBlock[] {
       visualMode: directives.visualMode,
       imageSource: directives.imageSource,
       videoSource: directives.videoSource,
+      htmlSource: directives.htmlSource,
       visualDescription: visual.text.trim(),
       narrationLines,
       sourceFilePath: filePath,
