@@ -23,7 +23,7 @@ export interface ProgressEvent {
 // Visual mode — animation (Claude-generated Component.tsx) vs image (AI-generated PNG)
 // ---------------------------------------------------------------------------
 
-export type VisualMode = 'animation' | 'image' | 'video';
+export type VisualMode = 'animation' | 'image' | 'video' | 'html';
 
 // ---------------------------------------------------------------------------
 // Animation preset — union literal type
@@ -131,11 +131,16 @@ export interface Block {
    *  Always set for video(./path) mode. */
   videoSource?: string;
 
+  /** HTML source path for html mode (processed by compile stage).
+   *  Set → load external .html file; absent → inline HTML in visual.description. */
+  htmlSource?: string;
+
   visual: {
-    description: string; // --- visual --- raw text, fed to LLM
+    description: string; // --- visual --- raw text, fed to LLM (or HTML source for html mode)
     componentPath?: string; // Stage 3 fills (generated .tsx path)
     imagePath?: string; // Stage 3 fills for image mode (POSIX relative to build dir)
     videoPath?: string; // Stage 3 fills for video mode (POSIX relative to build dir)
+    htmlPath?: string; // Stage 1 fills for html mode (POSIX relative to build dir)
   };
 
   narration: {
@@ -212,14 +217,14 @@ export interface AudioReadyScript extends Script {
 
 /** visuals output; all blocks contain visual.componentPath (animation) or visual.imagePath (image) or visual.videoPath+componentPath (video) */
 export interface VisualReadyScript extends Script {
-  blocks: (Block & { visual: { description: string; componentPath?: string; imagePath?: string; videoPath?: string } })[];
+  blocks: (Block & { visual: { description: string; componentPath?: string; imagePath?: string; videoPath?: string; htmlPath?: string } })[];
 }
 
 /** render input prerequisite; all blocks contain audio + (componentPath | imagePath | videoPath), but timing not yet calculated */
 export interface RenderInputScript extends Script {
   blocks: (Block & {
     audio: NonNullable<Block["audio"]>;
-    visual: { description: string; componentPath?: string; imagePath?: string; videoPath?: string };
+    visual: { description: string; componentPath?: string; imagePath?: string; videoPath?: string; htmlPath?: string };
   })[];
 }
 
@@ -227,7 +232,7 @@ export interface RenderInputScript extends Script {
 export interface RenderedScript extends Script {
   blocks: (Block & {
     audio: NonNullable<Block["audio"]>;
-    visual: { description: string; componentPath?: string; imagePath?: string; videoPath?: string };
+    visual: { description: string; componentPath?: string; imagePath?: string; videoPath?: string; htmlPath?: string };
     timing: NonNullable<Block["timing"]>;
     render: NonNullable<Block["render"]>;
   })[];
@@ -237,6 +242,15 @@ export interface RenderedScript extends Script {
 // LLM-generated component props interface
 // ---------------------------------------------------------------------------
 
+/**
+ * Narration line timing in block-relative seconds (enter animation included),
+ * so components can compare directly against `frame / fps`.
+ */
+export interface LineTimingSec {
+  startSec: number;
+  endSec: number;
+}
+
 export interface AnimationProps {
   frame: number;
   durationInFrames: number;
@@ -245,6 +259,12 @@ export interface AnimationProps {
   subtitleSafeBottom: number;
   theme: Theme;
   fps: number;
+  /**
+   * One entry per narration line, in block-relative seconds. Lets generated
+   * components drive visual beats from the actual voiceover timing instead
+   * of hardcoded timestamps. Empty when the block has no audio yet.
+   */
+  lineTimings: LineTimingSec[];
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +339,9 @@ export function isVisualReady(script: Script): script is VisualReadyScript {
       return b.visual.videoPath !== undefined && typeof b.visual.videoPath === 'string' &&
              b.visual.componentPath !== undefined && typeof b.visual.componentPath === 'string';
     }
+    if (b.visualMode === 'html') {
+      return b.visual.htmlPath !== undefined && typeof b.visual.htmlPath === 'string';
+    }
     return b.visual.componentPath !== undefined && typeof b.visual.componentPath === 'string';
   });
 }
@@ -363,6 +386,10 @@ export function assertVisualsReady(data: unknown): asserts data is VisualReadySc
       if (typeof visual.componentPath !== "string") {
         throw new Error(`Block ${i} (${block.id ?? "unknown"}): video mode requires visual.componentPath`);
       }
+    } else if (vmode === 'html') {
+      if (typeof visual.htmlPath !== "string") {
+        throw new Error(`Block ${i} (${block.id ?? "unknown"}): html mode requires visual.htmlPath`);
+      }
     } else {
       if (typeof visual.componentPath !== "string") {
         throw new Error(`Block ${i} (${block.id ?? "unknown"}): missing visual.componentPath`);
@@ -386,6 +413,9 @@ export function isRenderInputReady(script: Script): script is RenderInputScript 
         return b.visual.videoPath !== undefined && typeof b.visual.videoPath === 'string' &&
                b.visual.componentPath !== undefined && typeof b.visual.componentPath === 'string';
       }
+      if (b.visualMode === 'html') {
+        return b.visual.htmlPath !== undefined && typeof b.visual.htmlPath === 'string';
+      }
       return b.visual.componentPath !== undefined && typeof b.visual.componentPath === 'string';
     })
   );
@@ -398,7 +428,7 @@ export function isRendered(script: Script): script is RenderedScript {
   return script.blocks.every(
     (b) =>
       b.audio !== undefined &&
-      (b.visual.componentPath !== undefined || b.visual.imagePath !== undefined || b.visual.videoPath !== undefined) &&
+      (b.visual.componentPath !== undefined || b.visual.imagePath !== undefined || b.visual.videoPath !== undefined || b.visual.htmlPath !== undefined) &&
       b.timing !== undefined &&
       b.render !== undefined,
   );
@@ -454,6 +484,10 @@ export function assertRenderInputReady(
       }
       if (typeof visual.componentPath !== "string") {
         throw new Error(`Block ${i} (${block.id ?? "unknown"}): video mode requires visual.componentPath`);
+      }
+    } else if (vmode === 'html') {
+      if (typeof visual.htmlPath !== "string") {
+        throw new Error(`Block ${i} (${block.id ?? "unknown"}): html mode requires visual.htmlPath (required for render)`);
       }
     } else {
       if (typeof visual.componentPath !== "string") {

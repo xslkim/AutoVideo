@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { computeStaticMetrics, assessVisualMetrics } from "../../src/ai/visual-metrics.js";
+import { computeStaticMetrics, assessVisualMetrics, checkNarrationSyncContract } from "../../src/ai/visual-metrics.js";
 
 const tmpFiles: string[] = [];
 function writeTsx(content: string): string {
@@ -172,5 +172,32 @@ describe("assessVisualMetrics (static-only)", () => {
     });
     expect(res.pass).toBe(true);
     expect(res.feedback).toBe("");
+  });
+});
+
+describe("checkNarrationSyncContract", () => {
+  it("fails when the description declares sync intent but the component ignores lineTimings", () => {
+    const res = checkNarrationSyncContract(
+      "节点高亮跟随旁白推进，讲到哪一站就高亮哪个节点",
+      "export default function C(props: any) { const t = props.frame / props.fps; return null; }",
+    );
+    expect(res.pass).toBe(false);
+    expect(res.feedback).toContain("lineTimings");
+  });
+
+  it("passes when the component reads lineTimings", () => {
+    const res = checkNarrationSyncContract(
+      "高亮跟随旁白（用 props.lineTimings 驱动）",
+      "export default function C(props: any) { const lt = props.lineTimings; return null; }",
+    );
+    expect(res.pass).toBe(true);
+  });
+
+  it("passes when the description declares no sync intent", () => {
+    const res = checkNarrationSyncContract(
+      "全屏背景，顶部居中标题，[0.5s] 横线扫出",
+      "export default function C() { return null; }",
+    );
+    expect(res.pass).toBe(true);
   });
 });

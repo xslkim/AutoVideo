@@ -20,6 +20,57 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
+// Robust TSX extraction from model output
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract TSX code from raw model output.
+ *
+ * Models (especially non-Claude ones like GLM) often wrap code in markdown
+ * fences and may add explanatory text before/after the fences.  The old
+ * approach (strip first ``` and last ```) left surrounding text intact,
+ * causing Babel parse errors like "Missing semicolon. (1:1)".
+ *
+ * This function:
+ * 1. Finds the FIRST markdown code fence block and extracts its content.
+ * 2. If no fences found, checks if the raw output already looks like TSX.
+ * 3. Throws a descriptive error if no code can be extracted.
+ */
+function extractTsxFromOutput(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    throw new Error("claude returned empty response.");
+  }
+
+  // Match the first ```tsx|typescript|ts|jsx|javascript|js ... ``` block
+  const fenceMatch = trimmed.match(/```(?:tsx|typescript|ts|jsx|javascript|js)?\s*\n([\s\S]*?)```/);
+  if (fenceMatch) {
+    const code = fenceMatch[1].trim();
+    if (code.length > 0) return code;
+  }
+
+  // No fences found — check if the output already looks like valid TSX.
+  // Valid TSX typically starts with: import, const, function, export, //
+  const firstLine = trimmed.split("\n")[0].trim();
+  if (
+    firstLine.startsWith("import ") ||
+    firstLine.startsWith("//") ||
+    firstLine.startsWith("/*") ||
+    firstLine.startsWith("export ") ||
+    firstLine.startsWith("const ") ||
+    firstLine.startsWith("function ")
+  ) {
+    return trimmed;
+  }
+
+  // Last resort: return as-is and let the validator report the parse error
+  // with enough context to debug
+  throw new Error(
+    `claude returned non-TSX output (first 200 chars): ${trimmed.slice(0, 200)}`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -48,6 +99,12 @@ export interface ComponentGenInput {
   visualDescription: string;
   /** System prompt (component template, theme tokens, AnimationProps interface) */
   systemPrompt: string;
+  /**
+   * Narration lines with their current timings, so the model can choreograph
+   * beats that follow the voiceover. Components must still read the live
+   * values from props.lineTimings — this context is for pacing intuition only.
+   */
+  narrationContext?: string;
   /** Previous attempt context for retry (error message + previous TSX), if any */
   retryContext?: RetryContext;
 }
@@ -86,6 +143,10 @@ function buildUserContent(
   parts.push(
     `Generate a React component for the following visual description:\n\n${input.visualDescription}`
   );
+
+  if (input.narrationContext) {
+    parts.push(`\n---\n${input.narrationContext}`);
+  }
 
   if (input.retryContext) {
     parts.push(
@@ -167,8 +228,9 @@ async function generateComponentViaCLI(
         if (code === 0) {
           settle(() => resolve(stdout));
         } else {
+          const detail = stderr.trim() || stdout.trim();
           settle(() =>
-            reject(new Error(`claude CLI exited ${code}: ${stderr.slice(0, 400)}`))
+            reject(new Error(`claude CLI exited ${code}: ${detail.slice(0, 500)}`))
           );
         }
       });
@@ -190,15 +252,8 @@ async function generateComponentViaCLI(
       }
     });
 
-    // Strip markdown fences that the model may emit despite instructions
-    let tsx = raw
-      .replace(/^```(?:tsx|typescript|jsx|javascript)?\s*\n?/m, "")
-      .replace(/\n?```\s*$/m, "")
-      .trim();
-
-    if (tsx.length === 0) {
-      throw new Error("claude CLI returned empty response.");
-    }
+    // Extract TSX code from model output (handles markdown fences + surrounding text)
+    const tsx = extractTsxFromOutput(raw);
 
     return { tsx, usage: { inputTokens: 0, outputTokens: 0 } };
   } finally {
@@ -286,13 +341,16 @@ export async function generateComponent(
   ];
 
   // ---- Call API -----------------------------------------------------------
-  const response: Message = await client.messages.create({
+  const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
     model,
     max_tokens: 8192,
-    thinking: { type: "disabled" } as any, // DeepSeek: 避免 thinking 吃掉输出预算
     system: input.systemPrompt,
     messages,
-  }, {
+  };
+  // DeepSeek: 避免 thinking 吃掉输出预算。该参数不在 SDK 的 Anthropic 类型里，
+  // 对象字面量直接写会触发多余属性检查，经松散类型开口设置。
+  (params as unknown as Record<string, unknown>).thinking = { type: "disabled" };
+  const response: Message = await client.messages.create(params, {
     signal,
   });
 
@@ -304,17 +362,8 @@ export async function generateComponent(
     }
   }
 
-  // Strip markdown code fences if present
-  tsx = tsx
-    .replace(/^```(?:tsx|typescript|jsx|javascript)?\s*\n?/m, "")
-    .replace(/\n?```\s*$/m, "")
-    .trim();
-
-  if (tsx.length === 0) {
-    throw new Error(
-      "Claude returned empty response."
-    );
-  }
+  // Extract TSX code from model output (handles markdown fences + surrounding text)
+  tsx = extractTsxFromOutput(tsx);
 
   return {
     tsx,

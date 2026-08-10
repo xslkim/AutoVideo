@@ -77,6 +77,15 @@ export interface NarrationLine {
 // Component props
 // ---------------------------------------------------------------------------
 
+/**
+ * Narration line timing in block-relative seconds (enter animation included),
+ * so components can compare directly against `frame / fps`.
+ */
+export interface LineTimingSec {
+  startSec: number;
+  endSec: number;
+}
+
 export interface AnimationProps {
   frame: number;
   durationInFrames: number;
@@ -85,6 +94,13 @@ export interface AnimationProps {
   subtitleSafeBottom: number;
   theme: Theme;
   fps: number;
+  /**
+   * One entry per narration line, in block-relative seconds. Lets generated
+   * components drive visual beats (highlight the item being narrated, etc.)
+   * from the actual voiceover timing instead of hardcoded timestamps.
+   * Empty when the block has no audio yet.
+   */
+  lineTimings: LineTimingSec[];
 }
 
 export interface BlockFrameProps {

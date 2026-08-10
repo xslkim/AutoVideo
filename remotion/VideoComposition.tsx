@@ -203,6 +203,14 @@ export const BlockComposition: React.FC<BlockCompositionProps> = ({
   // Dynamic component
   const DynamicComponent = getDynamicComponent(blockId);
 
+  // Narration line timings, converted from audio-relative ms to
+  // block-relative seconds so components can compare against frame / fps.
+  const enterSec = enterFrames / fps;
+  const lineTimingsSec = (block.audio?.lineTimings ?? []).map((t) => ({
+    startSec: enterSec + t.startMs / 1000,
+    endSec: enterSec + t.endMs / 1000,
+  }));
+
   // AnimationProps for the dynamic component
   const animProps = {
     frame,
@@ -212,6 +220,7 @@ export const BlockComposition: React.FC<BlockCompositionProps> = ({
     subtitleSafeBottom: script.meta.subtitleSafeBottom,
     theme,
     fps,
+    lineTimings: lineTimingsSec,
   };
 
   return (

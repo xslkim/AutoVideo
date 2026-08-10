@@ -44,7 +44,14 @@ export interface VisualReviewResult {
   raw?: string;
 }
 
-interface VisualReviewInput {
+/** A narration line with its block-relative timing, for sync-aware review. */
+export interface NarrationLineSec {
+  text: string;
+  startSec: number;
+  endSec: number;
+}
+
+export interface VisualReviewInput {
   /**
    * Absolute paths to rendered frames, in timeline order (earliest first).
    * Pass several frames spread across the block's duration — a single still
@@ -54,6 +61,52 @@ interface VisualReviewInput {
   pngPaths: string[];
   /** The intended visual description for this slide */
   visualDescription: string;
+  /**
+   * Block-relative time (seconds) of each frame, same order as pngPaths.
+   * Combined with narrationLines this lets the reviewer check whether the
+   * visual emphasis matches what the narrator is saying in each frame.
+   */
+  frameTimesSec?: number[];
+  /** Narration lines with block-relative timings — enables the sync review. */
+  narrationLines?: NarrationLineSec[];
+}
+
+/**
+ * Which narration line is being spoken at time t — the last line whose start
+ * has passed, so inter-line silence gaps attribute to the previous line
+ * (mirroring how components are told to resolve lineTimings).
+ */
+export function narrationLineAt(
+  lines: NarrationLineSec[] | undefined,
+  t: number,
+): { index: number; text: string } | undefined {
+  if (!lines || lines.length === 0) return undefined;
+  let active = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (t >= lines[i].startSec) active = i;
+    else break;
+  }
+  if (active < 0) return undefined;
+  return { index: active, text: lines[active].text };
+}
+
+/** Caption preceding frame i: timeline position + what the narrator says then. */
+export function frameCaption(
+  index: number,
+  total: number,
+  timeSec: number | undefined,
+  narrationLines: NarrationLineSec[] | undefined,
+): string {
+  const head = `Frame ${index + 1}/${total} (timeline order)`;
+  if (timeSec === undefined) return head;
+  let cap = `${head}, t=${timeSec.toFixed(2)}s`;
+  if (narrationLines && narrationLines.length > 0) {
+    const line = narrationLineAt(narrationLines, timeSec);
+    cap += line
+      ? ` — narrator is saying line ${line.index}: "${line.text}"`
+      : ` — before the first narration line`;
+  }
+  return cap;
 }
 
 const COMPOSITION_ONLY_INSTRUCTIONS = `You are a strict art director reviewing a single FULLSCREEN slide from an educational video.
@@ -100,9 +153,26 @@ Respond with ONLY a JSON object, no markdown fences, no extra prose:
 }
 Be demanding: a static composition that merely looks fine in one frame is NOT a pass if nothing moves across the sequence.`;
 
+/** Appended when each frame is captioned with the narration line being spoken. */
+const NARRATION_SYNC_INSTRUCTIONS = `
+Narration sync (each frame caption states what the narrator is saying at that moment):
+- When the narration walks through items (steps, list entries, "第一/第二/第三…"), the visual emphasis in each frame — the highlighted, enlarged, or focused element — must correspond to the item being narrated in that frame. A frame highlighting item A while the narrator discusses item B is a SYNC FAILURE.
+- If the narration advances through several items but every frame keeps the same emphasis as the first item, the animation is stuck and out of sync — also a SYNC FAILURE.
+- Only judge sync when the narration or description implies progression; a slide whose content does not track the narration structure is exempt.`;
+
 /** A single frame can only judge composition; several frames unlock the choreography checks. */
 export function reviewInstructionsFor(pngPaths: string[]): string {
   return pngPaths.length > 1 ? MOTION_REVIEW_INSTRUCTIONS : COMPOSITION_ONLY_INSTRUCTIONS;
+}
+
+/** Instructions for a full input — adds the narration-sync section when captioned. */
+export function reviewInstructions(input: VisualReviewInput): string {
+  const base = reviewInstructionsFor(input.pngPaths);
+  const syncReady =
+    input.pngPaths.length > 1 &&
+    input.frameTimesSec?.length === input.pngPaths.length &&
+    (input.narrationLines?.length ?? 0) > 0;
+  return syncReady ? base + NARRATION_SYNC_INSTRUCTIONS : base;
 }
 
 /** Extract the first balanced JSON object from arbitrary model text. */
@@ -141,7 +211,7 @@ export function toResult(parsed: any, raw: string): VisualReviewResult {
   ];
   if (issues.length) lines.push("问题：", ...issues.map((s, i) => `  ${i + 1}. ${s}`));
   if (suggestions.length) lines.push("建议：", ...suggestions.map((s, i) => `  ${i + 1}. ${s}`));
-  lines.push("保持技术契约不变（默认导出、AnimationProps、仅 import react/remotion），只改进视觉密度、层次、构图与动效编排。");
+  lines.push("保持技术契约不变（默认导出、AnimationProps、仅 import react/remotion），只改进视觉密度、层次、构图、动效编排与旁白同步（跟随 props.lineTimings）。");
   return { pass: false, feedback: lines.join("\n"), raw };
 }
 
@@ -155,10 +225,12 @@ async function reviewViaCLI(
   signal?: AbortSignal,
 ): Promise<VisualReviewResult> {
   const cliPath = config.cliPath || "claude";
-  const instructions = reviewInstructionsFor(input.pngPaths);
+  const instructions = reviewInstructions(input);
   const imageLines =
     input.pngPaths.length > 1
-      ? input.pngPaths.map((p, i) => `Frame ${i + 1}/${input.pngPaths.length} (timeline order): ${p}`)
+      ? input.pngPaths.map((p, i) =>
+          `${frameCaption(i, input.pngPaths.length, input.frameTimesSec?.[i], input.narrationLines)}: ${p}`
+        )
       : [`Read the image at: ${input.pngPaths[0]}`];
   const prompt = [
     instructions,
@@ -234,11 +306,14 @@ async function reviewViaSDK(
       : undefined,
   });
 
-  const instructions = reviewInstructionsFor(input.pngPaths);
+  const instructions = reviewInstructions(input);
   const content: Array<Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam> = [];
   for (let i = 0; i < input.pngPaths.length; i++) {
     if (input.pngPaths.length > 1) {
-      content.push({ type: "text", text: `Frame ${i + 1}/${input.pngPaths.length} (timeline order):` });
+      content.push({
+        type: "text",
+        text: `${frameCaption(i, input.pngPaths.length, input.frameTimesSec?.[i], input.narrationLines)}:`,
+      });
     }
     const base64 = readFileSync(input.pngPaths[i]).toString("base64");
     content.push({ type: "image", source: { type: "base64", media_type: "image/png", data: base64 } });

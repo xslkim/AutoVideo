@@ -29,12 +29,14 @@ import {
 import { resolveOutDir } from "../utils/slugify.js";
 import { SUBTITLE_SAFE_BOTTOM_PCT } from "../config/defaults.js";
 import {
-  loadPronunciationDict,
+  loadPronunciationDicts,
   applyPronunciation,
   DICT_FILENAME,
   PronunciationError,
 } from "../tts/pronounce.js";
+import { lintPronunciation, formatPronunciationLint } from "../tts/lint.js";
 import { scaleFontMentions } from "../compile/font-scale.js";
+import { lintNarrationSync } from "../compile/sync-lint.js";
 
 import type {
   Script,
@@ -106,6 +108,41 @@ export interface CompileResult {
   script: Script;
   outDir: string;
   scriptPath: string;
+}
+
+// ---------------------------------------------------------------------------
+// Inline HTML marker-line validation (PRD §3.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate that inline HTML source does not contain lines that would be
+ * silently truncated by the block section parser.
+ *
+ * The parser (blocks.ts) ends a `--- visual ---` section on a bare `---`
+ * line or a `--- <word> ---` line, and `>>>` at line start begins a new
+ * block. Inline HTML containing such lines would be silently cut short.
+ * Detect and throw so the author can restructure (e.g. indent the line, or
+ * wait for html(./path) external file mode in Phase 3).
+ */
+function assertNoHtmlMarkerLines(htmlContent: string, blockId: string): void {
+  const lines = htmlContent.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (
+      trimmed === "---" ||
+      /^--- \w+ ---$/.test(trimmed) ||
+      trimmed.startsWith(">>>")
+    ) {
+      throw new CompileError(
+        `Block ${blockId}: inline HTML contains a line that the section parser ` +
+          `would treat as a section/block boundary (line ${i + 1}: "${trimmed}"). ` +
+          `The --- visual --- section would be silently truncated here. ` +
+          `Indent the line or restructure the HTML to avoid a bare '---', ` +
+          `'--- word ---', or '>>>' at line start.`,
+        "ERR_HTML_MARKER_LINE",
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -205,9 +242,12 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
 
   // ── Step 5: Process assets ─────────────────────────────────────────────
   // Build BlockForAssets[] from RawBlock[]
+  // html blocks: pass empty visualDescription so processAssets does NOT scan
+  // the HTML source for local paths (would mangle src="/href=" attributes).
+  // The real HTML source is read directly from raw.visualDescription in Step 7.
   const blocksForAssets: BlockForAssets[] = rawBlocks.map((b) => ({
     id: b.id,
-    visualDescription: b.visualDescription,
+    visualDescription: b.visualMode === 'html' ? '' : b.visualDescription,
     sourceFilePath: b.sourceFilePath,
     ...(b.imageSource !== undefined ? { imageSource: b.imageSource } : {}),
     ...(b.videoSource !== undefined ? { videoSource: b.videoSource } : {}),
@@ -233,7 +273,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   // ── Step 6.5: Load the pronunciation dictionary (optional) ─────────────
   let pronunciationRules;
   try {
-    pronunciationRules = loadPronunciationDict(project.projectDir);
+    pronunciationRules = loadPronunciationDicts(project.projectDir);
   } catch (err) {
     if (err instanceof PronunciationError) {
       throw new CompileError(err.message, "ERR_DICT_INVALID");
@@ -242,7 +282,7 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   }
   if (verbose && pronunciationRules.length > 0) {
     console.log(
-      `[compile] Loaded ${pronunciationRules.length} pronunciation rule(s) from ${DICT_FILENAME}`
+      `[compile] Loaded ${pronunciationRules.length} pronunciation rule(s) (repo + machine + project ${DICT_FILENAME})`
     );
   }
 
@@ -262,17 +302,28 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   const scriptBlocks: Block[] = rawBlocks.map((raw, idx) => {
     // Find the matching processed block (same index)
     const processedBlock = assetResult.blocks[idx];
+    const isHtml = raw.visualMode === 'html';
 
-    const rawDescription = processedBlock
-      ? processedBlock.visualDescription
-      : raw.visualDescription;
-    const fontScaled = scaleFontMentions(rawDescription, meta.height);
-    if (verbose && fontScaled.scale !== 1) {
-      console.log(
-        `[compile] Block ${raw.id}: scaled font sizes ×${fontScaled.scale.toFixed(
-          2,
-        )} (smallest was ${fontScaled.originalMinPx}px)`,
-      );
+    // html blocks: visual.description is raw HTML source. It must bypass both
+    // processAssets description rewriting (Step 5 passed empty) and
+    // scaleFontMentions (whose FONT_MENTION regex would rewrite CSS font-size).
+    const rawDescription = isHtml
+      ? raw.visualDescription
+      : (processedBlock ? processedBlock.visualDescription : raw.visualDescription);
+
+    let description: string;
+    if (isHtml) {
+      description = rawDescription;
+    } else {
+      const fontScaled = scaleFontMentions(rawDescription, meta.height);
+      if (verbose && fontScaled.scale !== 1) {
+        console.log(
+          `[compile] Block ${raw.id}: scaled font sizes ×${fontScaled.scale.toFixed(
+            2,
+          )} (smallest was ${fontScaled.originalMinPx}px)`,
+        );
+      }
+      description = fontScaled.description;
     }
 
     return {
@@ -287,8 +338,9 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       ...(processedBlock?.videoSource !== undefined
         ? { videoSource: processedBlock.videoSource }
         : {}),
+      ...(raw.htmlSource !== undefined ? { htmlSource: raw.htmlSource } : {}),
       visual: {
-        description: fontScaled.description,
+        description,
       },
       narration: {
         lines: raw.narrationLines.map(withSpeakText),
@@ -298,6 +350,14 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
       },
     };
   });
+
+  // ── Step 7.1: Lint for uncovered Latin terms ───────────────────────────
+  // Anything the dictionary did not rewrite that still looks suspicious
+  // (camelCase, ALL_CAPS, file-like, version-like) is reported so the author
+  // can extend dict.md instead of discovering mispronunciations by ear.
+  const lintFindings = lintPronunciation(scriptBlocks, pronunciationRules);
+  const lintReport = formatPronunciationLint(lintFindings);
+  if (lintReport) console.warn(lintReport);
 
   // ── Step 7.5: Set up local image blocks ────────────────────────────────
   // For image-mode blocks with imageSource, the image file already exists
@@ -394,6 +454,35 @@ export default Component;
     }
   }
 
+  // ── Step 7.7: Set up local html blocks ─────────────────────────────────
+  // For html-mode blocks, write the HTML source to public/html/{id}.html so
+  // the render stage can load it via headless Chrome. html blocks do NOT get
+  // a Component.tsx — they bypass Remotion entirely (see render-blocks.ts).
+  for (const block of scriptBlocks) {
+    if (block.visualMode !== 'html') continue;
+
+    if (block.htmlSource) {
+      // html(./path) external file mode — arrives in Phase 3 (processHtmlAssets).
+      throw new CompileError(
+        `Block ${block.id}: @visual: html(./path) external file mode is not yet supported (Phase 3). ` +
+          `Use inline @visual: html (HTML source in the --- visual --- section) for now.`,
+        "ERR_HTML_EXTERNAL_NOT_SUPPORTED",
+      );
+    }
+
+    // Inline mode: visual.description is the HTML source.
+    const htmlContent = block.visual.description;
+    assertNoHtmlMarkerLines(htmlContent, block.id);
+
+    const htmlDir = join(outDir, "public", "html");
+    mkdirSync(htmlDir, { recursive: true });
+    const destPath = join(htmlDir, `${block.id}.html`);
+    writeFileSync(destPath, htmlContent, "utf-8");
+    block.visual.htmlPath = `public/html/${block.id}.html`;
+
+    if (verbose) console.log(`[compile] Wrote html for ${block.id}: ${destPath}`);
+  }
+
   const script: Script = {
     meta: {
       schemaVersion: "1.0",
@@ -441,6 +530,20 @@ export default Component;
       })
       .join("\n");
     throw new CompileError(`Script schema validation failed:\n${errors}`, "ERR_SCHEMA_VALIDATION");
+  }
+
+  // ── Step 8.5: Narration-sync authoring lint (non-blocking) ─────────────
+  // Catch description patterns that silently break narration↔animation sync
+  // (absolute beats past the entrance, enumerated narration without a visual
+  // mapping). The generator can only honour sync when the author declares it.
+  const syncWarnings = lintNarrationSync(script.blocks);
+  for (const w of syncWarnings) {
+    console.warn(`[compile] ⚠ ${w.blockId} (${w.rule}): ${w.message}`);
+  }
+  if (syncWarnings.length > 0) {
+    console.warn(
+      `[compile] ${syncWarnings.length} 条旁白同步告警——动画可能与讲解错位，建议修改视觉描述后重新 compile`
+    );
   }
 
   // ── Step 9: Write output ───────────────────────────────────────────────

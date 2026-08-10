@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { visuals, VisualsError, type VisualsOptions, type VisualsResult } from "../../src/cli/visuals.js";
+import { visuals, VisualsError, pickReviewFrameTimes, type VisualsOptions, type VisualsResult } from "../../src/cli/visuals.js";
 import type { AutoVideoConfig } from "../../src/config/defaults.js";
 import type { Script } from "../../src/types/script.js";
 
@@ -288,7 +288,7 @@ describe("visuals command", () => {
     expect(updated.blocks[0].visual.componentPath).toBe("src/blocks/B01/Component.tsx");
   });
 
-  it("should fail after 3 rounds and throw with recovery command", async () => {
+  it("should fail after 5 rounds and throw with recovery command", async () => {
     const script = createTestScript();
     // Use only B01
     script.blocks = [script.blocks[0]];
@@ -315,11 +315,11 @@ describe("visuals command", () => {
       })
     ).rejects.toThrow(/Visuals failed/);
 
-    // Should have attempted 3 times
-    expect(mockGenerate).toHaveBeenCalledTimes(3);
+    // Should have attempted 5 times (MAX_RETRIES)
+    expect(mockGenerate).toHaveBeenCalledTimes(5);
 
-    // Should have called validate 3 times
-    expect(mockValidate).toHaveBeenCalledTimes(3);
+    // Should have called validate 5 times
+    expect(mockValidate).toHaveBeenCalledTimes(5);
   });
 
   it("should use cache on second run (0 API calls)", async () => {
@@ -424,7 +424,7 @@ describe("visuals command", () => {
     expect(mockGenerate).toHaveBeenCalledTimes(2);
   });
 
-  it("should abort other blocks when one fails all 3 attempts", async () => {
+  it("should abort other blocks when one fails all 5 attempts", async () => {
     const script = createTestScript();
     setupTempDir(script);
     fs.writeFileSync(scriptPath, JSON.stringify(script, null, 2));
@@ -467,8 +467,8 @@ describe("visuals command", () => {
       })
     ).rejects.toThrow(/Visuals failed/);
 
-    // B01 should have been attempted 3 times
-    expect(b01Calls).toBe(3);
+    // B01 should have been attempted 5 times (MAX_RETRIES)
+    expect(b01Calls).toBe(5);
   });
 
   it("should show dry-run plan without executing", async () => {
@@ -510,5 +510,83 @@ describe("visuals command", () => {
         blockIds: ["B99"],
       })
     ).rejects.toThrow(/No blocks found matching/);
+  });
+
+  it("should pass narration timing context to generation when audio exists", async () => {
+    const script = createTestScript();
+    script.blocks = [script.blocks[0]];
+    script.blocks[0].audio = {
+      wavPath: "public/audio/B01.wav",
+      durationSec: 2.0,
+      lineTimings: [{ lineIndex: 0, startMs: 200, endMs: 2000 }],
+    };
+    setupTempDir(script);
+
+    mockGenerate.mockResolvedValue({
+      tsx: VALID_TSX,
+      usage: { inputTokens: 100, outputTokens: 50 },
+    });
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+
+    await visuals({ scriptPath, config: createTestConfig(), verbose: false });
+
+    expect(mockGenerate).toHaveBeenCalledTimes(1);
+    const input = mockGenerate.mock.calls[0][0];
+    // enter=fade → enterSec=0.5; line 0: 0.5+0.2=0.70s – 0.5+2.0=2.50s
+    expect(input.narrationContext).toContain("line 0: 0.70s – 2.50s");
+    expect(input.narrationContext).toContain("Hello World");
+    expect(input.narrationContext).toContain("props.lineTimings");
+  });
+
+  it("should omit narration context when block has no audio timings", async () => {
+    setupTempDir();
+
+    mockGenerate.mockResolvedValue({
+      tsx: VALID_TSX,
+      usage: { inputTokens: 100, outputTokens: 50 },
+    });
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+
+    await visuals({ scriptPath, config: createTestConfig(), verbose: false });
+
+    expect(mockGenerate).toHaveBeenCalledTimes(2);
+    for (const call of mockGenerate.mock.calls) {
+      expect(call[0].narrationContext).toBeUndefined();
+    }
+  });
+});
+
+describe("pickReviewFrameTimes", () => {
+  it("falls back to early/mid/late fractions without narration timings", () => {
+    const times = pickReviewFrameTimes([], 10);
+    expect(times).toEqual([0.5, 5, 9.3]);
+  });
+
+  it("samples every line midpoint when lines fit the budget", () => {
+    const lines = [
+      { startSec: 0.5, endSec: 3.38 },
+      { startSec: 3.62, endSec: 7.14 },
+    ];
+    const times = pickReviewFrameTimes(lines, 8.42);
+    // early + 2 line mids + late
+    expect(times.length).toBe(4);
+    expect(times[1]).toBeCloseTo((0.5 + 3.38) / 2);
+    expect(times[2]).toBeCloseTo((3.62 + 7.14) / 2);
+    expect(times[0]).toBeCloseTo(8.42 * 0.05);
+    expect(times[3]).toBeCloseTo(8.42 * 0.93);
+  });
+
+  it("subsamples evenly when lines exceed the frame budget", () => {
+    const lines = Array.from({ length: 6 }, (_, i) => ({
+      startSec: i * 4,
+      endSec: i * 4 + 3,
+    }));
+    const times = pickReviewFrameTimes(lines, 27.92, 4);
+    // early + 4 line mids + late = 6 frames; lines 0, 2, 3, 5 sampled
+    expect(times.length).toBe(6);
+    expect(times[1]).toBeCloseTo(1.5);   // line 0 mid
+    expect(times[2]).toBeCloseTo(9.5);   // line 2 mid
+    expect(times[3]).toBeCloseTo(13.5);  // line 3 mid
+    expect(times[4]).toBeCloseTo(21.5);  // line 5 mid
   });
 });

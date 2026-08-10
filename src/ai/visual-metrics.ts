@@ -20,8 +20,35 @@ import { parse } from "@babel/parser";
 import type { File as BabelFile } from "@babel/types";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { declaresSyncIntent } from "../compile/sync-lint.js";
 
 const execFileAsync = promisify(execFile);
+
+// ---------------------------------------------------------------------------
+// Narration-sync contract (static, no render)
+// ---------------------------------------------------------------------------
+
+/**
+ * When the description declares narration-following intent (跟随旁白 /
+ * lineTimings / 旁白推进 …), the generated component MUST read
+ * props.lineTimings. Otherwise its beats are hardcoded timestamps that drift
+ * out of sync the moment the voiceover is re-synthesized — exactly the
+ * failure this check exists to catch before a human ever watches the video.
+ */
+export function checkNarrationSyncContract(
+  description: string,
+  componentSource: string,
+): { pass: boolean; feedback: string } {
+  if (!declaresSyncIntent(description)) return { pass: true, feedback: "" };
+  if (/\blineTimings\b/.test(componentSource)) return { pass: true, feedback: "" };
+  return {
+    pass: false,
+    feedback:
+      "视觉描述要求画面跟随旁白推进，但组件没有读取 props.lineTimings——硬编码的绝对时间戳会在旁白重新合成后错位。" +
+      "请用 lineTimings（{ startSec, endSec }[]，块内相对秒，可直接与 frame / fps 比较）驱动高亮/推进节拍：" +
+      "取最后一个 startSec <= t 的行（行间静音间隙保持上一行状态），再映射到对应视觉元素。",
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Types

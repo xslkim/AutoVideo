@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { extractJson, toResult, reviewInstructionsFor } from "../../src/ai/visual-review.js";
+import {
+  extractJson,
+  toResult,
+  reviewInstructionsFor,
+  reviewInstructions,
+  narrationLineAt,
+  frameCaption,
+} from "../../src/ai/visual-review.js";
 
 describe("extractJson", () => {
   it("parses a bare JSON object", () => {
@@ -69,5 +76,70 @@ describe("reviewInstructionsFor", () => {
     const instructions = reviewInstructionsFor(["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"]);
     expect(instructions).toContain("Choreography");
     expect(instructions).toContain("dead hold");
+  });
+});
+
+const LINES = [
+  { text: "开场白", startSec: 0.5, endSec: 3.0 },
+  { text: "第一 结构", startSec: 3.2, endSec: 6.5 },
+  { text: "第二 推理", startSec: 6.7, endSec: 10.0 },
+];
+
+describe("narrationLineAt", () => {
+  it("finds the line containing t", () => {
+    expect(narrationLineAt(LINES, 4.0)).toEqual({ index: 1, text: "第一 结构" });
+  });
+
+  it("attributes inter-line gaps to the previous line", () => {
+    // 6.6s is inside the gap between line 1 (ends 6.5) and line 2 (starts 6.7)
+    expect(narrationLineAt(LINES, 6.6)).toEqual({ index: 1, text: "第一 结构" });
+  });
+
+  it("returns undefined before the first line and for empty input", () => {
+    expect(narrationLineAt(LINES, 0.1)).toBeUndefined();
+    expect(narrationLineAt([], 5)).toBeUndefined();
+    expect(narrationLineAt(undefined, 5)).toBeUndefined();
+  });
+});
+
+describe("frameCaption", () => {
+  it("annotates the frame with the narration line being spoken", () => {
+    const cap = frameCaption(1, 6, 4.0, LINES);
+    expect(cap).toContain("Frame 2/6");
+    expect(cap).toContain("t=4.00s");
+    expect(cap).toContain('narrator is saying line 1: "第一 结构"');
+  });
+
+  it("degrades gracefully without times or lines", () => {
+    expect(frameCaption(0, 3, undefined, LINES)).toBe("Frame 1/3 (timeline order)");
+    expect(frameCaption(0, 3, 1.0, undefined)).not.toContain("narrator");
+  });
+});
+
+describe("reviewInstructions", () => {
+  it("appends the sync section only when frames carry narration captions", () => {
+    const withSync = reviewInstructions({
+      pngPaths: ["/tmp/a.png", "/tmp/b.png"],
+      visualDescription: "d",
+      frameTimesSec: [1.0, 4.0],
+      narrationLines: LINES,
+    });
+    expect(withSync).toContain("Narration sync");
+    expect(withSync).toContain("SYNC FAILURE");
+
+    const noTimes = reviewInstructions({
+      pngPaths: ["/tmp/a.png", "/tmp/b.png"],
+      visualDescription: "d",
+      narrationLines: LINES,
+    });
+    expect(noTimes).not.toContain("Narration sync");
+
+    const singleFrame = reviewInstructions({
+      pngPaths: ["/tmp/a.png"],
+      visualDescription: "d",
+      frameTimesSec: [1.0],
+      narrationLines: LINES,
+    });
+    expect(singleFrame).not.toContain("Narration sync");
   });
 });
