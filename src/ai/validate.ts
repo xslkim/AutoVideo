@@ -16,6 +16,7 @@ import type {
   CallExpression,
   MemberExpression,
   NewExpression,
+  OptionalMemberExpression,
 } from "@babel/types";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -116,9 +117,11 @@ export interface Theme {
   name: string; colors: ThemeColors; fonts: ThemeFonts;
   spacing: ThemeSpacing; subtitle: ThemeSubtitle;
 }
+export interface LineTimingSec { startSec: number; endSec: number; }
 export interface AnimationProps {
   frame: number; durationInFrames: number; width: number; height: number;
   subtitleSafeBottom: number; theme: Theme; fps: number;
+  lineTimings: LineTimingSec[];
 }
 `;
   fs.mkdirSync(path.dirname(shimPath), { recursive: true });
@@ -126,6 +129,36 @@ export interface AnimationProps {
 }
 
 // --- AST Static Scan ---
+
+/**
+ * True when `node` is a computed index access into `lineTimings` or
+ * `props.lineTimings` — e.g. `lineTimings[i]`, `props.lineTimings[0]`.
+ *
+ * Used to catch components that read the wrong field on a timing entry
+ * (`.start` / `.end` instead of `.startSec` / `.endSec`): that returns
+ * `undefined`, and feeding it into interpolate/spring produces "Frame NaN"
+ * at render time. See remotion/engine/types.ts LineTimingSec for the contract.
+ */
+function isLineTimingsIndexAccess(node: unknown): boolean {
+  const n = node as Record<string, unknown> | null;
+  if (!n) return false;
+  if (n.type !== "MemberExpression" && n.type !== "OptionalMemberExpression") return false;
+  // Must be a bracket access: <base>[idx] (not <base>.lineTimings).
+  if (!n.computed) return false;
+  const obj = n.object as Record<string, unknown> | undefined;
+  if (!obj) return false;
+  // base is `lineTimings`, or `props.lineTimings` / `props?.lineTimings`.
+  if (obj.type === "Identifier" && obj.name === "lineTimings") return true;
+  const objProp = obj.property as Record<string, unknown> | undefined;
+  if (
+    (obj.type === "MemberExpression" || obj.type === "OptionalMemberExpression") &&
+    objProp?.type === "Identifier" &&
+    objProp.name === "lineTimings"
+  ) {
+    return true;
+  }
+  return false;
+}
 
 export function astStaticScan(tsxPath: string): ASTScanResult {
   const errors: string[] = [];
@@ -182,6 +215,25 @@ export function astStaticScan(tsxPath: string): ASTScanResult {
       }
     }
 
+    // lineTimings field-name misuse: each entry exposes startSec/endSec
+    // (block-relative seconds), never .start/.end. Reading .start returns
+    // undefined and makes interpolate/spring throw "Frame NaN" at render.
+    if (n.type === "MemberExpression" || n.type === "OptionalMemberExpression") {
+      const prop = n.property as Record<string, unknown> | undefined;
+      if (
+        !n.computed &&
+        prop?.type === "Identifier" &&
+        (prop.name === "start" || prop.name === "end") &&
+        isLineTimingsIndexAccess(n.object)
+      ) {
+        errors.push(
+          `lineTimings misuse (line ${getLine(node)}): entries expose startSec/endSec, not .${prop.name}. ` +
+            `Reading .${prop.name} yields undefined and causes "Frame NaN" at render — ` +
+            `read .startSec/.endSec (block-relative seconds) and compare against frame / fps.`,
+        );
+      }
+    }
+
     for (const key of Object.keys(n)) {
       if (key === "loc" || key === "start" || key === "end" || key === "type" || key === "range") continue;
       const child = n[key];
@@ -232,6 +284,45 @@ export async function validateStatic(tsxPath: string, tsconfigPath: string): Pro
   }
 }
 
+// --- Render error classification ---
+
+export type RenderErrorKind = "component" | "environment";
+
+// Substrings that indicate the component's own code is at fault (the render
+// pipeline itself is fine). Such failures should fail validation and feed
+// the error back into the retry loop, not be silently skipped.
+const COMPONENT_ERROR_RE =
+  /is not finite|\bNaN\b|Infinity|interpolate|\bspring\b|TypeError|RangeError|Cannot read properties of|is not defined|reading '/i;
+
+// Substrings that indicate the headless render environment is broken (browser
+// missing, bundle/timeout/OOM). These must NOT fail the component — a broken
+// Chrome should never silently disable the gate, and we don't want to punish
+// the component for infrastructure problems.
+const ENVIRONMENT_ERROR_RE =
+  /chromium|headless|browser not found|Could not find|\bENOENT\b|spawn|bundle|Cannot find module|\bEPIPE\b|\bEBUSY\b|timeout|\bETIMEDOUT\b|heap out of memory|\bEACCES\b/i;
+
+/**
+ * Classify a renderComponentStill / renderStill error message.
+ *
+ * - "component": the component threw at render (NaN, TypeError, interpolate/
+ *   spring misuse, reading undefined). Should fail validation so the error is
+ *   fed back to the generator for a retry.
+ * - "environment": the headless browser / bundler / system is the problem.
+ *   Should be soft-skipped (the static gate still runs), not blamed on the
+ *   component.
+ *
+ * Unmatched messages default to "environment" — conservative: the static
+ * field-name check in astStaticScan already catches the most common NaN cause
+ * earlier, so an unrecognised render error is more likely an environment
+ * quirk than a false-negative on the component.
+ */
+export function classifyRenderError(message: string): RenderErrorKind {
+  if (!message) return "environment";
+  if (COMPONENT_ERROR_RE.test(message)) return "component";
+  if (ENVIRONMENT_ERROR_RE.test(message)) return "environment";
+  return "environment";
+}
+
 // --- Render smoke ---
 
 /**
@@ -270,6 +361,15 @@ export async function renderComponentStill(
      * choreography instead of just composition. Defaults to one mid-frame.
      */
     frameFractions?: number[];
+    /**
+     * Narration line timings (block-relative seconds) injected into the
+     * component's props. Without these, components that choreograph to
+     * props.lineTimings render their no-audio fallback and the review
+     * frames cannot show narration-synced behaviour.
+     */
+    lineTimings?: { startSec: number; endSec: number }[];
+    /** Real subtitle safe zone; defaults to height * 0.15 when omitted. */
+    subtitleSafeBottom?: number;
   },
 ): Promise<RenderStillResult> {
   const { buildOutDir, width, height, fps, durationSec = 5, theme } = options;
@@ -285,7 +385,15 @@ export async function renderComponentStill(
 
   try {
     const componentRelPath = path.relative(tempDir, tsxPath).replace(/\\/g, "/");
-    const rootContent = generateSmokeTestRoot(componentRelPath, { width, height, fps, tempDurationSec: durationSec, theme });
+    const rootContent = generateSmokeTestRoot(componentRelPath, {
+      width,
+      height,
+      fps,
+      tempDurationSec: durationSec,
+      theme,
+      lineTimings: options.lineTimings,
+      subtitleSafeBottom: options.subtitleSafeBottom,
+    });
     const rootPath = path.join(tempDir, "SmokeRoot.tsx");
     fs.writeFileSync(rootPath, rootContent);
     const publicDir = path.join(buildOutDir, "public");
@@ -377,9 +485,19 @@ function analyzeByFileSize(imagePath: string): RenderSmokeResult {
 
 function generateSmokeTestRoot(
   componentRelPath: string,
-  options: { width: number; height: number; fps: number; tempDurationSec: number; theme?: Record<string, unknown>; },
+  options: {
+    width: number;
+    height: number;
+    fps: number;
+    tempDurationSec: number;
+    theme?: Record<string, unknown>;
+    lineTimings?: { startSec: number; endSec: number }[];
+    subtitleSafeBottom?: number;
+  },
 ): string {
   const { width, height, fps, tempDurationSec, theme } = options;
+  const safeBottom = options.subtitleSafeBottom ?? Math.round(height * 0.15);
+  const lineTimingsJson = JSON.stringify(options.lineTimings ?? []);
   const totalFrames = Math.max(1, Math.floor(tempDurationSec * fps));
   const defaultTheme = theme || {
     name: "dark-code",
@@ -393,12 +511,13 @@ import React from "react";
 import { Composition, useCurrentFrame, useVideoConfig, registerRoot } from "remotion";
 import Component from "${componentRelPath}";
 const theme = ${JSON.stringify(defaultTheme, null, 2)};
+const lineTimings = ${lineTimingsJson};
 const SmokeTestComp: React.FC = () => {
   const frame = useCurrentFrame();
   const { width, height, fps } = useVideoConfig();
   return React.createElement(Component, {
     frame, durationInFrames: ${totalFrames}, width, height,
-    subtitleSafeBottom: Math.round(height * 0.15), theme, fps,
+    subtitleSafeBottom: ${safeBottom}, theme, fps, lineTimings,
   });
 };
 export const RemotionRoot: React.FC = () => {

@@ -8,8 +8,8 @@
  *   2. Compute promptVersion / assetHashesJson / claudeModel
  *   3. p-limit(anthropic.concurrency) for block-level concurrency
  *   4. Per block: cache lookup → miss → generate → validate (static + smoke)
- *      → failure: retry up to 3 rounds with error feedback → put cache → write file
- *   5. Failure: 3 rounds exhausted → AbortController cancels in-flight → exit + recovery command
+ *      → failure: retry up to 5 rounds with error feedback → put cache → write file
+ *   5. Failure: 5 rounds exhausted → AbortController cancels in-flight → exit + recovery command
  */
 
 import fs from "node:fs";
@@ -28,10 +28,12 @@ import {
   validateComponent,
   renderComponentStill,
   cleanupStill,
+  classifyRenderError,
   type ValidateComponentOptions,
 } from "../ai/validate.js";
-import { assessVisualMetrics } from "../ai/visual-metrics.js";
+import { assessVisualMetrics, checkNarrationSyncContract } from "../ai/visual-metrics.js";
 import { reviewVisual } from "../ai/visual-review.js";
+import { enumeratesNarration } from "../compile/sync-lint.js";
 import { DEFAULT_VISUAL_QUALITY } from "../config/defaults.js";
 import {
   assertCompiledScript,
@@ -84,8 +86,8 @@ export interface VisualsResult {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-const MAX_RETRIES = 3;
-const RETRY_BASE_DELAY_MS = 60_000; // 60s base, doubles each attempt (60s / 120s / 240s …)
+const MAX_RETRIES = 5;
+const RETRY_BASE_DELAY_MS = 60_000; // 60s base, doubles each attempt (60s / 120s / 240s / 480s / 960s …)
 const POST_REQUEST_DELAY_MS = 20_000; // 20s cooldown after each successful API call (Claude Code OAuth rate limit)
 
 function sleep(ms: number): Promise<void> {
@@ -154,6 +156,109 @@ function buildComponentKey(opts: {
   };
 }
 
+/** A narration line with its block-relative timing (enter included). */
+interface NarrationLineSec {
+  lineIndex: number;
+  text: string;
+  startSec: number;
+  endSec: number;
+}
+
+/**
+ * Compute the block's timeline the same way render.ts does
+ * (computeBlockTimingWithFps), so review stills and the narration context
+ * work against the real timeline rather than a smoke-test default.
+ */
+function blockTimingContext(
+  block: Block,
+  config: AutoVideoConfig
+): { totalSec: number; narrationLineSecs: NarrationLineSec[] } {
+  const enterSec =
+    block.enter === "none" ? 0 : (config.render?.defaultEnterSec ?? 0.5);
+  const exitSec =
+    block.exit === "none" ? 0 : (config.render?.defaultExitSec ?? 0.3);
+  const holdSec = Math.max(
+    block.audio?.durationSec ?? 0,
+    block.narration.explicitDurationSec ?? 0,
+    config.render?.minHoldSec ?? 1.5
+  );
+  const lines = block.narration?.lines ?? [];
+  const narrationLineSecs = (block.audio?.lineTimings ?? []).map((t) => ({
+    lineIndex: t.lineIndex,
+    text: lines[t.lineIndex]?.text ?? "",
+    startSec: enterSec + t.startMs / 1000,
+    endSec: enterSec + t.endMs / 1000,
+  }));
+  return { totalSec: enterSec + holdSec + exitSec, narrationLineSecs };
+}
+
+/**
+ * Build the narration timing context appended to the user prompt.
+ *
+ * Gives the model the actual per-line beats so it can choreograph sensibly,
+ * while the emitted component must still read props.lineTimings at runtime
+ * (the values below go stale the moment the voiceover is re-synthesized).
+ * Returns undefined when the block has no audio timings yet.
+ */
+function buildNarrationContext(
+  block: Block,
+  narrationLineSecs: NarrationLineSec[]
+): string | undefined {
+  if (narrationLineSecs.length === 0) return undefined;
+
+  const rows = narrationLineSecs.map(
+    (t) =>
+      `  line ${t.lineIndex}: ${t.startSec.toFixed(2)}s – ${t.endSec.toFixed(2)}s  "${t.text}"`
+  );
+
+  const parts = [
+    "Narration timing (block-relative seconds, enter animation included):",
+    ...rows,
+    "",
+    "These are CURRENT measurements, provided only so you can feel the pacing. Do NOT hardcode them in the component — read props.lineTimings at runtime so the animation stays in sync when the voiceover is re-generated.",
+  ];
+
+  if (enumeratesNarration(block.narration?.lines ?? [])) {
+    parts.push(
+      "Note: the narration ENUMERATES items (第一/第二/… or numbered lines). If the slide shows corresponding items, their highlight/progression MUST follow props.lineTimings so the visual tracks the voiceover item by item."
+    );
+  }
+
+  return parts.join("\n");
+}
+
+/**
+ * Pick frame times (block-relative seconds) for the visual-quality review.
+ * With narration timings: one entrance frame, midpoints of up to
+ * `maxLineFrames` evenly spaced narration lines, and one near-exit frame —
+ * so the reviewer sees the visual emphasis per narrated item and can judge
+ * narration sync. Without timings: fixed early/mid/late fractions.
+ */
+export function pickReviewFrameTimes(
+  narrationLineSecs: { startSec: number; endSec: number }[],
+  totalSec: number,
+  maxLineFrames = 4
+): number[] {
+  const early = totalSec * 0.05;
+  const late = totalSec * 0.93;
+  const n = narrationLineSecs.length;
+  if (n === 0) return [early, totalSec * 0.5, late];
+
+  const lineIdxs: number[] = [];
+  if (n <= maxLineFrames) {
+    for (let i = 0; i < n; i++) lineIdxs.push(i);
+  } else {
+    for (let k = 0; k < maxLineFrames; k++) {
+      lineIdxs.push(Math.round((k * (n - 1)) / (maxLineFrames - 1)));
+    }
+  }
+  const mids = lineIdxs.map(
+    (i) =>
+      (narrationLineSecs[i].startSec + narrationLineSecs[i].endSec) / 2
+  );
+  return [early, ...mids, late];
+}
+
 /**
  * Build a default system prompt for component generation.
  * In production this would come from src/ai/prompts/component.md.
@@ -166,7 +271,7 @@ Generate a single React component that renders a full-screen visual based on the
 ## Technical contract
 
 - Export a default function component
-- Accept AnimationProps: { frame, durationInFrames, width, height, subtitleSafeBottom, theme, fps }
+- Accept AnimationProps: { frame, durationInFrames, width, height, subtitleSafeBottom, theme, fps, lineTimings }
 - Only import from "react" and "remotion"
 - Do NOT import fs, path, child_process, http, https, or any Node built-in
 - Do NOT use eval, Function constructor, or require()
@@ -258,6 +363,26 @@ After the entrance finishes, at least one element must keep animating for the re
 
 Reverse the stagger for the exit (last-in-first-out, or fade the whole group together over the final \`durationInFrames * 0.15\` frames) rather than letting elements vanish on the final frame. Use \`Easing.in(Easing.cubic)\` — accelerating away reads as intentional, linear reads as a glitch.
 
+### Syncing to narration (lineTimings)
+
+\`lineTimings\` is \`{ startSec: number; endSec: number }[]\` — one entry per narration line, in **block-relative seconds** (the enter animation is already accounted for, so compare directly against \`frame / fps\`). Whenever the description implies the visual should follow the voiceover — step-by-step walkthroughs, "第一…第二…第三…", items introduced one by one — drive the progression from \`lineTimings\`:
+
+\`\`\`tsx
+const t = frame / fps;
+// Last line whose start has passed. There are ~0.2s silence gaps BETWEEN
+// lines — a findIndex(t >= start && t < end) lookup returns -1 inside every
+// gap and the highlight visibly blinks off between items. Anchoring on the
+// last started line keeps the previous item highlighted through each gap.
+let activeLine = -1;
+for (let i = 0; i < lineTimings.length; i++) {
+  if (t >= lineTimings[i].startSec) activeLine = i;
+  else break;
+}
+// e.g. highlight item (activeLine - 1) when line 0 is the intro
+\`\`\`
+
+Beats driven by \`lineTimings\` stay in sync even when the voiceover is re-synthesized with different pacing. Absolute timestamps copied from the description ("highlight at 4.5s") silently drift out of sync the moment the TTS duration changes — use them only for purely visual beats (entrance staggers, ambient loops), never for something the narrator says.
+
 ### Self-check before returning
 
 Before emitting code, mentally verify:
@@ -269,7 +394,8 @@ Before emitting code, mentally verify:
 6. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
 7. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
 8. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add ambient motion.
-9. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.`;
+9. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
+10. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.`;
 }
 
 // ── Main visuals function ─────────────────────────────────────────────
@@ -378,6 +504,12 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
         return;
       }
 
+      // ── Html mode: already set up by compile, skip ──────────────────
+      if (block.visualMode === 'html') {
+        console.log(`  Block ${blockLabel}: local html already set up by compile`);
+        return;
+      }
+
       // ── Image mode: local file or API generation ─────────────────────
       if (block.visualMode === 'image') {
         console.log(`Processing block ${blockLabel} (image mode)...`);
@@ -431,6 +563,14 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
 
       // ── Animation mode: existing Claude generation path ──────────────
       console.log(`Processing block ${blockLabel}...`);
+
+      // Real timeline for this block (mirrors render-stage timing) — drives
+      // the narration context, the review-still duration, and frame sampling.
+      const { totalSec, narrationLineSecs } = blockTimingContext(block, config);
+      const lineTimingsSec = narrationLineSecs.map(({ startSec, endSec }) => ({
+        startSec,
+        endSec,
+      }));
 
       const componentDir = path.join(blocksDir, block.id);
       const componentFile = path.join(componentDir, "Component.tsx");
@@ -489,6 +629,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
             const input: ComponentGenInput = {
               visualDescription: block.visual.description,
               systemPrompt,
+              narrationContext: buildNarrationContext(block, narrationLineSecs),
             };
 
             // On retry, feed back previous source + error
@@ -528,7 +669,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
 
             if (!validation.pass) {
               throw new VisualsError(
-                `Validation failed:\n${validation.errors.join("\n")}`
+                `Validation failed: ${validation.errors.filter((e) => e.trim()).join(" | ")}`
               );
             }
 
@@ -539,18 +680,52 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
             // rather than failing the whole block.
             const isLastAttempt = attempt === MAX_RETRIES - 1;
             if (vq.enabled && !isLastAttempt) {
-              // Three frames spread across the timeline — early (during
-              // entrance), mid (settled/hold), late (near exit) — so the
-              // multimodal review can judge choreography, not just one
-              // composition. The mid frame doubles as the still that the
-              // deterministic coverage/edge metrics use.
+              // Narration-sync contract (static, free): a description that
+              // declares narration-following intent must yield a component
+              // that reads props.lineTimings — catch hardcoded beats here,
+              // before spending a still render.
+              const syncCheck = checkNarrationSyncContract(
+                block.visual.description,
+                componentSource
+              );
+              if (!syncCheck.pass) {
+                throw new VisualsError(syncCheck.feedback);
+              }
+
+              // Frames sampled at narration-line midpoints (plus entrance and
+              // near-exit) so the multimodal review sees the visual emphasis
+              // per narrated item, not just three arbitrary points in time.
+              // The second frame doubles as the still that the deterministic
+              // coverage/edge metrics use.
+              const frameTimesSec = pickReviewFrameTimes(
+                narrationLineSecs,
+                totalSec
+              );
               const still = await renderComponentStill(componentFile, {
                 buildOutDir,
                 width: script.meta.width,
                 height: script.meta.height,
                 fps: script.meta.fps,
-                frameFractions: [0.06, 0.5, 0.9],
+                durationSec: totalSec,
+                frameFractions: frameTimesSec.map((t) => t / totalSec),
+                lineTimings: lineTimingsSec,
+                subtitleSafeBottom: script.meta.subtitleSafeBottom,
               });
+              // A render failure is either the component's fault (NaN /
+              // TypeError / interpolate·spring misuse — fail and feed the
+              // error back for a retry) or an environment problem (broken
+              // headless Chrome / bundle timeout — soft-skipped so a flaky
+              // environment can't disable the whole gate). Clean up the temp
+              // still dir before throwing: this branch sits outside the
+              // try/finally below, so without this the temp dir would leak.
+              if (!still.ok && classifyRenderError(still.error ?? "") === "component") {
+                cleanupStill(still.tempDir);
+                throw new VisualsError(
+                  `渲染首帧失败（组件代码错误）：${still.error ?? "unknown"}。` +
+                    `常见原因：误读 lineTimings 的 .start/.end（应为 .startSec/.endSec，` +
+                    `会导致 interpolate(NaN)）、除零、对 undefined 做算术——请检查 frame 相关算式。`,
+                );
+              }
               const framePaths = still.ok ? still.pngPaths ?? [] : [];
               const pngPath = framePaths[1] ?? framePaths[0];
               if (!pngPath && verbose) {
@@ -593,7 +768,12 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                 // frames lets it judge motion across time, not just one still.
                 if (framePaths.length > 0 && vq.review && reviewRounds < vq.maxReviewRounds) {
                   const review = await reviewVisual(
-                    { pngPaths: framePaths, visualDescription: block.visual.description },
+                    {
+                      pngPaths: framePaths,
+                      visualDescription: block.visual.description,
+                      frameTimesSec,
+                      narrationLines: narrationLineSecs,
+                    },
                     {
                       useCLI: anthropicConfig.useCLI,
                       cliPath: anthropicConfig.cliPath,
@@ -711,7 +891,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
       `Visuals failed (${failedBlocks.length} block(s) failed)`,
       "",
       "Failed blocks:",
-      ...failedBlocks.map((fb) => `  ${fb.id}: ${fb.error.split("\n")[0]}`),
+      ...failedBlocks.map((fb) => `  ${fb.id}: ${fb.error.split("\n").slice(0, 3).join(" | ")}`),
       "",
       "Resume after fixing the issue:",
       `  autovideo visuals ${scriptPath} --block ${failedBlocks.map((b) => b.id).join(",")} --force`,

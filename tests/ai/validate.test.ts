@@ -19,6 +19,7 @@ import {
   validateComponent,
   extractSourceSnippet,
   extractTscErrorContext,
+  classifyRenderError,
 } from "../../src/ai/validate";
 
 // ---------------------------------------------------------------------------
@@ -350,6 +351,91 @@ export default function Component() {
       const result = astStaticScan(tsx);
       expect(result.pass).toBe(false);
       expect(result.errors.length).toBeGreaterThanOrEqual(3);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
+  // ── lineTimings field-name misuse (startSec/endSec, not .start/.end) ──
+  it("should fail when reading lineTimings[i].start / .end (wrong field name)", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "WrongField.tsx",
+        `export default function C(props: any) {
+  const s = props.lineTimings[0].start;
+  const e = lineTimings[i].end;
+  return null;
+}
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(false);
+      // Two violations: one .start on props.lineTimings[0], one .end on lineTimings[i]
+      expect(result.errors.filter((x) => x.includes("startSec")).length).toBeGreaterThanOrEqual(2);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
+  it("should pass when reading lineTimings[i].startSec / .endSec", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "RightField.tsx",
+        `export default function C(props: any) {
+  const s = props.lineTimings[0].startSec;
+  const e = props.lineTimings[0].endSec;
+  return null;
+}
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
+  it("should not flag aliased access (const t = lineTimings[0]; t.start) — deferred to run-time", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "Alias.tsx",
+        `export default function C(props: any) {
+  const t = props.lineTimings[0];
+  const s = t.start;
+  return null;
+}
+`,
+      );
+      const result = astStaticScan(tsx);
+      // Static check only catches direct lineTimings[...].start access;
+      // aliases are left to the run-time render gate.
+      expect(result.pass).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
+  it("should not flag .start/.end inside comments or string literals", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "CommentString.tsx",
+        `export default function C(props: any) {
+  // NOTE: never read props.lineTimings[0].start here
+  const warning = "lineTimings[0].end is invalid";
+  return null;
+}
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(true);
     } finally {
       cleanupDir(dir);
     }
@@ -786,5 +872,34 @@ export default function Component(): React.ReactElement {
 
     expect(result.pass).toBe(false);
     expect(result.errors.some((e) => e.includes("not found"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// classifyRenderError tests
+// ---------------------------------------------------------------------------
+
+describe("classifyRenderError", () => {
+  it("classifies component-code errors (NaN / TypeError / interpolate·spring)", () => {
+    expect(classifyRenderError("Frame NaN is not finite")).toBe("component");
+    expect(classifyRenderError("Cannot read properties of undefined (reading 'lineTimings')")).toBe("component");
+    expect(classifyRenderError("TypeError: cannot read 'start' of undefined")).toBe("component");
+    expect(classifyRenderError("interpolate() input range is not finite")).toBe("component");
+    expect(classifyRenderError("spring(): value is NaN")).toBe("component");
+    expect(classifyRenderError("RangeError: invalid array length")).toBe("component");
+  });
+
+  it("classifies environment errors (browser / bundle / timeout / OOM)", () => {
+    expect(classifyRenderError("Could not find chromium at /path")).toBe("environment");
+    expect(classifyRenderError("headless chrome not found")).toBe("environment");
+    expect(classifyRenderError("ENOENT: no such file or directory")).toBe("environment");
+    expect(classifyRenderError("bundle failed: Cannot find module 'remotion'")).toBe("environment");
+    expect(classifyRenderError("Command timed out (ETIMEDOUT) after 30000ms")).toBe("environment");
+    expect(classifyRenderError("FATAL ERROR: heap out of memory")).toBe("environment");
+  });
+
+  it("defaults empty / unknown messages to environment (conservative)", () => {
+    expect(classifyRenderError("")).toBe("environment");
+    expect(classifyRenderError("something completely unrelated")).toBe("environment");
   });
 });
