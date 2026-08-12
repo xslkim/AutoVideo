@@ -88,7 +88,7 @@ export interface VisualsResult {
 
 const MAX_RETRIES = 5;
 const RETRY_BASE_DELAY_MS = 60_000; // 60s base, doubles each attempt (60s / 120s / 240s / 480s / 960s …)
-const POST_REQUEST_DELAY_MS = 20_000; // 20s cooldown after each successful API call (Claude Code OAuth rate limit)
+const POST_REQUEST_DELAY_MS = 0; // disabled — was 20s for Claude Code OAuth rate limit
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

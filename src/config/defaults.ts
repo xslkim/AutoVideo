@@ -294,7 +294,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     minFontCoeff: 0.07,
     minAnyFontCoeff: 0.028,
     minElements: 4,
-    minCoverage: 0.7,
+    minCoverage: 0.6,
     maxCoverage: 0.92,
     review: true,
     maxReviewRounds: 1,
