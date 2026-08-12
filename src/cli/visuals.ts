@@ -284,15 +284,22 @@ Generate a single React component that renders a full-screen visual based on the
   IMPORTANT: Use theme.colors.bg (NOT background), theme.colors.fg (NOT text), theme.colors.accent, theme.colors.muted (NOT secondary).
 - Return ONLY the component source as TSX code, no markdown fences
 
-## Layout rules (CRITICAL — viewers complain when slides feel empty)
+## Layout rules (CRITICAL — viewers complain when slides feel empty OR cluttered)
 
-The available canvas is \`width × (height - subtitleSafeBottom)\`. **You MUST fill this area generously.**
+The available canvas is \`width × (height - subtitleSafeBottom)\`. **Fill the area generously but NEVER at the cost of readability.**
+
+### FIDELITY TO DESCRIPTION (HIGHEST PRIORITY)
+
+- **Render ONLY the elements explicitly described in the user's visual description.** Do NOT invent, add, or hallucinate UI chrome that is not mentioned: NO breadcrumbs, NO navigation rails, NO side panels, NO footer strips, NO step indicators, NO corner brackets, NO decorative chips/labels that duplicate card titles, and NO data visualizations (charts, graphs, attention heatmaps, probability bars) unless explicitly requested.
+- If the description mentions specific text content (titles, labels, numbers), use THAT text verbatim. Do NOT substitute example content from other blocks or made-up examples.
+- "Scale up to fill the canvas" means ENLARGE the described elements (bigger titles, bigger cards, bigger fonts) — it does NOT mean adding new unrequested elements. If you need to fill space, make described elements larger; do not add decorations.
+- Subtle background treatments (solid/dark background, very faint grid or glow that does NOT compete with content) are allowed as long as they don't add visible UI elements.
 
 ### Padding & content area
 
 - Outer padding around the content cluster: AT MOST \`min(width, height) * 0.06\` (≈ 65 px on 1080p). NEVER use larger margins like 100 px or 10 % of the canvas — that produces dead space.
 - The bounding box of all visible elements (titles, cards, code blocks, etc.) MUST cover at least **70 % of the available canvas area**. Sparse single-element layouts that float in the middle of a huge empty canvas are BANNED.
-- If the description only mentions one or two elements, scale them up to fill the canvas — make the title huge, add decorative supporting elements (subtle background grid, accent bars, glowing accents, secondary captions), and use them to anchor the layout.
+- Achieve 70% coverage by SCALING UP described elements, not by adding new ones. Make titles bigger, cards wider/taller, fonts larger.
 
 ### Font sizes (assume 1080p; scale proportionally if width/height differ)
 
@@ -317,8 +324,19 @@ Compute all font sizes from \`width\` / \`height\` props (e.g. \`fontSize: heigh
 - Center primary content both horizontally and vertically within the available area, OR use a clear grid (2-col, 3-col, header+body) that spans nearly the full width.
 - When showing multiple items (lists, cards, steps): lay them out as a row or grid that occupies ≥ 80 % of the canvas width with generous internal spacing between items, instead of stacking them in a narrow column in the middle.
 - For code/terminal blocks: the block container should occupy at least 70 % of the canvas width and 50 % of the available height.
-- Reserve the bottom \`subtitleSafeBottom\` pixels — subtitles are drawn there and will cover anything you put underneath. Nothing visible may extend below \`height - subtitleSafeBottom\`: size the root container as \`height - subtitleSafeBottom\` (or add that much bottom padding) rather than positioning elements individually and hoping they clear it. Background fills and decorations may span the full height.
-- Avoid empty corners: distribute weight so the upper-third, middle, and lower-third (above subtitleSafeBottom) all carry visible content.
+- Reserve the bottom \`subtitleSafeBottom\` pixels — subtitles are drawn there and will cover anything you put underneath. Nothing visible may extend below \`height - subtitleSafeBottom\`. **The root container MUST be full \`height\`** with \`backgroundColor: theme.colors.bg\` filling the entire canvas — do NOT set the container height to \`height - subtitleSafeBottom\` or you will create an ugly black bar at the bottom. Instead, constrain only the *content elements* (titles, cards, code blocks, etc.) to the \`height - subtitleSafeBottom\` area by computing their positions from \`availableHeight = height - subtitleSafeBottom\`. Background fills, decorations, and gradients should span the full \`height\`.
+- **NO OVERLAPPING TEXT (CRITICAL):** Calculate vertical positions so that no two text elements overlap. When stacking elements vertically (title → card1 → card2 → card3), compute each element's y position based on the PREVIOUS element's bottom edge PLUS a gap. Do NOT position elements independently with hardcoded fractions that may collide. Example pattern:
+  \`\`\`tsx
+  const titleH = titleSize * 1.2; // lineHeight accounted for
+  const titleY = pad;
+  const gap = height * 0.02;
+  const card1Y = titleY + titleH + gap;
+  const card1H = height * 0.15;
+  const card2Y = card1Y + card1H + gap;
+  // ... etc
+  \`\`\`
+- If elements don't all fit with the font-size floors, REMOVE the least important elements or reduce their count. Do NOT shrink fonts below the floors, and do NOT cram overlapping elements.
+- After laying out, verify that the bottom of the lowest element is at or above \`height - subtitleSafeBottom\`. If it overflows, remove content or reduce spacing.
 
 ## Motion design (CRITICAL — this is reviewed separately from layout)
 
@@ -386,16 +404,19 @@ Beats driven by \`lineTimings\` stay in sync even when the voiceover is re-synth
 ### Self-check before returning
 
 Before emitting code, mentally verify:
-1. Is the largest font size ≥ \`height * 0.07\`? If not, increase it.
-2. Is the SMALLEST font size ≥ \`height * 0.028\`? If not, raise it — or delete that text.
-3. Does the content cluster cover ≥ 70 % of the canvas area? If not, enlarge elements or add supporting structure.
-4. Are outer margins ≤ 6 % of the smaller canvas dimension? If not, reduce them.
-5. Does every visible element end above \`height - subtitleSafeBottom\`? If not, shrink the content area.
-6. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
-7. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
-8. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add ambient motion.
-9. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
-10. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.`;
+1. **FIDELITY**: Does every visible element correspond to something in the user's description? If I added breadcrumbs, side rails, extra panels, or data viz not mentioned, DELETE THEM.
+2. **TEXT FIDELITY**: Are all labels/titles/numbers exactly as described? No invented example text, no content from other blocks.
+3. Is the largest font size ≥ \`height * 0.07\`? If not, increase it.
+4. Is the SMALLEST font size ≥ \`height * 0.028\`? If not, raise it — or delete that text.
+5. Does the content cluster cover ≥ 70 % of the canvas area? If not, ENLARGE described elements (bigger titles, bigger cards) — do NOT add new elements.
+6. **NO OVERLAP**: Do any two text elements overlap vertically? If title bottom + gap < next element top, fix positions. Stack elements sequentially: each element's y = previous element's bottom + gap.
+7. Are outer margins ≤ 6 % of the smaller canvas dimension? If not, reduce them.
+8. Does every visible element end above \`height - subtitleSafeBottom\`? If not, remove less important content.
+9. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
+10. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
+11. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add subtle ambient motion to existing elements (pulse, glow) — do NOT add new elements.
+12. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
+13. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.`;
 }
 
 // ── Main visuals function ─────────────────────────────────────────────
