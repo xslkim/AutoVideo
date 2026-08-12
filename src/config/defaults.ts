@@ -199,6 +199,8 @@ export interface VisualQualityConfig {
   minElements: number;
   /** Minimum fraction (0..1) of the canvas grid that must carry visible content */
   minCoverage: number;
+  /** Maximum fraction (0..1) of the canvas grid that may carry visible content — above this the slide is too dense */
+  maxCoverage: number;
   /** Run the multimodal visual review (plan B) after deterministic metrics pass */
   review: boolean;
   /** Max number of review-driven regeneration rounds (separate from correctness retries) */
@@ -293,6 +295,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     minAnyFontCoeff: 0.028,
     minElements: 4,
     minCoverage: 0.7,
+    maxCoverage: 0.92,
     review: true,
     maxReviewRounds: 1,
   },

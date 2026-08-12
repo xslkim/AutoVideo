@@ -67,6 +67,8 @@ export interface VisualMetricsThresholds {
   minElements: number;
   /** Minimum fraction (0..1) of grid cells that must carry content */
   minCoverage: number;
+  /** Maximum fraction (0..1) of grid cells that may carry content — above this the slide is too dense/cluttered */
+  maxCoverage: number;
 }
 
 export interface StaticMetrics {
@@ -553,9 +555,14 @@ export async function assessVisualMetrics(args: {
         `内容仅覆盖约 ${Math.round(image.coverage * 100)}% 的画面（要求 ≥${Math.round(thresholds.minCoverage * 100)}%），画面偏空。请放大元素并均匀铺满画布，减小外边距。`,
       );
     }
+    if (thresholds.maxCoverage > 0 && image.coverage > thresholds.maxCoverage) {
+      issues.push(
+        `内容覆盖约 ${Math.round(image.coverage * 100)}% 的画面（上限 ≤${Math.round(thresholds.maxCoverage * 100)}%），画面过于密集。请增大元素间距、缩小非核心元素、减少装饰性内容，让画面有呼吸感。`,
+      );
+    }
     if (image.safeBandEdge !== undefined && image.safeBandEdge > SAFE_BAND_EDGE_LIMIT) {
       issues.push(
-        `底部 subtitleSafeBottom（${safeBottom ?? 0}px）区域内有可见元素，会被字幕遮挡。请把根容器高度限制为 height - subtitleSafeBottom，让所有内容都结束在这条线之上；背景色/渐变可以铺满全屏。`,
+        `底部 subtitleSafeBottom（${safeBottom ?? 0}px）区域内有可见元素，会被字幕遮挡。请确保所有内容元素的底边不超过 height - subtitleSafeBottom（根容器仍为全 height，背景填满全屏，只有内容元素需要避让字幕区）。`,
       );
     }
     if (image.emptyCorners >= 3) {

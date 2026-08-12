@@ -335,6 +335,7 @@ Compute all font sizes from \`width\` / \`height\` props (e.g. \`fontSize: heigh
   const card2Y = card1Y + card1H + gap;
   // ... etc
   \`\`\`
+- **BREATHING ROOM (CRITICAL):** The gap between any two adjacent elements MUST be at least \`height * 0.02\` (≈ 22px on 1080p). Do NOT pack elements edge-to-edge — viewers need visual rest between items. If the described elements cannot all fit with this minimum gap AND the font-size floors, REMOVE the least important elements. A slide with 3 well-spaced items is better than 6 cramped ones.
 - If elements don't all fit with the font-size floors, REMOVE the least important elements or reduce their count. Do NOT shrink fonts below the floors, and do NOT cram overlapping elements.
 - After laying out, verify that the bottom of the lowest element is at or above \`height - subtitleSafeBottom\`. If it overflows, remove content or reduce spacing.
 
@@ -410,13 +411,14 @@ Before emitting code, mentally verify:
 4. Is the SMALLEST font size ≥ \`height * 0.028\`? If not, raise it — or delete that text.
 5. Does the content cluster cover ≥ 70 % of the canvas area? If not, ENLARGE described elements (bigger titles, bigger cards) — do NOT add new elements.
 6. **NO OVERLAP**: Do any two text elements overlap vertically? If title bottom + gap < next element top, fix positions. Stack elements sequentially: each element's y = previous element's bottom + gap.
-7. Are outer margins ≤ 6 % of the smaller canvas dimension? If not, reduce them.
-8. Does every visible element end above \`height - subtitleSafeBottom\`? If not, remove less important content.
-9. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
-10. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
-11. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add subtle ambient motion to existing elements (pulse, glow) — do NOT add new elements.
-12. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
-13. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.`;
+7. **BREATHING ROOM**: Is the gap between every pair of adjacent elements at least \`height * 0.02\`? If not, increase spacing or remove elements. The slide should feel spacious, not crammed.
+8. Are outer margins ≤ 6 % of the smaller canvas dimension? If not, reduce them.
+9. Does every visible element end above \`height - subtitleSafeBottom\`? If not, remove less important content.
+10. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
+11. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
+12. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add subtle ambient motion to existing elements (pulse, glow) — do NOT add new elements.
+13. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
+14. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.`;
 }
 
 // ── Main visuals function ─────────────────────────────────────────────
@@ -768,6 +770,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                     minAnyFontCoeff: vq.minAnyFontCoeff,
                     minElements: vq.minElements,
                     minCoverage: vq.minCoverage,
+                    maxCoverage: vq.maxCoverage,
                   },
                   safeBottom: script.meta.subtitleSafeBottom,
                 });
