@@ -338,6 +338,10 @@ Compute all font sizes from \`width\` / \`height\` props (e.g. \`fontSize: heigh
 - **BREATHING ROOM (CRITICAL):** The gap between any two adjacent elements MUST be at least \`height * 0.02\` (≈ 22px on 1080p). Do NOT pack elements edge-to-edge — viewers need visual rest between items. If the described elements cannot all fit with this minimum gap AND the font-size floors, REMOVE the least important elements. A slide with 3 well-spaced items is better than 6 cramped ones.
 - If elements don't all fit with the font-size floors, REMOVE the least important elements or reduce their count. Do NOT shrink fonts below the floors, and do NOT cram overlapping elements.
 - After laying out, verify that the bottom of the lowest element is at or above \`height - subtitleSafeBottom\`. If it overflows, remove content or reduce spacing.
+- **HORIZONTAL BOUNDS (CRITICAL):** Every visible element MUST stay within \`[0, width]\`. When using \`transform: translate(-50%, ...)\` to center an element on a position \`x\`, the element's left edge is \`x - elementWidth / 2\` and right edge is \`x + elementWidth / 2\` — both MUST be within \`[0, width]\`. This is especially important for:
+  - Cards/labels centered on timeline nodes at the extreme ends: if the first node is near \`x = pad\`, the card centered on it will overflow left; if the last node is near \`x = width - pad\`, the card will overflow right.
+  - Fix by either: (a) insetting the first/last node positions so \`nodeX(0) - cardW/2 >= 0\` and \`nodeX(last) + cardW/2 <= width\`, or (b) reducing card width, or (c) shifting edge cards inward while keeping their connector lines to the original node position.
+  - Decorative glows/blurs that intentionally extend beyond the canvas are fine (they have no readable content and are clipped by the viewport), but text-bearing elements (cards, labels, badges, titles) MUST be fully on-screen.
 
 ## Motion design (CRITICAL — this is reviewed separately from layout)
 
@@ -414,11 +418,12 @@ Before emitting code, mentally verify:
 7. **BREATHING ROOM**: Is the gap between every pair of adjacent elements at least \`height * 0.02\`? If not, increase spacing or remove elements. The slide should feel spacious, not crammed.
 8. Are outer margins ≤ 6 % of the smaller canvas dimension? If not, reduce them.
 9. Does every visible element end above \`height - subtitleSafeBottom\`? If not, remove less important content.
-10. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
-11. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
-12. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add subtle ambient motion to existing elements (pulse, glow) — do NOT add new elements.
-13. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
-14. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.`;
+10. **HORIZONTAL BOUNDS**: For every text-bearing element with \`translate(-50%, ...)\` or centered positioning, verify \`left edge >= 0\` and \`right edge <= width\`. Pay special attention to cards/labels centered on the first or last item of a horizontal sequence — they are the most common overflow source. If they overflow, inset the node positions or shrink the card width.
+11. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
+12. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
+13. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add subtle ambient motion to existing elements (pulse, glow) — do NOT add new elements.
+14. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
+15. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.`;
 }
 
 // ── Main visuals function ─────────────────────────────────────────────
