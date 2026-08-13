@@ -49,7 +49,11 @@ export function saveStoredConfig(repoRoot: string, config: AppConfig): void {
   const fp = configFilePath(repoRoot);
   const dir = path.dirname(fp);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(fp, JSON.stringify(config, null, 2), 'utf-8');
+  // The file holds API keys in plain text — keep it owner-only.
+  fs.writeFileSync(fp, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
+  try {
+    fs.chmodSync(fp, 0o600); // mode above only applies on create; fix existing files too
+  } catch { /* best effort */ }
 }
 
 /**
