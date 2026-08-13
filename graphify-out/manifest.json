@@ -145,8 +145,8 @@
     "semantic_hash": ""
   },
   "server/types/api.ts": {
-    "mtime": 1786592649.381763,
-    "ast_hash": "e30c0c58106f15645c54e3dff6ef4aa1",
+    "mtime": 1786603757.987035,
+    "ast_hash": "6119b8cbb90afa23a71e527dac730f97",
     "semantic_hash": ""
   },
   "server/utils/scriptAssetRefs.ts": {
@@ -180,8 +180,8 @@
     "semantic_hash": ""
   },
   "src/ai/visual-metrics.ts": {
-    "mtime": 1786518735.2866938,
-    "ast_hash": "66f188f90d0cd106b685c4047ff6e79c",
+    "mtime": 1786603064.9343474,
+    "ast_hash": "4e080dd7a837f77a82cb5bd8c1f4b8e9",
     "semantic_hash": ""
   },
   "src/ai/visual-review.ts": {
@@ -250,8 +250,8 @@
     "semantic_hash": "1979c85fe66c11679bf21b4f1c0401e8"
   },
   "src/config/defaults.ts": {
-    "mtime": 1786592614.3181753,
-    "ast_hash": "2f855a5a7526b5ef9bb4886713fab273",
+    "mtime": 1786603756.9394834,
+    "ast_hash": "1e58a6b7eb987212e6de309cdd23a910",
     "semantic_hash": ""
   },
   "src/config/load.ts": {
@@ -420,8 +420,8 @@
     "semantic_hash": ""
   },
   "tests/ai/visual-metrics.test.ts": {
-    "mtime": 1786362726.2814476,
-    "ast_hash": "1d4220678352fecd1a3fe065a38ac1ea",
+    "mtime": 1786603105.7762148,
+    "ast_hash": "714914144656be8c18f31fcdd9be89eb",
     "semantic_hash": ""
   },
   "tests/cli/build.test.ts": {
@@ -625,8 +625,8 @@
     "semantic_hash": "1a97405c3fe539fa546eb479746e81e1"
   },
   "web/src/components/SettingsModal.vue": {
-    "mtime": 1786592744.1164718,
-    "ast_hash": "d56614c61cc22319ec8bec980ef694f7",
+    "mtime": 1786603829.3659408,
+    "ast_hash": "fcd34c533dc958ae0b0787a576d0700f",
     "semantic_hash": ""
   },
   "web/src/components/assets/AssetManager.vue": {
@@ -765,13 +765,13 @@
     "semantic_hash": "d6910d24b0876257eb492b01cb04381b"
   },
   "CLAUDE.md": {
-    "mtime": 1786592457.5491326,
-    "ast_hash": "9633119c21ecb1a9dc859fe3aec9c6da",
+    "mtime": 1786603906.654485,
+    "ast_hash": "76cbb44e778911df8dfca3db27411f4c",
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1786592773.7677212,
-    "ast_hash": "6415859462c0b5e24601123521ca62b3",
+    "mtime": 1786603901.7751398,
+    "ast_hash": "439d77228a3544066d4670609ef72f94",
     "semantic_hash": ""
   },
   "deploy/README.md": {
@@ -1045,13 +1045,13 @@
     "semantic_hash": ""
   },
   "src/ai/agent/index.ts": {
-    "mtime": 1786591884.1301298,
-    "ast_hash": "f27e8afd77fb7d2493b8bf288463b237",
+    "mtime": 1786603737.5924704,
+    "ast_hash": "594b83a52ea311648909c1b4bb582363",
     "semantic_hash": ""
   },
   "src/ai/agent/types.ts": {
-    "mtime": 1786591836.1254697,
-    "ast_hash": "70ce23dc45dcf911b9f6cccf28b22935",
+    "mtime": 1786603680.3508353,
+    "ast_hash": "d67c19de21903179b559a3fe35eefbee",
     "semantic_hash": ""
   },
   "src/remotion/slides/LLMProbabilityProgram.tsx": {
@@ -1090,8 +1090,8 @@
     "semantic_hash": ""
   },
   "src/ai/agent/cli-common.ts": {
-    "mtime": 1786592324.885266,
-    "ast_hash": "009093184e68ef5b0e3271cd69f63476",
+    "mtime": 1786603655.0805297,
+    "ast_hash": "6c179e7f172bb90084fe4c563c94c59b",
     "semantic_hash": ""
   },
   "src/ai/agent/opencode-cli.ts": {
@@ -1102,6 +1102,21 @@
   "tests/server/configService.test.ts": {
     "mtime": 1786592852.409212,
     "ast_hash": "f6313b45a3c5b63b0a77fbfa770e35cc",
+    "semantic_hash": ""
+  },
+  "deepseek.bash": {
+    "mtime": 1786599824.6533074,
+    "ast_hash": "cf6b894b2f5cf7913a18e2bb6ec9b8e3",
+    "semantic_hash": ""
+  },
+  "src/ai/agent/codex-cli.ts": {
+    "mtime": 1786603720.2069235,
+    "ast_hash": "9f1ea2c796c5ca352d36fbb199262737",
+    "semantic_hash": ""
+  },
+  "tests/ai/codex-cli.test.ts": {
+    "mtime": 1786603874.659989,
+    "ast_hash": "b02df1101d82fae16c50bd46cffc6e6d",
     "semantic_hash": ""
   }
 }

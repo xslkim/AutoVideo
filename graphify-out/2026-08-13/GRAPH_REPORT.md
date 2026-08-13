@@ -1,28 +1,28 @@
 # Graph Report - AutoVideo  (2026-08-13)
 
 ## Corpus Check
-- 211 files · ~185,778 words
+- 215 files · ~188,497 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 1930 nodes · 3225 edges · 128 communities (111 shown, 17 thin omitted)
+- 1963 nodes · 3326 edges · 132 communities (111 shown, 21 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 50 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `440e43cd`
+- Built from commit: `0745c46a`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- build.ts
+- build.test.ts
 - BlockOutputs.vue
 - MetaEditor.vue
 - dict.global.md
 - dependencies
 - properties
 - VideoComposition.tsx
-- doctor.ts
+- image-gen.ts
 - agent/index.ts
 - TopBar.vue
 - script.md Markdown DSL
@@ -41,15 +41,15 @@
 - ProjectPage.vue
 - server.py
 - utils/api.ts
-- meta.ts
-- parser/blocks.ts
+- taskRunner.ts
+- component-gen.ts
 - BlockSidebar.vue
 - devDependencies
 - dependencies
 - TaskItem.vue
 - compilerOptions
 - ScriptEditor.vue
-- image-gen.ts
+- store.ts
 - provider.ts
 - routes/blocks.ts
 - types/api.ts
@@ -58,19 +58,19 @@
 - start.sh
 - SettingsModal.vue
 - HTML 视觉模式 PRD（@visual: html）
-- visuals.test.ts
+- taskStore.ts
 - parser/assets.ts
 - script.ts
-- qa.ts
+- defaults.ts
 - remotion
 - properties
-- concat.ts
+- render-blocks.ts
 - compile.ts
 - BlockPanel.vue
 - tsconfig.server.json
 - 6. 管线集成（逐文件改动）
 - src/remotion/slides/CameraTransform.tsx
-- render.test.ts
+- CacheStore
 - AssetUploadDialog.vue
 - 13. 分阶段实施计划
 - properties
@@ -90,7 +90,7 @@
 - 5. seek-hook 约定（动画档）
 - 7. 资产处理
 - 8. 安全沙箱
-- id
+- build.ts
 - AGENTS.md
 - proper-lockfile
 - dict.ts
@@ -98,37 +98,41 @@
 - render
 - properties
 - visual-metrics.ts
-- preview.ts
-- taskRunner.ts
-- PipelineFlow.tsx
-- component-gen.ts
-- Root.tsx
+- load.ts
+- gaps.ts
+- slides/PipelineFlow.tsx
+- TitleCards.tsx
+- cache.ts
 - LLMProbabilityProgram.tsx
-- defaults.ts
+- html-render.ts
 - package.json
 - required
-- component.tsx
+- RenderPipelineSlide.tsx
 - visuals.ts
 - remotion
-- autovideo.ts
+- RenderPipelineTimeline.tsx
 - Block
 - components/SoftRendererIntro.tsx
 - scripts
 - visualMode
 - narration
 - sandbox.ts
+- visuals.test.ts
 - MyRenderModules.tsx
-- block-frame.tsx
+- autovideo.ts
 - required
-- ShaderCodeSlide.tsx
-- items
+- compile.test.ts
+- tts.test.ts
+- deepseek.bash
 - required
 - properties
 - TotalInternalReflection.tsx
-- assets
+- LocalDeployHero.tsx
 - properties
+- items
 - comp.tsx
 - sensenova-t2i/start.sh
+- web/src/remotion/slides/CameraTransform.tsx
 - MuseTalk Integration Pipeline
 - ShaderComparison.tsx
 - Solid Blue Square Hero Image
@@ -158,9 +162,9 @@
   README.md → docs/AGENTS.md
 - `Compile Fixture Block B01` --semantically_similar_to--> `Starter Welcome Block B01`  [INFERRED] [semantically similar]
   tests/fixtures/compile-test/block1.md → templates/starter/script.md
-- `connectSSE()` --indirect_call--> `cleanup()`  [INFERRED]
-  web/src/utils/sse.ts → tests/cli/visuals.test.ts
 - `AutoVideo Web UI` --references--> `ETag Optimistic Concurrency`  [INFERRED]
+  docs/architecture/WEB_PRD.md → CLAUDE.md
+- `AutoVideo Web UI` --references--> `Single-Thread FIFO Task Queue`  [INFERRED]
   docs/architecture/WEB_PRD.md → CLAUDE.md
 
 ## Import Cycles
@@ -176,11 +180,11 @@
 - **Starter Hero Placeholder Composition** — templates_starter_hero_solid_blue_square, templates_starter_hero_placeholder_hero_asset, templates_starter_hero_uniform_saturated_blue, templates_starter_hero_starter_template_visual [INFERRED 0.75]
 - **Minimal PNG stub used as diagram asset in compile-test fixtures** — tests_fixtures_compile_test_assets_diagram_placeholder_png, tests_fixtures_compile_test_assets_diagram_compile_test_fixture, tests_fixtures_compile_test_assets_diagram_stub_diagram [INFERRED 0.75]
 
-## Communities (128 total, 17 thin omitted)
+## Communities (132 total, 21 thin omitted)
 
-### Community 0 - "build.ts"
-Cohesion: 0.13
-Nodes (21): build(), buildCommand(), BuildError, BuildOptions, BuildResult, CompileOptions, CompileResult, RenderOptions (+13 more)
+### Community 0 - "build.test.ts"
+Cohesion: 0.17
+Nodes (11): BuildError, CompileResult, RenderResult, TtsResult, FIXTURE_PROJECT, makeScript(), mockCompile, mockRender (+3 more)
 
 ### Community 1 - "BlockOutputs.vue"
 Cohesion: 0.06
@@ -200,19 +204,19 @@ Nodes (38): @codemirror/commands, @codemirror/lang-javascript, @codemirror/lang-
 
 ### Community 5 - "properties"
 Cohesion: 0.05
-Nodes (39): 16:9, 1:1, 9:16, enum, type, description, maximum, minimum (+31 more)
+Nodes (42): 16:9, 1:1, 9:16, enum, type, description, maximum, minimum (+34 more)
 
 ### Community 6 - "VideoComposition.tsx"
-Cohesion: 0.14
-Nodes (18): DARK_CODE, getTheme(), THEMES, AnimationPreset, AnimationProps, BlockFrameProps, LineTimingSec, NarrationLine (+10 more)
-
-### Community 7 - "doctor.ts"
 Cohesion: 0.09
-Nodes (39): getConfig(), checkCacheDirWritable(), checkCJKFonts(), checkClaudeApiConnectivity(), checkClaudeCredentials(), checkDiskSpace(), checkFfmpeg(), checkNode() (+31 more)
+Nodes (33): estimateWidthEm(), findCurrentLine(), fitFontSize(), renderHighlightedText(), SubtitleOverlay(), BlockFrame(), ENTER_EASING, EXIT_EASING (+25 more)
+
+### Community 7 - "image-gen.ts"
+Cohesion: 0.06
+Nodes (66): createSystemRoutes(), publicConfig(), applyDefined(), configFilePath(), loadStoredConfig(), mergeFields(), mergeStoredConfig(), resolveTaskConfig() (+58 more)
 
 ### Community 8 - "agent/index.ts"
-Cohesion: 0.17
-Nodes (18): AnthropicApiDriver, createClient(), resolveCredentials(), ResolvedCredentials, toAgentResult(), BASE_ARGS, cancelledError(), ClaudeCliDriver (+10 more)
+Cohesion: 0.12
+Nodes (26): AnthropicApiDriver, createClient(), resolveCredentials(), ResolvedCredentials, toAgentResult(), BASE_ARGS, ClaudeCliDriver, parseCliOutput() (+18 more)
 
 ### Community 9 - "TopBar.vue"
 Cohesion: 0.07
@@ -223,24 +227,24 @@ Cohesion: 0.07
 Nodes (33): Build Output Path Constraint, Branded Stage Readiness Types, compile Stage, Content-Hash Cache, Four-Stage Pipeline, render Stage, script.json Canonical IR, tts Stage (+25 more)
 
 ### Community 11 - "render.ts"
-Cohesion: 0.15
-Nodes (22): computeBlockTimingWithFps(), computeSubtitleQuietWindows(), render(), RenderError, resolveAvatarRadius(), resolveOverlayEncode(), shouldGenerateMuseTalkLipsync(), shouldOverlayRawAvatarLoop() (+14 more)
+Cohesion: 0.05
+Nodes (54): computeBlockTimingWithFps(), computeSubtitleQuietWindows(), render(), RenderError, resolveAvatarRadius(), resolveOverlayEncode(), shouldGenerateMuseTalkLipsync(), shouldOverlayRawAvatarLoop() (+46 more)
 
 ### Community 12 - "MuseTalk /lipsync REST API"
 Cohesion: 0.08
 Nodes (33): Test Video meta fixture, float16 VRAM savings, MuseTalk /lipsync REST API, lipsync_server.py FastAPI wrapper, max-avatar-seconds avatar trim, Serial inference lock, torch.load weights_only=False patch, Avatar PiP lipsync mode (+25 more)
 
 ### Community 14 - "BlockScriptEditor.vue"
-Cohesion: 0.12
-Nodes (22): assetPaths, buildExtensions(), conflictEtag, conflictVisible, editorEl, emit, handleColorSchemeChange(), isDirty (+14 more)
+Cohesion: 0.10
+Nodes (26): assetPaths, buildExtensions(), conflictEtag, conflictVisible, editorEl, emit, handleColorSchemeChange(), isDirty (+18 more)
 
 ### Community 16 - "validate.ts"
 Cohesion: 0.11
 Nodes (25): analyzeByFileSize(), analyzeImage(), ASTScanResult, astStaticScan(), ensureNodeModules(), execFileAsync, extractSourceSnippet(), extractTscErrorContext() (+17 more)
 
 ### Community 17 - "tts.ts"
-Cohesion: 0.12
-Nodes (18): md5File(), tts(), TtsError, concatenateWavsWithGaps(), ConcatOptions, ff(), getWavDurationSec(), computeGapsMs() (+10 more)
+Cohesion: 0.21
+Nodes (9): md5File(), tts(), TtsError, concatenateWavsWithGaps(), ConcatOptions, ff(), getWavDurationSec(), createTtsProvider() (+1 more)
 
 ### Community 18 - "HomePage.vue"
 Cohesion: 0.08
@@ -260,7 +264,7 @@ Nodes (24): DOM, DOM.Iterable, env.d.ts, ES2022, src/**/*.vue, compilerOptions, 
 
 ### Community 22 - "pronounce.ts"
 Cohesion: 0.21
-Nodes (13): applyPronunciation(), escapeRegex(), findUp(), isAsciiWordChar(), loadDictFile(), loadPronunciationDict(), loadPronunciationDicts(), MACHINE_DICT_DIR (+5 more)
+Nodes (12): escapeRegex(), findUp(), isAsciiWordChar(), loadDictFile(), loadPronunciationDict(), loadPronunciationDicts(), MACHINE_DICT_DIR, mergeRules() (+4 more)
 
 ### Community 23 - "ProjectPage.vue"
 Cohesion: 0.08
@@ -274,17 +278,17 @@ Nodes (23): BaseModel, get, ndarray, on_event, post, Response, build_styled_text
 Cohesion: 0.22
 Nodes (12): ProjectSummary, useProjectStore, apiDelete(), ApiError, apiFetch(), apiGet(), apiPost(), apiPut() (+4 more)
 
-### Community 26 - "meta.ts"
-Cohesion: 0.22
-Nodes (14): ASPECT_TO_DIMS, aspectToDimensions(), DEFAULTS, extractMetaSegment(), MetaError, MetaOverrides, ParsedMeta, parseMetaKvLines() (+6 more)
+### Community 26 - "taskRunner.ts"
+Cohesion: 0.13
+Nodes (22): copyDir(), createTaskRunner(), getTaskConfig(), snapshotSourceFiles(), syncAvatarMetaToScript(), wrapProgress(), extractScriptAssetRefs(), SCRIPT_ASSET_REF_REGEX (+14 more)
 
-### Community 27 - "parser/blocks.ts"
-Cohesion: 0.15
-Nodes (19): BlockError, extractSection(), parseAndMergeBlocks(), parseBlockFile(), parseTitleLine(), RawBlock, splitIntoSegments(), DirectiveError (+11 more)
+### Community 27 - "component-gen.ts"
+Cohesion: 0.27
+Nodes (10): createAgentDriver(), AnthropicConfig, buildUserContent(), ComponentGenInput, ComponentGenResult, extractTsxFromOutput(), generateComponent(), RetryContext (+2 more)
 
 ### Community 28 - "BlockSidebar.vue"
-Cohesion: 0.09
-Nodes (27): CacheClearKind, addBlock(), addingBlock, apiBlocks, batchClearCache(), batchCreate(), batchForce, batchLoading (+19 more)
+Cohesion: 0.11
+Nodes (22): addBlock(), addingBlock, apiBlocks, batchClearCache(), batchCreate(), batchForce, batchLoading, checkedIds (+14 more)
 
 ### Community 29 - "devDependencies"
 Cohesion: 0.08
@@ -306,73 +310,73 @@ Nodes (21): bin/**/*.ts, remotion/**/*.ts, remotion/**/*.tsx, compilerOptions, d
 Cohesion: 0.12
 Nodes (23): overwrite(), buildExtensions(), conflictData, ConflictInfo, conflictVisible, editorEl, emit, handleColorSchemeChange() (+15 more)
 
-### Community 34 - "image-gen.ts"
-Cohesion: 0.05
-Nodes (59): checkAgentCli(), createSystemRoutes(), publicConfig(), applyDefined(), configFilePath(), loadStoredConfig(), mergeStoredConfig(), resolveTaskConfig() (+51 more)
+### Community 34 - "store.ts"
+Cohesion: 0.12
+Nodes (14): AudioKey, CacheKey, CacheStats, CacheStoreOptions, CacheType, CleanOptions, ComponentKey, dirForType() (+6 more)
 
 ### Community 35 - "provider.ts"
 Cohesion: 0.10
-Nodes (11): computeVoxcpmModelVersion(), createTtsProvider(), TtsProvider, TtsProviderError, TtsProviderName, VoxcpmProvider, SpeakOptions, VoxcpmClient (+3 more)
+Nodes (10): computeVoxcpmModelVersion(), TtsProvider, TtsProviderError, TtsProviderName, VoxcpmProvider, SpeakOptions, VoxcpmClient, VoxcpmClientOptions (+2 more)
 
 ### Community 36 - "routes/blocks.ts"
 Cohesion: 0.06
 Nodes (65): hono, hono, app, __dirname, DIST_SEGMENTS, gitignorePath, port, server (+57 more)
 
 ### Community 37 - "types/api.ts"
-Cohesion: 0.16
-Nodes (17): createTaskRoutes(), STAGES_WITH_BLOCK_IDS, VALID_STAGES, CreateTaskInput, generateId(), TaskRunFn, ApiError, BlocksResponse (+9 more)
+Cohesion: 0.17
+Nodes (13): createTaskRoutes(), STAGES_WITH_BLOCK_IDS, VALID_STAGES, CreateTaskInput, generateId(), TaskRunFn, AgentProviderName, ApiError (+5 more)
 
 ### Community 38 - "AutoVideo Web UI"
 Cohesion: 0.15
 Nodes (15): AutoVideo, ETag Optimistic Concurrency, Single-Thread FIFO Task Queue, Web UI Agent Workflow, .autovideo-web Config Store, AutoVideo Web Deployment, Homepage Flagship Six, Four Theme Domains (+7 more)
 
 ### Community 39 - "lint.ts"
-Cohesion: 0.32
-Nodes (8): expandCompound(), formatPronunciationLint(), lintPronunciation(), ruleMatchesTerm(), spellOut(), splitCamel(), suggestReading(), PronunciationRule
+Cohesion: 0.29
+Nodes (9): expandCompound(), formatPronunciationLint(), lintPronunciation(), ruleMatchesTerm(), spellOut(), splitCamel(), suggestReading(), applyPronunciation() (+1 more)
 
 ### Community 40 - "start.sh"
 Cohesion: 0.31
 Nodes (15): build_all(), check_env(), err(), info(), install_deps(), ok(), port_busy(), section() (+7 more)
 
 ### Community 41 - "SettingsModal.vue"
-Cohesion: 0.12
-Nodes (17): AppConfigPublic, activeTab, anthropicConcurrencyOptions, clampAnthropicConcurrency(), emit, form, imageGenProviderOptions, loadConfig() (+9 more)
+Cohesion: 0.11
+Nodes (19): activeTab, agentBaseUrlOptions, agentModelOptions, agentProviderOptions, anthropicConcurrencyOptions, clampAnthropicConcurrency(), emit, form (+11 more)
 
 ### Community 42 - "HTML 视觉模式 PRD（@visual: html）"
 Cohesion: 0.18
 Nodes (10): 14. 验收标准, 15.1 风险, 15.2 未决问题（评审已拍板）, 15. 风险与未决问题, 16. 参考资料, 9.1 partial 缓存 key（html 块）, 9.2 html 源码缓存, 9. 缓存策略 (+2 more)
 
-### Community 43 - "visuals.test.ts"
-Cohesion: 0.22
-Nodes (7): VisualsError, VisualsResult, cleanup(), createTestScript(), mockGenerate, mockValidate, setupTempDir()
+### Community 43 - "taskStore.ts"
+Cohesion: 0.29
+Nodes (8): ProgressEvent, cleanup(), formatStage(), getStageLabel(), STAGE_LABEL, useTaskStore, connectSSE(), SSEHandlers
 
 ### Community 44 - "parser/assets.ts"
-Cohesion: 0.22
-Nodes (15): AssetError, AssetProcessResult, BlockForAssets, CODE_EXTENSIONS, computeFileHash(), ensureDirForFile(), FileRef, inlineCodeSnippet() (+7 more)
+Cohesion: 0.24
+Nodes (14): AssetError, BlockForAssets, CODE_EXTENSIONS, computeFileHash(), ensureDirForFile(), FileRef, inlineCodeSnippet(), isCodeFile() (+6 more)
 
 ### Community 45 - "script.ts"
-Cohesion: 0.10
-Nodes (22): computeDurationFrames(), generatePreviewRoot(), RootPreviewOptions, RootRenderOptions, AnimationProps, ASPECT_RATIOS, assertVisualsReady(), AudioReadyScript (+14 more)
+Cohesion: 0.05
+Nodes (49): copyRemotionFiles(), ensurePublicScript(), findAvailablePort(), generatePreviewRootForBuild(), preview(), PreviewError, PreviewOptions, PreviewResult (+41 more)
 
-### Community 46 - "qa.ts"
-Cohesion: 0.17
-Nodes (20): checkNonBlackFrames(), checkSubtitleSafeArea(), execBuffer(), execCapture(), execCaptureAll(), frameEdgeMean(), isFrameBlack(), probeDuration() (+12 more)
+### Community 46 - "defaults.ts"
+Cohesion: 0.15
+Nodes (12): AgentProviderName, AgentReviewConfig, AnthropicConfig, CacheConfig, ImageGenConfig, LoudnormConfig, MusetalkConfig, RenderConfig (+4 more)
 
 ### Community 47 - "remotion"
-Cohesion: 0.07
-Nodes (12): AnimationProps, remotion, AnimationProps, STEPS, AnimationProps, STEPS, AnimationProps, AnimationProps (+4 more)
+Cohesion: 0.12
+Nodes (6): AnimationProps, AnimationProps, remotion, AnimationProps, CODE_LINES, AnimationProps
 
 ### Community 48 - "properties"
-Cohesion: 0.13
-Nodes (15): type, description, type, description, type, properties, enter, htmlSource (+7 more)
+Cohesion: 0.12
+Nodes (16): type, description, type, description, pattern, type, description, type (+8 more)
 
-### Community 49 - "concat.ts"
-Cohesion: 0.18
-Nodes (7): ConcatOptions, concatPartials(), ConcatResult, probeVideoStreams(), StreamInfo, validatePartials(), ffmpegAvailable
+### Community 49 - "render-blocks.ts"
+Cohesion: 0.29
+Nodes (9): PartialKey, DEFAULT_QUALITY, HTML_RENDERER_VERSION, copyFile(), ensureDir(), getRemotionVersion(), renderBlocks(), RenderBlocksOptions (+1 more)
 
 ### Community 50 - "compile.ts"
-Cohesion: 0.16
-Nodes (13): assertNoHtmlMarkerLines(), compile(), CompileError, loadSchema(), parseMetaArgs(), FontScaleResult, MIN_FONT_COEFF, scaleFontMentions() (+5 more)
+Cohesion: 0.21
+Nodes (13): assertNoHtmlMarkerLines(), compile(), loadSchema(), parseMetaArgs(), dictSuggestCommand(), FontScaleResult, MIN_FONT_COEFF, scaleFontMentions() (+5 more)
 
 ### Community 51 - "BlockPanel.vue"
 Cohesion: 0.18
@@ -389,10 +393,6 @@ Nodes (8): 6.1 类型层 — [src/types/script.ts](../../src/types/script.ts), 6
 ### Community 54 - "src/remotion/slides/CameraTransform.tsx"
 Cohesion: 0.22
 Nodes (10): add(), AnimationProps, CameraTransform(), cross(), isoProj(), norm(), rotY(), scale() (+2 more)
-
-### Community 55 - "render.test.ts"
-Cohesion: 0.33
-Nodes (6): applyLoudnorm(), execAsync(), LoudnormConfig, LoudnormResult, MeasuredValues, parseMeasuredValues()
 
 ### Community 56 - "AssetUploadDialog.vue"
 Cohesion: 0.18
@@ -470,13 +470,13 @@ Nodes (4): 7.1 HTML 引用本地资产, 7.2 字体, 7.3 内联 vs 外部资产, 
 Cohesion: 0.50
 Nodes (4): 8.1 风险, 8.2 防护措施, 8.3 v1 限制（明示给用户）, 8. 安全沙箱
 
-### Community 75 - "id"
-Cohesion: 0.50
-Nodes (4): description, pattern, type, id
+### Community 75 - "build.ts"
+Cohesion: 0.33
+Nodes (10): build(), buildCommand(), BuildOptions, BuildResult, CompileOptions, RenderOptions, TtsOptions, VisualsOptions (+2 more)
 
 ### Community 78 - "dict.ts"
 Cohesion: 0.22
-Nodes (9): createAgentDriver(), dictSuggestCommand(), DictSuggestOptions, ProjectError, RawProjectJson, readProject(), ResolvedProject, LintFinding (+1 more)
+Nodes (6): DictSuggestOptions, ProjectError, RawProjectJson, ResolvedProject, LintFinding, DICT_FILENAME
 
 ### Community 80 - "render"
 Cohesion: 0.20
@@ -487,48 +487,44 @@ Cohesion: 0.18
 Nodes (11): description, componentPath, description, htmlPath, imagePath, videoPath, visual, additionalProperties (+3 more)
 
 ### Community 82 - "visual-metrics.ts"
-Cohesion: 0.18
-Nodes (14): assessVisualMetrics(), cellEdgeMean(), computeImageMetrics(), computeStaticMetrics(), evalPx(), execFileAsync, ImageMetrics, PxEval (+6 more)
+Cohesion: 0.16
+Nodes (16): assessVisualMetrics(), cellEdgeMean(), computeImageMetrics(), computeStaticMetrics(), evalPx(), execFileAsync, ImageMetrics, PxEval (+8 more)
 
-### Community 83 - "preview.ts"
-Cohesion: 0.23
-Nodes (8): copyRemotionFiles(), ensurePublicScript(), findAvailablePort(), generatePreviewRootForBuild(), preview(), PreviewError, PreviewOptions, PreviewResult
+### Community 83 - "load.ts"
+Cohesion: 0.22
+Nodes (14): getConfig(), DEFAULT_CONFIG, deepMerge(), expandConfigPaths(), expandPath(), getDefaultConfig(), inferType(), loadConfig() (+6 more)
 
-### Community 84 - "taskRunner.ts"
+### Community 84 - "gaps.ts"
 Cohesion: 0.33
-Nodes (8): copyDir(), createTaskRunner(), getTaskConfig(), snapshotSourceFiles(), syncAvatarMetaToScript(), wrapProgress(), extractScriptAssetRefs(), SCRIPT_ASSET_REF_REGEX
+Nodes (6): computeGapsMs(), GAP_MS, gapAfterMs(), computeLineTimings(), DEFAULT_GAP_MS, LineTiming
 
-### Community 85 - "PipelineFlow.tsx"
+### Community 85 - "slides/PipelineFlow.tsx"
 Cohesion: 0.40
 Nodes (4): AnimationProps, NODES, PipelineFlow(), PipelineFlow()
 
-### Community 86 - "component-gen.ts"
-Cohesion: 0.29
-Nodes (9): AnthropicConfig, buildUserContent(), ComponentGenInput, ComponentGenResult, extractTsxFromOutput(), generateComponent(), RetryContext, DEFAULT_CONFIG (+1 more)
+### Community 86 - "TitleCards.tsx"
+Cohesion: 0.40
+Nodes (3): AnimationProps, CARDS, COLORS
 
-### Community 87 - "Root.tsx"
-Cohesion: 0.20
-Nodes (10): estimateWidthEm(), findCurrentLine(), fitFontSize(), renderHighlightedText(), SubtitleOverlay(), BlockComp, TEST_LINE_TIMINGS, TEST_LINES (+2 more)
+### Community 87 - "cache.ts"
+Cohesion: 0.42
+Nodes (7): formatBytes(), getStore(), isValidType(), padRight(), registerCacheCommand(), runClean(), runStats()
 
-### Community 89 - "defaults.ts"
-Cohesion: 0.09
-Nodes (31): PartialKey, AnthropicConfig, CacheConfig, DEFAULT_HTML_RENDER, DEFAULT_QUALITY, HtmlRenderConfig, ImageGenConfig, LoudnormConfig (+23 more)
+### Community 89 - "html-render.ts"
+Cohesion: 0.22
+Nodes (12): DEFAULT_HTML_RENDER, HtmlRenderConfig, QualityConfig, colorSpaceArgs(), EncodeOptions, encodePartialMp4(), HtmlRenderError, renderHtmlBlock() (+4 more)
 
 ### Community 90 - "package.json"
 Cohesion: 0.22
 Nodes (8): bin, autovideo, description, engines, node, name, type, version
 
 ### Community 91 - "required"
-Cohesion: 0.22
-Nodes (9): aspect, fps, height, schemaVersion, subtitleSafeBottom, theme, voiceRef, width (+1 more)
+Cohesion: 0.17
+Nodes (12): aspect, fps, height, schemaVersion, subtitleSafeBottom, theme, voiceRef, width (+4 more)
 
 ### Community 93 - "visuals.ts"
 Cohesion: 0.25
 Nodes (14): classifyRenderError(), cleanupStill(), checkNarrationSyncContract(), blockTimingContext(), buildComponentKey(), buildDefaultSystemPrompt(), buildNarrationContext(), computePromptVersion() (+6 more)
-
-### Community 95 - "autovideo.ts"
-Cohesion: 0.43
-Nodes (4): dict, program, copyDirRecursive(), initCommand()
 
 ### Community 96 - "Block"
 Cohesion: 0.46
@@ -550,37 +546,45 @@ Nodes (8): lines, additionalProperties, properties, required, type, explicitDura
 Cohesion: 0.36
 Nodes (6): buildWhitelistedEnv(), ENV_WHITELIST, runIsolated(), SandboxOptions, SandboxResult, wrapWithIsolation()
 
-### Community 104 - "block-frame.tsx"
-Cohesion: 0.60
-Nodes (5): BlockFrame(), ENTER_EASING, EXIT_EASING, getEnterStyle(), getExitStyle()
+### Community 102 - "visuals.test.ts"
+Cohesion: 0.25
+Nodes (6): VisualsError, VisualsResult, createTestScript(), mockGenerate, mockValidate, setupTempDir()
+
+### Community 104 - "autovideo.ts"
+Cohesion: 0.43
+Nodes (4): dict, program, copyDirRecursive(), initCommand()
 
 ### Community 105 - "required"
-Cohesion: 0.29
-Nodes (7): enterFrames, enterSec, exitSec, frames, holdSec, totalSec, required
+Cohesion: 0.18
+Nodes (11): enterFrames, enterSec, exitSec, frames, holdSec, totalSec, timing, additionalProperties (+3 more)
 
-### Community 108 - "items"
-Cohesion: 0.33
-Nodes (6): items, minItems, type, additionalProperties, type, blocks
+### Community 106 - "compile.test.ts"
+Cohesion: 0.29
+Nodes (4): CompileError, FIXTURE_PROJECT, FIXTURES_DIR, OUTPUT_BASE
+
+### Community 107 - "tts.test.ts"
+Cohesion: 0.38
+Nodes (4): createMockServer(), generateWavBuffer(), makeConfig(), makeOpts()
 
 ### Community 109 - "required"
 Cohesion: 0.29
 Nodes (7): enter, exit, id, narration, title, visual, required
 
 ### Community 111 - "properties"
-Cohesion: 0.18
-Nodes (11): enterFrames, enterSec, exitSec, frames, holdSec, timing, totalSec, additionalProperties (+3 more)
+Cohesion: 0.29
+Nodes (7): enterFrames, enterSec, exitSec, frames, holdSec, totalSec, properties
 
 ### Community 114 - "TotalInternalReflection.tsx"
 Cohesion: 0.38
 Nodes (6): AnimationProps, describeArc(), polarToCartesian(), RAY_GROUPS, RayGroup, TOTAL_REFLECTION()
 
-### Community 116 - "assets"
-Cohesion: 0.33
-Nodes (6): pattern, type, additionalProperties, description, type, assets
+### Community 116 - "properties"
+Cohesion: 0.20
+Nodes (10): pattern, type, additionalProperties, type, additionalProperties, description, type, properties (+2 more)
 
-### Community 117 - "properties"
-Cohesion: 0.29
-Nodes (7): additionalProperties, type, additionalProperties, type, properties, artifacts, meta
+### Community 117 - "items"
+Cohesion: 0.33
+Nodes (6): items, minItems, type, additionalProperties, type, blocks
 
 ### Community 119 - "sensenova-t2i/start.sh"
 Cohesion: 0.40
@@ -607,24 +611,24 @@ Nodes (3): Compile-Test Diagram Fixture Asset, 1x1 Placeholder PNG Diagram, Stub
   tests/fixtures/compile-test/meta.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **748 isolated node(s):** `AnimationProps`, `AnimationProps`, `AnimationProps`, `AnimationProps`, `STEPS` (+743 more)
+- **758 isolated node(s):** `AnimationProps`, `program`, `dict`, `deepseek.bash script`, `AnimationProps` (+753 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **17 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **21 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **What is the exact relationship between `Test Video meta fixture` and `Avatar PiP lipsync mode`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `properties` connect `properties` to `assets`, `items`, `script.schema.json`?**
-  _High betweenness centrality (0.100) - this node is a cross-community bridge._
-- **Why does `remotion` connect `remotion` to `components/SoftRendererIntro.tsx`, `ViewTransformSlide.tsx`, `VideoComposition.tsx`, `MyRenderModules.tsx`, `block-frame.tsx`, `ShaderCodeSlide.tsx`, `TotalInternalReflection.tsx`, `tsconfig.server.json`, `PipelineFlow.tsx`, `comp.tsx`, `Root.tsx`, `src/remotion/slides/CameraTransform.tsx`, `LLMProbabilityProgram.tsx`, `component.tsx`, `ShaderComparison.tsx`?**
-  _High betweenness centrality (0.095) - this node is a cross-community bridge._
+- **Why does `properties` connect `properties` to `required`, `script.schema.json`, `items`?**
+  _High betweenness centrality (0.086) - this node is a cross-community bridge._
+- **Why does `remotion` connect `remotion` to `components/SoftRendererIntro.tsx`, `ViewTransformSlide.tsx`, `VideoComposition.tsx`, `MyRenderModules.tsx`, `web/src/remotion/slides/CameraTransform.tsx`, `TotalInternalReflection.tsx`, `LocalDeployHero.tsx`, `tsconfig.server.json`, `slides/PipelineFlow.tsx`, `TitleCards.tsx`, `comp.tsx`, `src/remotion/slides/CameraTransform.tsx`, `LLMProbabilityProgram.tsx`, `RenderPipelineSlide.tsx`, `ShaderComparison.tsx`, `RenderPipelineTimeline.tsx`?**
+  _High betweenness centrality (0.080) - this node is a cross-community bridge._
 - **Why does `dependencies` connect `dependencies` to `routes/blocks.ts`, `proper-lockfile`, `puppeteer-core`, `package.json`, `remotion`?**
   _High betweenness centrality (0.075) - this node is a cross-community bridge._
-- **What connects `AnimationProps`, `AnimationProps`, `AnimationProps` to the rest of the system?**
-  _748 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `build.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.13405797101449277 - nodes in this community are weakly interconnected._
+- **What connects `AnimationProps`, `program`, `dict` to the rest of the system?**
+  _758 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `BlockOutputs.vue` be split into smaller, more focused modules?**
   _Cohesion score 0.05537098560354374 - nodes in this community are weakly interconnected._
+- **Should `MetaEditor.vue` be split into smaller, more focused modules?**
+  _Cohesion score 0.06852497096399536 - nodes in this community are weakly interconnected._
