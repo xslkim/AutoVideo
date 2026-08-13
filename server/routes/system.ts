@@ -1,6 +1,5 @@
 import { Hono } from 'hono';
-import path from 'node:path';
-import fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import type { AppConfig, AppConfigPublic, DoctorReport } from '../types/api.js';
 import { checkFfmpeg, checkChromium } from '../../src/cli/doctor.js';
 import {
@@ -8,87 +7,25 @@ import {
   isImageGenConfigured,
   resolveImageGenProvider,
 } from '../../src/ai/image-gen.js';
-import type { ImageGenConfig } from '../../src/config/defaults.js';
 import { DEFAULT_VISUAL_QUALITY } from '../../src/config/defaults.js';
-
-const CONFIG_FILE = '.autovideo-web/config.json';
+import {
+  loadStoredConfig,
+  saveStoredConfig,
+  mergeStoredConfig,
+  resolveWebConfig,
+  resolveTaskConfig,
+} from '../services/configService.js';
 
 // ---------------------------------------------------------------------------
-// Config helpers
+// Helpers
 // ---------------------------------------------------------------------------
-
-function configPath(repoRoot: string): string {
-  return path.join(repoRoot, CONFIG_FILE);
-}
-
-function loadConfig(repoRoot: string): AppConfig {
-  const fp = configPath(repoRoot);
-  try {
-    const raw = fs.readFileSync(fp, 'utf-8');
-    return JSON.parse(raw) as AppConfig;
-  } catch {
-    return { version: 1 };
-  }
-}
-
-function saveConfig(repoRoot: string, config: AppConfig): void {
-  const fp = configPath(repoRoot);
-  const dir = path.dirname(fp);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(fp, JSON.stringify(config, null, 2), 'utf-8');
-}
-
-/**
- * Resolve full config: UI config takes priority; missing fields fallback to env.
- */
-function resolveConfig(repoRoot: string): AppConfig {
-  const stored = loadConfig(repoRoot);
-  return {
-    version: 1,
-    anthropic: {
-      apiKey: stored.anthropic?.apiKey || process.env.ANTHROPIC_API_KEY || undefined,
-      baseURL: stored.anthropic?.baseURL || process.env.ANTHROPIC_BASE_URL || undefined,
-      model: stored.anthropic?.model || undefined,
-      concurrency: stored.anthropic?.concurrency ?? undefined,
-    },
-    imageGen: {
-      provider: stored.imageGen?.provider
-        || (process.env.IMAGE_GEN_PROVIDER as 'openai' | 'sensenova' | undefined)
-        || undefined,
-      baseURL: stored.imageGen?.baseURL || process.env.IMAGE_GEN_BASE_URL || undefined,
-      apiKey: stored.imageGen?.apiKey || process.env.IMAGE_GEN_API_KEY || undefined,
-      model: stored.imageGen?.model || undefined,
-      size: stored.imageGen?.size || undefined,
-      timeoutMs: stored.imageGen?.timeoutMs ?? undefined,
-      concurrency: stored.imageGen?.concurrency ?? undefined,
-      numSteps: stored.imageGen?.numSteps ?? undefined,
-      cfgScale: stored.imageGen?.cfgScale ?? undefined,
-    },
-    voxcpm: {
-      endpoint: stored.voxcpm?.endpoint || process.env.VOXCPM_ENDPOINT || undefined,
-      modelDir: stored.voxcpm?.modelDir || process.env.VOXCPM_MODEL_DIR || undefined,
-      concurrency: stored.voxcpm?.concurrency ?? undefined,
-    },
-    musetalk: {
-      url: stored.musetalk?.url || process.env.MUSETALK_URL || 'http://localhost:8001',
-    },
-    visualQuality: {
-      enabled: stored.visualQuality?.enabled ?? DEFAULT_VISUAL_QUALITY.enabled,
-      minFontCoeff: stored.visualQuality?.minFontCoeff ?? DEFAULT_VISUAL_QUALITY.minFontCoeff,
-      minAnyFontCoeff:
-        stored.visualQuality?.minAnyFontCoeff ?? DEFAULT_VISUAL_QUALITY.minAnyFontCoeff,
-      minElements: stored.visualQuality?.minElements ?? DEFAULT_VISUAL_QUALITY.minElements,
-      minCoverage: stored.visualQuality?.minCoverage ?? DEFAULT_VISUAL_QUALITY.minCoverage,
-      review: stored.visualQuality?.review ?? DEFAULT_VISUAL_QUALITY.review,
-      maxReviewRounds: stored.visualQuality?.maxReviewRounds ?? DEFAULT_VISUAL_QUALITY.maxReviewRounds,
-    },
-  };
-}
 
 /**
  * Desensitize apiKey fields for public API response.
+ * Display defaults (visualQuality / musetalk url) are filled in here so the
+ * settings UI always has values to show.
  */
-function publicConfig(full: AppConfig): AppConfigPublic {
+function publicConfig(overlay: AppConfig): AppConfigPublic {
   const mask = (key?: string): { set: boolean; last4?: string } => {
     if (!key) return { set: false };
     return { set: true, last4: key.length >= 4 ? key.slice(-4) : key };
@@ -97,64 +34,93 @@ function publicConfig(full: AppConfig): AppConfigPublic {
   return {
     version: 1,
     anthropic: {
-      apiKey: mask(full.anthropic?.apiKey),
-      baseURL: full.anthropic?.baseURL,
-      model: full.anthropic?.model,
-      concurrency: full.anthropic?.concurrency,
+      apiKey: mask(overlay.anthropic?.apiKey),
+      baseURL: overlay.anthropic?.baseURL,
+      model: overlay.anthropic?.model,
+      concurrency: overlay.anthropic?.concurrency,
+      useCLI: overlay.anthropic?.useCLI,
+      cliPath: overlay.anthropic?.cliPath,
     },
     imageGen: {
-      provider: full.imageGen?.provider,
-      baseURL: full.imageGen?.baseURL,
-      apiKey: mask(full.imageGen?.apiKey),
-      model: full.imageGen?.model,
-      size: full.imageGen?.size,
-      timeoutMs: full.imageGen?.timeoutMs,
-      concurrency: full.imageGen?.concurrency,
-      numSteps: full.imageGen?.numSteps,
-      cfgScale: full.imageGen?.cfgScale,
+      provider: overlay.imageGen?.provider,
+      baseURL: overlay.imageGen?.baseURL,
+      apiKey: mask(overlay.imageGen?.apiKey),
+      model: overlay.imageGen?.model,
+      size: overlay.imageGen?.size,
+      timeoutMs: overlay.imageGen?.timeoutMs,
+      concurrency: overlay.imageGen?.concurrency,
+      numSteps: overlay.imageGen?.numSteps,
+      cfgScale: overlay.imageGen?.cfgScale,
     },
     voxcpm: {
-      endpoint: full.voxcpm?.endpoint,
-      modelDir: full.voxcpm?.modelDir,
-      concurrency: full.voxcpm?.concurrency,
+      endpoint: overlay.voxcpm?.endpoint,
+      modelDir: overlay.voxcpm?.modelDir,
+      concurrency: overlay.voxcpm?.concurrency,
     },
     musetalk: {
-      url: full.musetalk?.url,
+      url: overlay.musetalk?.url || 'http://localhost:8001',
     },
     visualQuality: {
-      enabled: full.visualQuality?.enabled,
-      minFontCoeff: full.visualQuality?.minFontCoeff,
-      minAnyFontCoeff: full.visualQuality?.minAnyFontCoeff,
-      minElements: full.visualQuality?.minElements,
-      minCoverage: full.visualQuality?.minCoverage,
-      review: full.visualQuality?.review,
-      maxReviewRounds: full.visualQuality?.maxReviewRounds,
+      enabled: overlay.visualQuality?.enabled ?? DEFAULT_VISUAL_QUALITY.enabled,
+      minFontCoeff: overlay.visualQuality?.minFontCoeff ?? DEFAULT_VISUAL_QUALITY.minFontCoeff,
+      minAnyFontCoeff:
+        overlay.visualQuality?.minAnyFontCoeff ?? DEFAULT_VISUAL_QUALITY.minAnyFontCoeff,
+      minElements: overlay.visualQuality?.minElements ?? DEFAULT_VISUAL_QUALITY.minElements,
+      minCoverage: overlay.visualQuality?.minCoverage ?? DEFAULT_VISUAL_QUALITY.minCoverage,
+      review: overlay.visualQuality?.review ?? DEFAULT_VISUAL_QUALITY.review,
+      maxReviewRounds:
+        overlay.visualQuality?.maxReviewRounds ?? DEFAULT_VISUAL_QUALITY.maxReviewRounds,
     },
   };
 }
 
 /**
- * Merge partial config into stored config (deep merge at the service level).
- * API key fields: null means clear; "" or undefined means keep existing.
+ * Verify the agent CLI binary is present and responsive (`<cli> --version`).
+ * Used by /api/config/test and /api/doctor when useCLI is on.
  */
-function mergeConfig(stored: AppConfig, patch: Partial<AppConfig>): AppConfig {
-  const merged: AppConfig = { ...stored, version: 1 };
+function checkAgentCli(
+  cliPath: string,
+): Promise<{ ok: boolean; latencyMs?: number; message?: string }> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    let settled = false;
+    const settle = (result: { ok: boolean; latencyMs?: number; message?: string }) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
 
-  for (const svc of ['anthropic', 'imageGen', 'voxcpm', 'musetalk', 'visualQuality'] as const) {
-    const patchSvc = patch[svc];
-    if (!patchSvc) continue;
-    merged[svc] = { ...(stored[svc] || {}) };
-    for (const [k, v] of Object.entries(patchSvc)) {
-      if (v === null) {
-        delete (merged[svc] as Record<string, unknown>)[k];
-      } else if (v !== '') {
-        (merged[svc] as Record<string, unknown>)[k] = v;
-      }
-      // v === "" means "unchanged" → skip
+    let proc: ReturnType<typeof spawn>;
+    try {
+      proc = spawn(cliPath, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      settle({ ok: false, message: err instanceof Error ? err.message : String(err) });
+      return;
     }
-  }
 
-  return merged;
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => {
+      proc.kill('SIGTERM');
+      settle({ ok: false, message: `${cliPath} --version 超时（10s）` });
+    }, 10000);
+
+    proc.stdout?.on('data', (c: Buffer) => { stdout += c.toString(); });
+    proc.stderr?.on('data', (c: Buffer) => { stderr += c.toString(); });
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        settle({ ok: true, latencyMs: Date.now() - start, message: stdout.trim().slice(0, 100) });
+      } else {
+        const detail = (stderr.trim() || stdout.trim()).slice(0, 200);
+        settle({ ok: false, message: `CLI 退出码 ${code}: ${detail}` });
+      }
+    });
+    proc.on('error', (err: Error) => {
+      clearTimeout(timer);
+      settle({ ok: false, message: `无法启动 ${cliPath}: ${err.message}` });
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -166,21 +132,20 @@ export function createSystemRoutes(repoRoot: string): Hono {
 
   // GET /api/config — return desensitized config
   router.get('/api/config', (c) => {
-    const full = resolveConfig(repoRoot);
-    return c.json(publicConfig(full));
+    return c.json(publicConfig(resolveWebConfig(repoRoot)));
   });
 
   // PUT /api/config — partial or full update
   router.put('/api/config', async (c) => {
     const body = await c.req.json() as Partial<AppConfig>;
-    const stored = loadConfig(repoRoot);
-    const merged = mergeConfig(stored, body);
-    saveConfig(repoRoot, merged);
-    const full = resolveConfig(repoRoot);
-    return c.json({ ok: true, config: publicConfig(full) });
+    const stored = loadStoredConfig(repoRoot);
+    const merged = mergeStoredConfig(stored, body);
+    saveStoredConfig(repoRoot, merged);
+    return c.json({ ok: true, config: publicConfig(resolveWebConfig(repoRoot)) });
   });
 
-  // POST /api/config/test — connectivity test
+  // POST /api/config/test — connectivity test (uses effective task config,
+  // so the result reflects what a real task would use)
   router.post('/api/config/test', async (c) => {
     const body = await c.req.json() as { service: string };
     const service = body.service;
@@ -189,12 +154,17 @@ export function createSystemRoutes(repoRoot: string): Hono {
       return c.json({ error: { code: 'ERR_BAD_REQUEST', message: `Unknown service: ${service}` } }, 400);
     }
 
-    const full = resolveConfig(repoRoot);
+    const cfg = resolveTaskConfig(repoRoot);
 
     switch (service) {
       case 'anthropic': {
-        const key = full.anthropic?.apiKey;
-        const baseURL = full.anthropic?.baseURL || 'https://api.anthropic.com';
+        if (cfg.anthropic.useCLI) {
+          const result = await checkAgentCli(cfg.anthropic.cliPath || 'claude');
+          return c.json(result);
+        }
+
+        const key = cfg.anthropic.apiKey;
+        const baseURL = cfg.anthropic.baseURL || 'https://api.anthropic.com';
         if (!key) return c.json({ ok: false, message: '未配置 API Key' });
         const start = Date.now();
         try {
@@ -206,7 +176,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
               'anthropic-version': '2023-06-01',
             },
             body: JSON.stringify({
-              model: full.anthropic?.model || 'claude-sonnet-4-6',
+              model: cfg.anthropic.model || 'claude-sonnet-4-6',
               max_tokens: 1,
               messages: [{ role: 'user', content: 'ping' }],
             }),
@@ -224,16 +194,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
       }
 
       case 'imageGen': {
-        const igConfig: ImageGenConfig = {
-          provider: full.imageGen?.provider,
-          baseURL: full.imageGen?.baseURL,
-          apiKey: full.imageGen?.apiKey,
-          model: full.imageGen?.model || 'gpt-image-1',
-          timeoutMs: full.imageGen?.timeoutMs ?? 600000,
-          concurrency: full.imageGen?.concurrency ?? 1,
-          numSteps: full.imageGen?.numSteps,
-          cfgScale: full.imageGen?.cfgScale,
-        };
+        const igConfig = cfg.imageGen;
 
         if (!isImageGenConfigured(igConfig)) {
           return c.json({ ok: false, message: '未配置文生图 API Key（OpenAI 模式需要）' });
@@ -248,8 +209,8 @@ export function createSystemRoutes(repoRoot: string): Hono {
         const start = Date.now();
         try {
           const headers: Record<string, string> = {};
-          if (provider === 'openai' && full.imageGen?.apiKey) {
-            headers.Authorization = `Bearer ${full.imageGen.apiKey}`;
+          if (provider === 'openai' && igConfig.apiKey) {
+            headers.Authorization = `Bearer ${igConfig.apiKey}`;
           }
 
           const resp = await fetch(healthURL, {
@@ -285,7 +246,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
       }
 
       case 'voxcpm': {
-        const endpoint = full.voxcpm?.endpoint || 'http://127.0.0.1:8000';
+        const endpoint = cfg.voxcpm.endpoint || 'http://127.0.0.1:8000';
         const start = Date.now();
         try {
           const resp = await fetch(endpoint, {
@@ -302,7 +263,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
       }
 
       case 'musetalk': {
-        const musetalkUrl = full.musetalk?.url || 'http://localhost:8001';
+        const musetalkUrl = cfg.musetalk?.url || 'http://localhost:8001';
         const start = Date.now();
         try {
           const resp = await fetch(musetalkUrl, {
@@ -319,8 +280,9 @@ export function createSystemRoutes(repoRoot: string): Hono {
       }
     }
   });
+
   router.get('/api/doctor', async (c) => {
-    const full = resolveConfig(repoRoot);
+    const cfg = resolveTaskConfig(repoRoot);
     const report: DoctorReport = {
       voxcpm: { status: 'fail', message: '' },
       anthropic: { status: 'missing' },
@@ -344,24 +306,21 @@ export function createSystemRoutes(repoRoot: string): Hono {
       version: chromiumCheck.status === 'PASS' ? 'available' : chromiumCheck.detail,
     };
 
-    // ── anthropic ───────────────────────────────────────────────────────
-    if (full.anthropic?.apiKey) {
+    // ── anthropic / agent ───────────────────────────────────────────────
+    if (cfg.anthropic.useCLI) {
+      const cliPath = cfg.anthropic.cliPath || 'claude';
+      const cliCheck = await checkAgentCli(cliPath);
+      report.anthropic = cliCheck.ok
+        ? { status: 'ok' as const, message: `CLI 模式（${cliPath}）` }
+        : { status: 'missing' as const, message: `CLI 模式不可用：${cliCheck.message}` };
+    } else if (cfg.anthropic.apiKey) {
       report.anthropic = { status: 'ok' as const };
     } else {
       report.anthropic = { status: 'missing' as const, message: '未配置 Anthropic API Key' };
     }
 
     // ── imageGen ────────────────────────────────────────────────────────
-    const igConfig: ImageGenConfig = {
-      provider: full.imageGen?.provider,
-      baseURL: full.imageGen?.baseURL,
-      apiKey: full.imageGen?.apiKey,
-      model: full.imageGen?.model || 'gpt-image-1',
-      timeoutMs: full.imageGen?.timeoutMs ?? 600000,
-      concurrency: full.imageGen?.concurrency ?? 1,
-      numSteps: full.imageGen?.numSteps,
-      cfgScale: full.imageGen?.cfgScale,
-    };
+    const igConfig = cfg.imageGen;
 
     if (!isImageGenConfigured(igConfig)) {
       report.imageGen = {
@@ -378,8 +337,8 @@ export function createSystemRoutes(repoRoot: string): Hono {
         try {
           const provider = resolveImageGenProvider(igConfig);
           const headers: Record<string, string> = {};
-          if (provider === 'openai' && full.imageGen?.apiKey) {
-            headers.Authorization = `Bearer ${full.imageGen.apiKey}`;
+          if (provider === 'openai' && igConfig.apiKey) {
+            headers.Authorization = `Bearer ${igConfig.apiKey}`;
           }
           const resp = await fetch(healthURL, {
             headers,
@@ -413,7 +372,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
     }
 
     // ── voxcpm ──────────────────────────────────────────────────────────
-    const voxcpmEndpoint = full.voxcpm?.endpoint || 'http://127.0.0.1:8000';
+    const voxcpmEndpoint = cfg.voxcpm.endpoint || 'http://127.0.0.1:8000';
     try {
       const resp = await fetch(voxcpmEndpoint, {
         signal: AbortSignal.timeout(5000),
@@ -431,7 +390,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
     }
 
     // ── musetalk ──────────────────────────────────────────────────────────
-    const musetalkUrl = full.musetalk?.url || 'http://localhost:8001';
+    const musetalkUrl = cfg.musetalk?.url || 'http://localhost:8001';
     try {
       const resp = await fetch(musetalkUrl, {
         signal: AbortSignal.timeout(5000),

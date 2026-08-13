@@ -104,6 +104,8 @@ export interface AppConfigPublic {
     baseURL?: string;
     model?: string;
     concurrency?: number;
+    useCLI?: boolean;
+    cliPath?: string;
   };
   imageGen: {
     provider?: 'openai' | 'sensenova';

@@ -17,12 +17,11 @@ import { compile } from '../../src/cli/compile.js';
 import { tts } from '../../src/cli/tts.js';
 import { visuals } from '../../src/cli/visuals.js';
 import { render } from '../../src/cli/render.js';
-import { loadConfig } from '../../src/config/load.js';
 import { readMeta } from '../../src/parser/meta.js';
 import type { AutoVideoConfig } from '../../src/config/defaults.js';
-import { DEFAULT_VISUAL_QUALITY } from '../../src/config/defaults.js';
+import { resolveTaskConfig } from './configService.js';
 import type { ProgressEvent as CliProgressEvent } from '../../src/types/script.js';
-import type { TaskRecord, ProgressEvent, AppConfig } from '../types/api.js';
+import type { TaskRecord, ProgressEvent } from '../types/api.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -238,110 +237,15 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Config loading (snapshot at task start)
-// ---------------------------------------------------------------------------
-
-/**
- * Load web configuration from .autovideo-web/config.json merged on top of
- * DEFAULT_CONFIG, with environment variable fallbacks for missing fields.
- *
- * Returns a complete AutoVideoConfig suitable for passing to CLI modules.
- */
-function loadWebConfig(repoRoot: string): AutoVideoConfig {
-  // defaults + repo-root autovideo.config.json (same merge order as CLI)
-  const cfg = loadConfig({ projectRoot: repoRoot }).config;
-
-  const configPath = path.join(repoRoot, '.autovideo-web', 'config.json');
-  if (fs.existsSync(configPath)) {
-    try {
-      const raw: AppConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-
-      if (raw.anthropic) {
-        if (raw.anthropic.apiKey) cfg.anthropic.apiKey = raw.anthropic.apiKey;
-        if (raw.anthropic.baseURL) cfg.anthropic.baseURL = raw.anthropic.baseURL;
-        if (raw.anthropic.model) cfg.anthropic.model = raw.anthropic.model;
-        if (raw.anthropic.concurrency !== undefined) cfg.anthropic.concurrency = raw.anthropic.concurrency;
-        if (raw.anthropic.useCLI !== undefined) cfg.anthropic.useCLI = raw.anthropic.useCLI;
-        if (raw.anthropic.cliPath) cfg.anthropic.cliPath = raw.anthropic.cliPath;
-      }
-
-      if (raw.voxcpm) {
-        if (raw.voxcpm.endpoint) cfg.voxcpm.endpoint = raw.voxcpm.endpoint;
-        if (raw.voxcpm.modelDir) cfg.voxcpm.modelDir = raw.voxcpm.modelDir;
-        if (raw.voxcpm.concurrency !== undefined) cfg.voxcpm.concurrency = raw.voxcpm.concurrency;
-      }
-
-      if (raw.imageGen) {
-        if (raw.imageGen.provider) cfg.imageGen.provider = raw.imageGen.provider;
-        if (raw.imageGen.baseURL) cfg.imageGen.baseURL = raw.imageGen.baseURL;
-        if (raw.imageGen.apiKey) cfg.imageGen.apiKey = raw.imageGen.apiKey;
-        if (raw.imageGen.model) cfg.imageGen.model = raw.imageGen.model;
-        if (raw.imageGen.size) cfg.imageGen.size = raw.imageGen.size;
-        if (raw.imageGen.timeoutMs !== undefined) cfg.imageGen.timeoutMs = raw.imageGen.timeoutMs;
-        if (raw.imageGen.concurrency !== undefined) cfg.imageGen.concurrency = raw.imageGen.concurrency;
-        if (raw.imageGen.numSteps !== undefined) cfg.imageGen.numSteps = raw.imageGen.numSteps;
-        if (raw.imageGen.cfgScale !== undefined) cfg.imageGen.cfgScale = raw.imageGen.cfgScale;
-      }
-
-      if (raw.musetalk) {
-        cfg.musetalk = { ...cfg.musetalk, ...raw.musetalk };
-      }
-
-      if (raw.visualQuality) {
-        cfg.visualQuality = cfg.visualQuality ?? { ...DEFAULT_VISUAL_QUALITY };
-        const vq = raw.visualQuality;
-        if (vq.enabled !== undefined) cfg.visualQuality.enabled = vq.enabled;
-        if (vq.minFontCoeff !== undefined) cfg.visualQuality.minFontCoeff = vq.minFontCoeff;
-        if (vq.minAnyFontCoeff !== undefined) cfg.visualQuality.minAnyFontCoeff = vq.minAnyFontCoeff;
-        if (vq.minElements !== undefined) cfg.visualQuality.minElements = vq.minElements;
-        if (vq.minCoverage !== undefined) cfg.visualQuality.minCoverage = vq.minCoverage;
-        if (vq.review !== undefined) cfg.visualQuality.review = vq.review;
-        if (vq.maxReviewRounds !== undefined) cfg.visualQuality.maxReviewRounds = vq.maxReviewRounds;
-      }
-    } catch {
-      // Malformed config — use defaults
-    }
-  }
-
-  // Environment variable fallbacks (for fields not set in config.json)
-  if (process.env.ANTHROPIC_BASE_URL && !cfg.anthropic.baseURL) {
-    cfg.anthropic.baseURL = process.env.ANTHROPIC_BASE_URL;
-  }
-  if (process.env.VOXCPM_ENDPOINT) {
-    cfg.voxcpm.endpoint = process.env.VOXCPM_ENDPOINT;
-  }
-  if (process.env.VOXCPM_MODEL_DIR) {
-    cfg.voxcpm.modelDir = process.env.VOXCPM_MODEL_DIR;
-  }
-  // Env var fallback for apiKey — only used if NOT already set via config.json (UI)
-  if (!cfg.anthropic.apiKey && (process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN)) {
-    (cfg.anthropic as any).apiKey = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
-  }
-
-  // MuseTalk URL env var fallback
-  if (process.env.MUSETALK_URL) {
-    (cfg as any).musetalk = { ...(cfg as any).musetalk, url: process.env.MUSETALK_URL };
-  }
-
-  if (process.env.IMAGE_GEN_BASE_URL && !cfg.imageGen.baseURL) {
-    cfg.imageGen.baseURL = process.env.IMAGE_GEN_BASE_URL;
-  }
-  if (process.env.IMAGE_GEN_API_KEY && !cfg.imageGen.apiKey) {
-    cfg.imageGen.apiKey = process.env.IMAGE_GEN_API_KEY;
-  }
-  if (process.env.IMAGE_GEN_PROVIDER && !cfg.imageGen.provider) {
-    cfg.imageGen.provider = process.env.IMAGE_GEN_PROVIDER as 'openai' | 'sensenova';
-  }
-
-  return cfg;
-}
-
-// ---------------------------------------------------------------------------
 // Helper to get merged config with project-specific cache dir
 // ---------------------------------------------------------------------------
 
+/**
+ * Effective config snapshot at task start (defaults + autovideo.config.json +
+ * web UI overlay via configService), with the project-scoped cache dir.
+ */
 function getTaskConfig(repoRoot: string, projectDir: string): AutoVideoConfig {
-  const cfg = loadWebConfig(repoRoot);
+  const cfg = resolveTaskConfig(repoRoot);
   // Override cache dir to project-scoped cache (hard constraint per §3.3 / §4.5)
   cfg.cache.dir = path.join(projectDir, 'cache');
   return cfg;
