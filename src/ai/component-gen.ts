@@ -1,23 +1,12 @@
 /**
- * Generate React component TSX from a visual description using Claude API.
+ * Generate React component TSX from a visual description.
  *
- * Credentials are resolved from:
- *   1. Environment variables (ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY)
- *   2. ~/.claude/settings.json (cc-switch / Claude Code config)
- *
- * When config.useCLI is true, the local `claude` CLI is invoked instead of
- * the Anthropic SDK.  This avoids API-key setup and reuses whatever account
- * is already logged in via `claude login`.
+ * Transport (SDK vs local `claude` CLI) and credential resolution are
+ * handled by the AgentDriver layer (src/ai/agent/). This module owns the
+ * prompt construction and TSX extraction from raw model output.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
-import type { Message, MessageParam } from "@anthropic-ai/sdk/resources/messages";
-import { resolveClaudeCredentials } from "../config/claude-settings.js";
-import { spawn } from "node:child_process";
-import os from "node:os";
-import crypto from "node:crypto";
-import { writeFileSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
+import { createAgentDriver } from "./agent/index.js";
 
 // ---------------------------------------------------------------------------
 // Robust TSX extraction from model output
@@ -162,216 +151,37 @@ function buildUserContent(
 }
 
 // ---------------------------------------------------------------------------
-// CLI-based generation (useCLI mode)
-// ---------------------------------------------------------------------------
-
-/**
- * Invoke the local `claude` CLI in non-interactive print mode to generate
- * a component.  System prompt is written to a temp file to avoid shell
- * argument length limits; user content is piped via stdin.
- */
-async function generateComponentViaCLI(
-  input: ComponentGenInput,
-  config: AnthropicConfig,
-  signal?: AbortSignal
-): Promise<ComponentGenResult> {
-  if (signal?.aborted) {
-    throw Object.assign(new Error("Cancelled"), { code: "ERR_CANCELLED" });
-  }
-
-  const cliPath = config.cliPath || "claude";
-  const userContent = buildUserContent(input);
-
-  // Write system prompt to a temp file to avoid CLI argument length limits
-  const tmpFile = join(
-    os.tmpdir(),
-    `autovideo-sp-${crypto.randomBytes(8).toString("hex")}.txt`
-  );
-  writeFileSync(tmpFile, input.systemPrompt, "utf-8");
-
-  const args = [
-    "-p",
-    "--no-session-persistence",
-    "--dangerously-skip-permissions",
-    "--output-format", "text",
-    "--system-prompt-file", tmpFile,
-  ];
-
-  // NOTE: we intentionally do NOT forward --model to the CLI.
-  // The CLI picks its own default (typically the fastest available model).
-  // Forcing a specific model via --model switches to a different backend that
-  // can be orders of magnitude slower with large system prompts, causing the
-  // invocation to hang until the server-side timeout kills it.
-
-  try {
-    const raw = await new Promise<string>((resolve, reject) => {
-      const proc = spawn(cliPath, args, { stdio: ["pipe", "pipe", "pipe"] });
-
-      let stdout = "";
-      let stderr = "";
-      let settled = false;
-
-      const settle = (fn: () => void) => {
-        if (settled) return;
-        settled = true;
-        fn();
-      };
-
-      // Feed user prompt via stdin
-      proc.stdin.write(userContent, "utf-8");
-      proc.stdin.end();
-
-      proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-      proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-
-      proc.on("close", (code) => {
-        if (code === 0) {
-          settle(() => resolve(stdout));
-        } else {
-          const detail = stderr.trim() || stdout.trim();
-          settle(() =>
-            reject(new Error(`claude CLI exited ${code}: ${detail.slice(0, 500)}`))
-          );
-        }
-      });
-
-      proc.on("error", (err: Error) => {
-        settle(() => reject(new Error(`Failed to spawn claude: ${err.message}`)));
-      });
-
-      // Support cancellation via AbortSignal
-      if (signal) {
-        const onAbort = () => {
-          proc.kill("SIGTERM");
-          settle(() =>
-            reject(Object.assign(new Error("Cancelled"), { code: "ERR_CANCELLED" }))
-          );
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-        proc.on("close", () => signal.removeEventListener("abort", onAbort));
-      }
-    });
-
-    // Extract TSX code from model output (handles markdown fences + surrounding text)
-    const tsx = extractTsxFromOutput(raw);
-
-    return { tsx, usage: { inputTokens: 0, outputTokens: 0 } };
-  } finally {
-    try { unlinkSync(tmpFile); } catch { /* ignore */ }
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Main function
 // ---------------------------------------------------------------------------
 
 /**
- * Call Claude to generate a React component TSX from a visual description.
+ * Ask the configured agent to generate a React component TSX from a visual
+ * description.
  *
  * @returns {tsx, usage}
- * @throws Error if credentials are missing, or if the API returns an empty response
+ * @throws Error if credentials are missing, or if the model returns an empty
+ *         or non-TSX response
  */
 export async function generateComponent(
   input: ComponentGenInput,
   config: AnthropicConfig,
   signal?: AbortSignal
 ): Promise<ComponentGenResult> {
-  // ---- Dispatch to CLI mode if requested ----------------------------------
-  if (config.useCLI) {
-    return generateComponentViaCLI(input, config, signal);
-  }
+  const driver = createAgentDriver(config);
 
-  // ---- Resolve credentials ------------------------------------------------
-  let apiKey: string | undefined;
-  let baseURL: string | undefined;
-  let model: string;
-
-  if (config.apiKey) {
-    // Web mode: explicit key from config
-    apiKey = config.apiKey;
-    baseURL = config.baseURL;
-    model = config.model || "claude-sonnet-4-6";
-  } else {
-    // CLI mode: resolve from env / ~/.claude/settings.json
-    const creds = resolveClaudeCredentials();
-    if (!creds) {
-      const err = new Error(
-        "Claude credentials not found. Set ANTHROPIC_AUTH_TOKEN env var, or configure ~/.claude/settings.json via cc-switch."
-      );
-      (err as any).code = "ERR_ANTHROPIC_KEY_MISSING";
-      throw err;
-    }
-    apiKey = creds.authToken;
-    baseURL = config.baseURL || creds.baseUrl;
-    model = config.model || creds.model || "claude-sonnet-4-6";
-  }
-
-  if (!apiKey) {
-    const err = new Error("Anthropic API key is required but not provided.");
-    (err as any).code = "ERR_ANTHROPIC_KEY_MISSING";
-    throw err;
-  }
-
-  // ---- Create SDK client --------------------------------------------------
-  // Pass Claude Code client headers so Anthropic can apply the correct rate-limit
-  // tier for OAuth (Claude Pro) tokens — without these the request is treated as
-  // an anonymous API call and hits the lowest quota bucket.
-  const isOAuthToken = apiKey.startsWith("sk-ant-oat");
-  const client = new Anthropic({
-    apiKey,
-    maxRetries: config.maxRetries,
-    baseURL,
-    defaultHeaders: isOAuthToken
-      ? {
-          "anthropic-beta": "claude-code-20250219",
-          "x-client-name": "claude-code",
-          "x-client-version": "2.1.126",
-        }
-      : undefined,
-  });
-
-  // ---- Build messages -----------------------------------------------------
-  const userContent = buildUserContent(input);
-
-  const messages: MessageParam[] = [
+  const result = await driver.generateText(
     {
-      role: "user",
-      content: userContent,
+      system: input.systemPrompt,
+      user: buildUserContent(input),
+      maxTokens: 8192,
     },
-  ];
-
-  // ---- Call API -----------------------------------------------------------
-  const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
-    model,
-    max_tokens: 8192,
-    system: input.systemPrompt,
-    messages,
-  };
-  // DeepSeek: 避免 thinking 吃掉输出预算。该参数不在 SDK 的 Anthropic 类型里，
-  // 对象字面量直接写会触发多余属性检查，经松散类型开口设置。
-  (params as unknown as Record<string, unknown>).thinking = { type: "disabled" };
-  const response: Message = await client.messages.create(params, {
-    signal,
-  });
-
-  // ---- Extract TSX from response -------------------------------------------
-  let tsx = "";
-  for (const block of response.content) {
-    if (block.type === "text") {
-      tsx += block.text;
-    }
-  }
+    signal
+  );
 
   // Extract TSX code from model output (handles markdown fences + surrounding text)
-  tsx = extractTsxFromOutput(tsx);
+  const tsx = extractTsxFromOutput(result.text);
 
-  return {
-    tsx,
-    usage: {
-      inputTokens: response.usage?.input_tokens ?? 0,
-      outputTokens: response.usage?.output_tokens ?? 0,
-    },
-  };
+  return { tsx, usage: result.usage };
 }
 
 // ---------------------------------------------------------------------------

@@ -13,17 +13,12 @@
  * that just vanish on exit. With one frame it falls back to a composition-only
  * review.
  *
- * Transport:
- *   - CLI mode (default here): spawn `claude -p` which reads the PNGs via its
- *     Read tool (requires --dangerously-skip-permissions). Uses whatever model
- *     `claude login` / settings.json selects (opus, confirmed multimodal).
- *   - SDK mode: send each image as a base64 content block to the Messages API.
+ * Transport (CLI vs SDK) and credential resolution are handled by the
+ * AgentDriver layer (src/ai/agent/). This module owns the review prompts,
+ * frame captions, and verdict parsing.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
-import { resolveClaudeCredentials } from "../config/claude-settings.js";
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createAgentDriver } from "./agent/index.js";
 
 export interface VisualReviewConfig {
   useCLI?: boolean;
@@ -216,126 +211,6 @@ export function toResult(parsed: any, raw: string): VisualReviewResult {
 }
 
 // ---------------------------------------------------------------------------
-// CLI transport
-// ---------------------------------------------------------------------------
-
-async function reviewViaCLI(
-  input: VisualReviewInput,
-  config: VisualReviewConfig,
-  signal?: AbortSignal,
-): Promise<VisualReviewResult> {
-  const cliPath = config.cliPath || "claude";
-  const instructions = reviewInstructions(input);
-  const imageLines =
-    input.pngPaths.length > 1
-      ? input.pngPaths.map((p, i) =>
-          `${frameCaption(i, input.pngPaths.length, input.frameTimesSec?.[i], input.narrationLines)}: ${p}`
-        )
-      : [`Read the image at: ${input.pngPaths[0]}`];
-  const prompt = [
-    instructions,
-    "",
-    ...imageLines,
-    `Intended description of the slide: ${input.visualDescription}`,
-  ].join("\n");
-
-  const args = [
-    "-p",
-    "--no-session-persistence",
-    "--dangerously-skip-permissions",
-    "--output-format", "text",
-  ];
-
-  const raw = await new Promise<string>((resolve, reject) => {
-    const proc = spawn(cliPath, args, { stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const settle = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
-
-    proc.stdin.write(prompt, "utf-8");
-    proc.stdin.end();
-    proc.stdout.on("data", (c: Buffer) => { stdout += c.toString(); });
-    proc.stderr.on("data", (c: Buffer) => { stderr += c.toString(); });
-    proc.on("close", (code) => {
-      if (code === 0) settle(() => resolve(stdout));
-      else settle(() => reject(new Error(`claude CLI exited ${code}: ${stderr.slice(0, 400)}`)));
-    });
-    proc.on("error", (err: Error) => settle(() => reject(new Error(`Failed to spawn claude: ${err.message}`))));
-
-    if (signal) {
-      const onAbort = () => {
-        proc.kill("SIGTERM");
-        settle(() => reject(Object.assign(new Error("Cancelled"), { code: "ERR_CANCELLED" })));
-      };
-      signal.addEventListener("abort", onAbort, { once: true });
-      proc.on("close", () => signal.removeEventListener("abort", onAbort));
-    }
-  });
-
-  return toResult(extractJson(raw), raw);
-}
-
-// ---------------------------------------------------------------------------
-// SDK transport
-// ---------------------------------------------------------------------------
-
-async function reviewViaSDK(
-  input: VisualReviewInput,
-  config: VisualReviewConfig,
-  signal?: AbortSignal,
-): Promise<VisualReviewResult> {
-  let apiKey = config.apiKey;
-  let baseURL = config.baseURL;
-  let model = config.model || "claude-sonnet-4-6";
-  if (!apiKey) {
-    const creds = resolveClaudeCredentials();
-    if (!creds) throw Object.assign(new Error("Claude credentials not found for visual review."), { code: "ERR_ANTHROPIC_KEY_MISSING" });
-    apiKey = creds.authToken;
-    baseURL = baseURL || creds.baseUrl;
-    model = config.model || creds.model || "claude-sonnet-4-6";
-  }
-
-  const isOAuthToken = apiKey.startsWith("sk-ant-oat");
-  const client = new Anthropic({
-    apiKey,
-    maxRetries: config.maxRetries ?? 3,
-    baseURL,
-    defaultHeaders: isOAuthToken
-      ? { "anthropic-beta": "claude-code-20250219", "x-client-name": "claude-code", "x-client-version": "2.1.126" }
-      : undefined,
-  });
-
-  const instructions = reviewInstructions(input);
-  const content: Array<Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam> = [];
-  for (let i = 0; i < input.pngPaths.length; i++) {
-    if (input.pngPaths.length > 1) {
-      content.push({
-        type: "text",
-        text: `${frameCaption(i, input.pngPaths.length, input.frameTimesSec?.[i], input.narrationLines)}:`,
-      });
-    }
-    const base64 = readFileSync(input.pngPaths[i]).toString("base64");
-    content.push({ type: "image", source: { type: "base64", media_type: "image/png", data: base64 } });
-  }
-  content.push({ type: "text", text: `Intended description of the slide: ${input.visualDescription}` });
-
-  const response = await client.messages.create(
-    {
-      model,
-      max_tokens: 1024,
-      system: instructions,
-      messages: [{ role: "user", content }],
-    },
-    { signal },
-  );
-
-  let text = "";
-  for (const block of response.content) if (block.type === "text") text += block.text;
-  return toResult(extractJson(text), text);
-}
-
-// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -344,6 +219,27 @@ export async function reviewVisual(
   config: VisualReviewConfig,
   signal?: AbortSignal,
 ): Promise<VisualReviewResult> {
-  if (config.useCLI) return reviewViaCLI(input, config, signal);
-  return reviewViaSDK(input, config, signal);
+  const driver = createAgentDriver(config);
+
+  // Captions are only useful when several frames need to be told apart;
+  // a single frame keeps the caption-less "Read the image at:" phrasing.
+  const multiFrame = input.pngPaths.length > 1;
+  const images = input.pngPaths.map((p, i) => ({
+    path: p,
+    caption: multiFrame
+      ? frameCaption(i, input.pngPaths.length, input.frameTimesSec?.[i], input.narrationLines)
+      : undefined,
+  }));
+
+  const result = await driver.reviewImages(
+    {
+      instructions: reviewInstructions(input),
+      images,
+      trailingText: `Intended description of the slide: ${input.visualDescription}`,
+      maxTokens: 1024,
+    },
+    signal,
+  );
+
+  return toResult(extractJson(result.text), result.text);
 }

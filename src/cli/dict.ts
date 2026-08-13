@@ -10,9 +10,9 @@
 
 import { existsSync, readFileSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
-import Anthropic from "@anthropic-ai/sdk";
 
 import { readProject } from "../parser/project.js";
+import { createAgentDriver } from "../ai/agent/index.js";
 import { parseAndMergeBlocks } from "../parser/blocks.js";
 import { loadPronunciationDicts, DICT_FILENAME } from "../tts/pronounce.js";
 import { lintPronunciation, type LintFinding } from "../tts/lint.js";
@@ -70,26 +70,19 @@ export async function dictSuggestCommand(
     );
   }
 
-  const isOAuthToken = creds.authToken.startsWith("sk-ant-oat");
-  const client = new Anthropic({
+  const driver = createAgentDriver({
     apiKey: creds.authToken,
     baseURL: creds.baseUrl || undefined,
-    defaultHeaders: isOAuthToken
-      ? { "anthropic-beta": "claude-code-20250219" }
-      : undefined,
+    model: creds.model || "claude-sonnet-4-6",
   });
 
   const termList = needsLLM.map((f) => f.term).join("\n");
   if (options.verbose) console.log(`[dict suggest] 查询 ${needsLLM.length} 个词: ${termList}`);
 
-  const response = await client.messages.create({
-    model: creds.model || "claude-sonnet-4-6",
-    max_tokens: 1024,
-    messages: [{ role: "user", content: PROMPT.replace("{TERMS}", termList) }],
+  const { text } = await driver.generateText({
+    user: PROMPT.replace("{TERMS}", termList),
+    maxTokens: 1024,
   });
-
-  let text = "";
-  for (const block of response.content) if (block.type === "text") text += block.text;
 
   const suggested = text
     .split("\n")
