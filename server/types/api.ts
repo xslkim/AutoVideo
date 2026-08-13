@@ -55,7 +55,7 @@ export interface BlocksResponse {
   currentSlug: string;
 }
 
-export type AgentProviderName = 'anthropic-api' | 'claude-cli' | 'opencode-cli';
+export type AgentProviderName = 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli';
 
 export interface AppConfig {
   version: 1;

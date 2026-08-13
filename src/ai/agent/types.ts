@@ -15,8 +15,10 @@
  *   Anthropic-compatible endpoints + baseURL)
  * - "claude-cli":    local `claude` CLI (`claude login` credentials)
  * - "opencode-cli":  local `opencode` CLI (models configured in opencode)
+ * - "codex-cli":     local `codex` CLI; custom Responses-API providers
+ *   (DeepSeek direct, GLM via OpenRouter/proxy) via baseURL + apiKey
  */
-export type AgentProvider = "anthropic-api" | "claude-cli" | "opencode-cli";
+export type AgentProvider = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli";
 
 /**
  * Connection/model configuration shared by all drivers.
@@ -32,12 +34,19 @@ export interface AgentConfig {
    * Model identifier (driver applies its own default when empty).
    * anthropic-api: API model name (claude-sonnet-4-6 / deepseek-chat / glm-4.6…)
    * opencode-cli:  opencode `provider/model` form (e.g. deepseek/deepseek-chat)
+   * codex-cli:     model name understood by the endpoint (deepseek-chat,
+   *                z-ai/glm-4.6 on OpenRouter, gpt-5-codex on OpenAI login…)
    * claude-cli:    ignored (the CLI picks its logged-in default)
    */
   model?: string;
   /** Maximum SDK-level retries with exponential back-off (default: 3) */
   maxRetries?: number;
-  /** Optional base URL for API proxy / Anthropic-compatible providers */
+  /**
+   * Optional base URL.
+   * anthropic-api: Anthropic-compatible endpoint (DeepSeek/GLM/proxy)
+   * codex-cli:     OpenAI Responses-API endpoint (api.deepseek.com,
+   *                openrouter.ai/api/v1, or a local translation proxy)
+   */
   baseURL?: string;
   /** Explicit API key (web mode) — if set, skips env/settings resolution */
   apiKey?: string;

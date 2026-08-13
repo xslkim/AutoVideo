@@ -54,12 +54,12 @@
             </n-form-item>
           </template>
 
-          <!-- CLI 模式：binary 路径 / 超时 / opencode 模型 -->
+          <!-- CLI 模式：binary 路径 / 超时 / opencode·codex 模型 -->
           <template v-else>
             <n-form-item label="CLI 路径">
               <n-input
                 v-model:value="form.anthropic.cliPath"
-                :placeholder="form.anthropic.provider === 'opencode-cli' ? 'opencode' : 'claude'"
+                :placeholder="cliPathPlaceholder"
                 clearable
               />
             </n-form-item>
@@ -70,6 +70,39 @@
                 clearable
               />
             </n-form-item>
+            <template v-else-if="form.anthropic.provider === 'codex-cli'">
+              <n-form-item label="Model">
+                <n-select
+                  v-model:value="form.anthropic.model"
+                  :options="codexModelOptions"
+                  placeholder="留空 = codex 默认模型"
+                  filterable
+                  tag
+                  clearable
+                  style="width: 100%"
+                />
+              </n-form-item>
+              <n-form-item label="Base URL">
+                <n-select
+                  v-model:value="form.anthropic.baseURL"
+                  :options="codexBaseUrlOptions"
+                  placeholder="留空 = 使用 codex 自身配置（ChatGPT 登录 / config.toml）"
+                  filterable
+                  tag
+                  clearable
+                  style="width: 100%"
+                />
+              </n-form-item>
+              <n-form-item label="API Key">
+                <n-input
+                  v-model:value="form.anthropic.apiKey"
+                  type="password"
+                  show-password-on="click"
+                  placeholder="配了 Base URL 时填写（DeepSeek / OpenRouter key）"
+                  clearable
+                />
+              </n-form-item>
+            </template>
             <n-form-item v-else label="Model">
               <span style="font-size: 12px; color: #999">
                 claude CLI 使用 claude login 账号的默认模型（不透传 model）
@@ -322,7 +355,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, computed } from 'vue'
 import { createDiscreteApi } from 'naive-ui'
 import { apiGet, apiPut, apiPost } from '../utils/api'
 import type { AppConfigPublic } from '../../../server/types/api'
@@ -360,6 +393,7 @@ const agentProviderOptions = [
   { label: 'Anthropic 兼容 API（Claude / DeepSeek / GLM）', value: 'anthropic-api' },
   { label: 'Claude CLI（claude login 凭证）', value: 'claude-cli' },
   { label: 'OpenCode CLI（模型在 opencode 里配置）', value: 'opencode-cli' },
+  { label: 'Codex CLI（ChatGPT 登录 / DeepSeek / GLM via OpenRouter）', value: 'codex-cli' },
 ]
 
 const agentBaseUrlOptions = [
@@ -375,6 +409,25 @@ const agentModelOptions = [
   { label: 'glm-4.6', value: 'glm-4.6' },
 ]
 
+// codex 只支持 OpenAI Responses API：DeepSeek 官方端点原生支持；
+// GLM 官方端点不支持，需经 OpenRouter（z-ai/*）或本地转换代理接入。
+const codexBaseUrlOptions = [
+  { label: 'DeepSeek 官方 (api.deepseek.com)', value: 'https://api.deepseek.com' },
+  { label: 'OpenRouter（GLM 等第三方模型）(openrouter.ai/api/v1)', value: 'https://openrouter.ai/api/v1' },
+]
+
+const codexModelOptions = [
+  { label: 'deepseek-chat（DeepSeek 官方）', value: 'deepseek-chat' },
+  { label: 'deepseek-reasoner（DeepSeek 官方）', value: 'deepseek-reasoner' },
+  { label: 'z-ai/glm-4.6（OpenRouter）', value: 'z-ai/glm-4.6' },
+]
+
+const cliPathPlaceholder = computed(() => {
+  if (form.anthropic.provider === 'opencode-cli') return 'opencode'
+  if (form.anthropic.provider === 'codex-cli') return 'codex'
+  return 'claude'
+})
+
 const anthropicConcurrencyOptions = [2, 3, 4, 5, 6, 7, 8].map((v) => ({
   label: String(v),
   value: v,
@@ -389,7 +442,7 @@ function clampAnthropicConcurrency(value: number | null | undefined): number {
 
 const form = reactive({
   anthropic: {
-    provider: 'anthropic-api' as 'anthropic-api' | 'claude-cli' | 'opencode-cli',
+    provider: 'anthropic-api' as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli',
     apiKey: '' as string,
     baseURL: '' as string | null,
     model: '' as string | null,
@@ -398,7 +451,7 @@ const form = reactive({
     concurrency: 4 as number | null,
     reviewEnabled: false as boolean,
     review: {
-      provider: null as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | null,
+      provider: null as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli' | null,
       model: '' as string | null,
       baseURL: '' as string | null,
       apiKey: '' as string,

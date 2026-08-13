@@ -27,11 +27,14 @@ CLI 与 Web UI 均已完成，项目处于**持续优化迭代**阶段（无固�
 
 - 所有 LLM 调用（组件生成、视觉评审、dict suggest）必须走 `createAgentDriver(config)`，
   **不要**在调用点直接 new Anthropic SDK 或 spawn CLI。
-- Provider：`anthropic-api`（含 DeepSeek/GLM 的 Anthropic 兼容端点）/ `claude-cli` / `opencode-cli`。
-  legacy `useCLI: true` 兼容映射为 `claude-cli`。
+- Provider：`anthropic-api`（含 DeepSeek/GLM 的 Anthropic 兼容端点）/ `claude-cli` / `opencode-cli` / `codex-cli`。
+ legacy `useCLI: true` 兼容映射为 `claude-cli`。
 - Provider 怪癖（thinking 参数、OAuth header、CLI flag、输出解析）封装在各 driver 内。
 - CLI 调用统一带超时（`cliTimeoutMs`，默认 600s）；opencode 出错时退出码为 0，
-  空 stdout 视为失败（详见 `opencode-cli.ts`）。
+ 空 stdout 视为失败（详见 `opencode-cli.ts`）。
+- codex 只支持 OpenAI Responses API：配 baseURL 时驱动用 `-c` 注入临时
+ provider，key 走环境变量不落命令行；GLM 官方端点不兼容，需 OpenRouter
+ 或本地代理（详见 `codex-cli.ts`）。
 
 ## 配置协议
 

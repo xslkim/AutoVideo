@@ -39,7 +39,7 @@ export interface TtsConfig {
 }
 
 /** Agent backend. See src/ai/agent/types.ts (AgentProvider). */
-export type AgentProviderName = "anthropic-api" | "claude-cli" | "opencode-cli";
+export type AgentProviderName = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli";
 
 export interface AnthropicConfig {
   /**
@@ -48,6 +48,8 @@ export interface AnthropicConfig {
    *   Anthropic 兼容端点 + baseURL）
    * - "claude-cli":    本地 claude CLI（claude login 凭证）
    * - "opencode-cli":  本地 opencode CLI（模型在 opencode 里配置）
+   * - "codex-cli":     本地 codex CLI（OpenAI 登录，或 baseURL+apiKey 接
+   *   Responses API 端点：DeepSeek 官方 / GLM 走 OpenRouter 或本地代理）
    * 未设置时按 legacy useCLI 映射（true → claude-cli）。
    */
   provider?: AgentProviderName;

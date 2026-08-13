@@ -22,6 +22,8 @@ export interface RunCliOptions {
   signal?: AbortSignal;
   /** Short name used in error messages (e.g. "claude", "opencode") */
   label: string;
+  /** Extra environment variables merged over process.env (e.g. API keys). */
+  env?: Record<string, string>;
 }
 
 export interface RunCliResult {
@@ -44,7 +46,10 @@ export function runCli(opts: RunCliOptions): Promise<RunCliResult> {
   const { cliPath, args, stdin, timeoutMs, signal, label } = opts;
 
   return new Promise<RunCliResult>((resolve, reject) => {
-    const proc = spawn(cliPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn(cliPath, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      ...(opts.env ? { env: { ...process.env, ...opts.env } } : {}),
+    });
 
     let stdout = "";
     let stderr = "";
