@@ -20,3 +20,4 @@ third_servers/*/models
 
 # local config (real paths, not committed)
 autovideo.config.json
+logs/
