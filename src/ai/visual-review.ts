@@ -18,17 +18,10 @@
  * frame captions, and verdict parsing.
  */
 
-import { createAgentDriver } from "./agent/index.js";
+import { createAgentDriver, type AgentConfig } from "./agent/index.js";
 
-export interface VisualReviewConfig {
-  useCLI?: boolean;
-  cliPath?: string;
-  // SDK mode credentials/model:
-  apiKey?: string;
-  baseURL?: string;
-  model?: string;
-  maxRetries?: number;
-}
+/** Review uses the same agent configuration shape as generation. */
+export type VisualReviewConfig = AgentConfig;
 
 export interface VisualReviewResult {
   /** true → slide looks rich/well-composed; false → needs another pass */

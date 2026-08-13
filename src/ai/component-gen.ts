@@ -6,7 +6,7 @@
  * prompt construction and TSX extraction from raw model output.
  */
 
-import { createAgentDriver } from "./agent/index.js";
+import { createAgentDriver, type AgentConfig } from "./agent/index.js";
 
 // ---------------------------------------------------------------------------
 // Robust TSX extraction from model output
@@ -63,23 +63,16 @@ function extractTsxFromOutput(raw: string): string {
 // Types
 // ---------------------------------------------------------------------------
 
-/** Configuration for the Claude client (mirrors autovideo.config.json → anthropic section) */
-export interface AnthropicConfig {
+/**
+ * Configuration for the agent client (mirrors autovideo.config.json →
+ * anthropic section). Extends AgentConfig with the fields the pipeline
+ * always provides.
+ */
+export interface AnthropicConfig extends AgentConfig {
   /** Model identifier (default: "claude-sonnet-4-6") */
   model: string;
   /** Maximum SDK-level retries with exponential back-off (default: 3) */
   maxRetries: number;
-  /** Optional base URL for API proxy */
-  baseURL?: string;
-  /** Explicit API key (web mode) — if set, skips env/settings resolution */
-  apiKey?: string;
-  /**
-   * When true, invoke the local `claude` CLI instead of the Anthropic SDK.
-   * The CLI reuses whatever credentials are active via `claude login`.
-   */
-  useCLI?: boolean;
-  /** Path to the `claude` binary. Defaults to "claude" (must be in PATH). */
-  cliPath?: string;
 }
 
 /** Input for a single component-generation call */

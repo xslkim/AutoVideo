@@ -9,6 +9,16 @@
  */
 
 /**
+ * Which backend executes agent calls.
+ *
+ * - "anthropic-api": Anthropic Messages API (also DeepSeek/GLM via their
+ *   Anthropic-compatible endpoints + baseURL)
+ * - "claude-cli":    local `claude` CLI (`claude login` credentials)
+ * - "opencode-cli":  local `opencode` CLI (models configured in opencode)
+ */
+export type AgentProvider = "anthropic-api" | "claude-cli" | "opencode-cli";
+
+/**
  * Connection/model configuration shared by all drivers.
  *
  * Mirrors autovideo.config.json → anthropic section. Structurally compatible
@@ -16,7 +26,14 @@
  * can pass their config through unchanged.
  */
 export interface AgentConfig {
-  /** Model identifier (driver applies its own default when empty) */
+  /** Backend selection. When unset, falls back to legacy useCLI mapping. */
+  provider?: AgentProvider;
+  /**
+   * Model identifier (driver applies its own default when empty).
+   * anthropic-api: API model name (claude-sonnet-4-6 / deepseek-chat / glm-4.6…)
+   * opencode-cli:  opencode `provider/model` form (e.g. deepseek/deepseek-chat)
+   * claude-cli:    ignored (the CLI picks its logged-in default)
+   */
   model?: string;
   /** Maximum SDK-level retries with exponential back-off (default: 3) */
   maxRetries?: number;
@@ -24,10 +41,12 @@ export interface AgentConfig {
   baseURL?: string;
   /** Explicit API key (web mode) — if set, skips env/settings resolution */
   apiKey?: string;
-  /** When true, invoke a local agent CLI instead of the HTTP API */
+  /** Legacy flag: true → "claude-cli". Superseded by `provider`. */
   useCLI?: boolean;
-  /** Path to the CLI binary. Defaults to "claude" (must be in PATH). */
+  /** Path to the CLI binary. Defaults to the provider's binary name. */
   cliPath?: string;
+  /** Timeout for a single CLI invocation in ms (default: 600000) */
+  cliTimeoutMs?: number;
 }
 
 /** A plain text-generation request (system + single user turn). */

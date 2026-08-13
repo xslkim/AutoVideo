@@ -19,6 +19,11 @@ import * as http from "node:http";
 import { loadConfig } from "../config/load.js";
 import type { AutoVideoConfig } from "../config/defaults.js";
 import { resolveClaudeCredentials } from "../config/claude-settings.js";
+import {
+  resolveAgentProvider,
+  defaultCliBinary,
+  checkCliVersion,
+} from "../ai/agent/index.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -236,7 +241,27 @@ async function checkVoxCPMModel(config: AutoVideoConfig): Promise<CheckResult> {
   };
 }
 
-async function checkClaudeCredentials(_config: AutoVideoConfig): Promise<CheckResult> {
+async function checkClaudeCredentials(config: AutoVideoConfig): Promise<CheckResult> {
+  const provider = resolveAgentProvider(config.anthropic);
+  if (provider !== "anthropic-api") {
+    const cliPath = config.anthropic.cliPath || defaultCliBinary(provider);
+    const cli = await checkCliVersion(cliPath);
+    if (cli.ok) {
+      return {
+        name: "Agent CLI",
+        status: "PASS",
+        detail: `${provider} 可用（${cliPath}${cli.message ? `, ${cli.message}` : ""}）`,
+        fix: "",
+      };
+    }
+    return {
+      name: "Agent CLI",
+      status: "FAIL",
+      detail: `${provider} 不可用: ${cli.message}`,
+      fix: `确认 ${cliPath} 已安装并在 PATH 中，或在配置中设置 anthropic.cliPath。`,
+    };
+  }
+
   const creds = resolveClaudeCredentials();
   if (!creds) {
     return {
@@ -255,6 +280,15 @@ async function checkClaudeCredentials(_config: AutoVideoConfig): Promise<CheckRe
 }
 
 async function checkClaudeApiConnectivity(config: AutoVideoConfig): Promise<CheckResult> {
+  if (resolveAgentProvider(config.anthropic) !== "anthropic-api") {
+    return {
+      name: "Claude API connectivity",
+      status: "PASS",
+      detail: "skipped (CLI provider)",
+      fix: "",
+    };
+  }
+
   const creds = resolveClaudeCredentials();
   if (!creds) {
     return {

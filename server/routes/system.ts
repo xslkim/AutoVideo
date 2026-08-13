@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import { spawn } from 'node:child_process';
 import type { AppConfig, AppConfigPublic, DoctorReport } from '../types/api.js';
 import { checkFfmpeg, checkChromium } from '../../src/cli/doctor.js';
 import {
@@ -7,6 +6,11 @@ import {
   isImageGenConfigured,
   resolveImageGenProvider,
 } from '../../src/ai/image-gen.js';
+import {
+  resolveAgentProvider,
+  defaultCliBinary,
+  checkCliVersion,
+} from '../../src/ai/agent/index.js';
 import { DEFAULT_VISUAL_QUALITY } from '../../src/config/defaults.js';
 import {
   loadStoredConfig,
@@ -34,12 +38,14 @@ function publicConfig(overlay: AppConfig): AppConfigPublic {
   return {
     version: 1,
     anthropic: {
+      provider: overlay.anthropic?.provider,
       apiKey: mask(overlay.anthropic?.apiKey),
       baseURL: overlay.anthropic?.baseURL,
       model: overlay.anthropic?.model,
       concurrency: overlay.anthropic?.concurrency,
       useCLI: overlay.anthropic?.useCLI,
       cliPath: overlay.anthropic?.cliPath,
+      cliTimeoutMs: overlay.anthropic?.cliTimeoutMs,
     },
     imageGen: {
       provider: overlay.imageGen?.provider,
@@ -72,55 +78,6 @@ function publicConfig(overlay: AppConfig): AppConfigPublic {
         overlay.visualQuality?.maxReviewRounds ?? DEFAULT_VISUAL_QUALITY.maxReviewRounds,
     },
   };
-}
-
-/**
- * Verify the agent CLI binary is present and responsive (`<cli> --version`).
- * Used by /api/config/test and /api/doctor when useCLI is on.
- */
-function checkAgentCli(
-  cliPath: string,
-): Promise<{ ok: boolean; latencyMs?: number; message?: string }> {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    let settled = false;
-    const settle = (result: { ok: boolean; latencyMs?: number; message?: string }) => {
-      if (settled) return;
-      settled = true;
-      resolve(result);
-    };
-
-    let proc: ReturnType<typeof spawn>;
-    try {
-      proc = spawn(cliPath, ['--version'], { stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      settle({ ok: false, message: err instanceof Error ? err.message : String(err) });
-      return;
-    }
-
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      proc.kill('SIGTERM');
-      settle({ ok: false, message: `${cliPath} --version 超时（10s）` });
-    }, 10000);
-
-    proc.stdout?.on('data', (c: Buffer) => { stdout += c.toString(); });
-    proc.stderr?.on('data', (c: Buffer) => { stderr += c.toString(); });
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) {
-        settle({ ok: true, latencyMs: Date.now() - start, message: stdout.trim().slice(0, 100) });
-      } else {
-        const detail = (stderr.trim() || stdout.trim()).slice(0, 200);
-        settle({ ok: false, message: `CLI 退出码 ${code}: ${detail}` });
-      }
-    });
-    proc.on('error', (err: Error) => {
-      clearTimeout(timer);
-      settle({ ok: false, message: `无法启动 ${cliPath}: ${err.message}` });
-    });
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -158,8 +115,10 @@ export function createSystemRoutes(repoRoot: string): Hono {
 
     switch (service) {
       case 'anthropic': {
-        if (cfg.anthropic.useCLI) {
-          const result = await checkAgentCli(cfg.anthropic.cliPath || 'claude');
+        const provider = resolveAgentProvider(cfg.anthropic);
+        if (provider !== 'anthropic-api') {
+          const cliPath = cfg.anthropic.cliPath || defaultCliBinary(provider);
+          const result = await checkCliVersion(cliPath);
           return c.json(result);
         }
 
@@ -307,9 +266,10 @@ export function createSystemRoutes(repoRoot: string): Hono {
     };
 
     // ── anthropic / agent ───────────────────────────────────────────────
-    if (cfg.anthropic.useCLI) {
-      const cliPath = cfg.anthropic.cliPath || 'claude';
-      const cliCheck = await checkAgentCli(cliPath);
+    const agentProvider = resolveAgentProvider(cfg.anthropic);
+    if (agentProvider !== 'anthropic-api') {
+      const cliPath = cfg.anthropic.cliPath || defaultCliBinary(agentProvider);
+      const cliCheck = await checkCliVersion(cliPath);
       report.anthropic = cliCheck.ok
         ? { status: 'ok' as const, message: `CLI 模式（${cliPath}）` }
         : { status: 'missing' as const, message: `CLI 模式不可用：${cliCheck.message}` };

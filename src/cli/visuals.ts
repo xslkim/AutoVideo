@@ -481,14 +481,16 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
     evictTrigger: config.cache.evictTrigger,
   });
 
-  // Anthropic config for generateComponent (animation mode)
+  // Agent config for generateComponent (animation mode)
   const anthropicConfig: AnthropicConfig = {
+    provider: config.anthropic.provider,
     model: config.anthropic.model,
     maxRetries: config.anthropic.maxRetries,
     baseURL: config.anthropic.baseURL,
     apiKey: config.anthropic.apiKey,
     useCLI: config.anthropic.useCLI,
     cliPath: config.anthropic.cliPath,
+    cliTimeoutMs: config.anthropic.cliTimeoutMs,
   };
 
   if (dryRun) {
@@ -803,14 +805,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                       frameTimesSec,
                       narrationLines: narrationLineSecs,
                     },
-                    {
-                      useCLI: anthropicConfig.useCLI,
-                      cliPath: anthropicConfig.cliPath,
-                      apiKey: anthropicConfig.apiKey,
-                      baseURL: anthropicConfig.baseURL,
-                      model: anthropicConfig.model,
-                      maxRetries: anthropicConfig.maxRetries,
-                    },
+                    anthropicConfig,
                     abortController.signal
                   );
                   if (!review.pass) {

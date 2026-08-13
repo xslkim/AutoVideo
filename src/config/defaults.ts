@@ -38,8 +38,20 @@ export interface TtsConfig {
   provider: "voxcpm";
 }
 
+/** Agent backend. See src/ai/agent/types.ts (AgentProvider). */
+export type AgentProviderName = "anthropic-api" | "claude-cli" | "opencode-cli";
+
 export interface AnthropicConfig {
-  /** Claude model to use for component generation */
+  /**
+   * Agent backend:
+   * - "anthropic-api": Anthropic Messages API（DeepSeek/GLM 走各自的
+   *   Anthropic 兼容端点 + baseURL）
+   * - "claude-cli":    本地 claude CLI（claude login 凭证）
+   * - "opencode-cli":  本地 opencode CLI（模型在 opencode 里配置）
+   * 未设置时按 legacy useCLI 映射（true → claude-cli）。
+   */
+  provider?: AgentProviderName;
+  /** Model for component generation (API model name, or opencode provider/model) */
   model: string;
   /** Max retries on API failure */
   maxRetries: number;
@@ -50,12 +62,13 @@ export interface AnthropicConfig {
   /** Max concurrent block generation calls */
   concurrency: number;
   /**
-   * When true, invoke the local `claude` CLI instead of the Anthropic SDK.
-   * Reuses credentials from `claude login`; no API key required.
+   * Legacy flag（被 provider 取代，仍兼容）：true → 走本地 `claude` CLI。
    */
   useCLI?: boolean;
-  /** Path to the `claude` binary (default: "claude", must be in PATH). */
+  /** Path to the agent CLI binary (default: provider's binary name). */
   cliPath?: string;
+  /** Timeout for a single CLI invocation in ms (default: 600000). */
+  cliTimeoutMs?: number;
 }
 
 export interface LoudnormConfig {

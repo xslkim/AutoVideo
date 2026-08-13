@@ -62,15 +62,16 @@ export function mergeStoredConfig(stored: AppConfig, patch: Partial<AppConfig>):
   for (const svc of ['anthropic', 'imageGen', 'voxcpm', 'musetalk', 'visualQuality'] as const) {
     const patchSvc = patch[svc];
     if (!patchSvc) continue;
-    merged[svc] = { ...(stored[svc] || {}) };
+    const target: Record<string, unknown> = { ...(stored[svc] || {}) };
     for (const [k, v] of Object.entries(patchSvc)) {
       if (v === null) {
-        delete (merged[svc] as Record<string, unknown>)[k];
+        delete target[k];
       } else if (v !== '') {
-        (merged[svc] as Record<string, unknown>)[k] = v;
+        target[k] = v;
       }
       // v === "" means "unchanged" → skip
     }
+    (merged as unknown as Record<string, unknown>)[svc] = target;
   }
 
   return merged;
@@ -89,6 +90,7 @@ export function resolveWebConfig(repoRoot: string): AppConfig {
   return {
     version: 1,
     anthropic: {
+      provider: stored.anthropic?.provider || undefined,
       apiKey:
         stored.anthropic?.apiKey
         || process.env.ANTHROPIC_API_KEY
@@ -99,6 +101,7 @@ export function resolveWebConfig(repoRoot: string): AppConfig {
       concurrency: stored.anthropic?.concurrency ?? undefined,
       useCLI: stored.anthropic?.useCLI ?? undefined,
       cliPath: stored.anthropic?.cliPath || undefined,
+      cliTimeoutMs: stored.anthropic?.cliTimeoutMs ?? undefined,
     },
     imageGen: {
       provider: stored.imageGen?.provider

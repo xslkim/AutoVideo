@@ -4,16 +4,20 @@
  * Invokes `claude -p` in non-interactive print mode, reusing whatever
  * credentials are active via `claude login`. This avoids API-key setup.
  *
+ * Output format is JSON (`--output-format json`) so real token usage can be
+ * reported; if the output cannot be parsed as the expected result envelope,
+ * the raw stdout is used as the response text (usage falls back to zeros).
+ *
  * Image review relies on the CLI's Read tool: images are referenced by
  * absolute path in the prompt and the agent reads them from disk
  * (hence --dangerously-skip-permissions).
  */
 
-import { spawn } from "node:child_process";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+import { runCli, cancelledError, DEFAULT_CLI_TIMEOUT_MS } from "./cli-common.js";
 import type {
   AgentCapabilities,
   AgentConfig,
@@ -27,76 +31,61 @@ const BASE_ARGS = [
   "-p",
   "--no-session-persistence",
   "--dangerously-skip-permissions",
-  "--output-format", "text",
+  "--output-format", "json",
 ];
 
-function cancelledError(): Error {
-  return Object.assign(new Error("Cancelled"), { code: "ERR_CANCELLED" });
-}
-
 /**
- * Spawn the CLI, feed `stdinContent` via stdin, and collect stdout.
- * Rejects on non-zero exit, spawn failure, or abort.
+ * Parse the claude CLI JSON result envelope:
+ *   {"type":"result","subtype":"success","result":"...","usage":{...},...}
+ * Falls back to treating the raw output as plain text.
  */
-function runCli(
-  cliPath: string,
-  args: string[],
-  stdinContent: string,
-  signal?: AbortSignal,
-): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const proc = spawn(cliPath, args, { stdio: ["pipe", "pipe", "pipe"] });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const settle = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      fn();
-    };
-
-    proc.stdin.write(stdinContent, "utf-8");
-    proc.stdin.end();
-
-    proc.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-    proc.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-
-    proc.on("close", (code) => {
-      if (code === 0) {
-        settle(() => resolve(stdout));
-      } else {
-        const detail = stderr.trim() || stdout.trim();
-        settle(() =>
-          reject(new Error(`claude CLI exited ${code}: ${detail.slice(0, 500)}`))
-        );
-      }
-    });
-
-    proc.on("error", (err: Error) => {
-      settle(() => reject(new Error(`Failed to spawn claude: ${err.message}`)));
-    });
-
-    if (signal) {
-      const onAbort = () => {
-        proc.kill("SIGTERM");
-        settle(() => reject(cancelledError()));
+function parseCliOutput(raw: string): AgentResult {
+  try {
+    const parsed = JSON.parse(raw) as {
+      type?: string;
+      is_error?: boolean;
+      result?: string;
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
       };
-      signal.addEventListener("abort", onAbort, { once: true });
-      proc.on("close", () => signal.removeEventListener("abort", onAbort));
+    };
+    if (parsed?.type === "result" && typeof parsed.result === "string") {
+      if (parsed.is_error) {
+        throw new Error(`claude CLI reported an error: ${parsed.result.slice(0, 500)}`);
+      }
+      const u = parsed.usage ?? {};
+      return {
+        text: parsed.result,
+        usage: {
+          inputTokens:
+            (u.input_tokens ?? 0)
+            + (u.cache_creation_input_tokens ?? 0)
+            + (u.cache_read_input_tokens ?? 0),
+          outputTokens: u.output_tokens ?? 0,
+        },
+      };
     }
-  });
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("claude CLI reported")) throw err;
+    // Not JSON — fall through to raw text
+  }
+  return { text: raw, usage: { inputTokens: 0, outputTokens: 0 } };
 }
 
 export class ClaudeCliDriver implements AgentDriver {
-  /** The CLI reads images from disk via its Read tool; it cannot report usage. */
-  readonly capabilities: AgentCapabilities = { vision: true, usageReporting: false };
+  readonly capabilities: AgentCapabilities = { vision: true, usageReporting: true };
 
   constructor(private readonly config: AgentConfig) {}
 
   private get cliPath(): string {
     return this.config.cliPath || "claude";
+  }
+
+  private get timeoutMs(): number {
+    return this.config.cliTimeoutMs ?? DEFAULT_CLI_TIMEOUT_MS;
   }
 
   async generateText(req: AgentTextRequest, signal?: AbortSignal): Promise<AgentResult> {
@@ -106,7 +95,7 @@ export class ClaudeCliDriver implements AgentDriver {
     // The CLI picks its own default (typically the fastest available model).
     // Forcing a specific model via --model switches to a different backend that
     // can be orders of magnitude slower with large system prompts, causing the
-    // invocation to hang until the server-side timeout kills it.
+    // invocation to hang until the timeout kills it.
     const args = [...BASE_ARGS];
 
     // Write system prompt to a temp file to avoid CLI argument length limits
@@ -121,8 +110,15 @@ export class ClaudeCliDriver implements AgentDriver {
     }
 
     try {
-      const text = await runCli(this.cliPath, args, req.user, signal);
-      return { text, usage: { inputTokens: 0, outputTokens: 0 } };
+      const res = await runCli({
+        cliPath: this.cliPath,
+        args,
+        stdin: req.user,
+        timeoutMs: this.timeoutMs,
+        signal,
+        label: "claude",
+      });
+      return parseCliOutput(res.stdout);
     } finally {
       if (tmpFile) {
         try { unlinkSync(tmpFile); } catch { /* ignore */ }
@@ -143,7 +139,14 @@ export class ClaudeCliDriver implements AgentDriver {
       ...(req.trailingText ? [req.trailingText] : []),
     ].join("\n");
 
-    const text = await runCli(this.cliPath, [...BASE_ARGS], prompt, signal);
-    return { text, usage: { inputTokens: 0, outputTokens: 0 } };
+    const res = await runCli({
+      cliPath: this.cliPath,
+      args: [...BASE_ARGS],
+      stdin: prompt,
+      timeoutMs: this.timeoutMs,
+      signal,
+      label: "claude",
+    });
+    return parseCliOutput(res.stdout);
   }
 }

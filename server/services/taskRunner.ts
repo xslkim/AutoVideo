@@ -328,7 +328,9 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
         }
 
         console.log('[taskRunner] visuals config:', JSON.stringify({
-          apiKey: config.anthropic.apiKey ? `${config.anthropic.apiKey.slice(0, 12)}...` : 'MISSING',
+          provider: config.anthropic.provider
+            ?? (config.anthropic.useCLI ? 'claude-cli' : 'anthropic-api'),
+          apiKey: config.anthropic.apiKey ? `***${config.anthropic.apiKey.slice(-4)}` : '(unset)',
           baseURL: config.anthropic.baseURL,
           model: config.anthropic.model,
         }));

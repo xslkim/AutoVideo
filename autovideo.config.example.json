@@ -8,6 +8,7 @@
     "concurrency": 4
   },
   "anthropic": {
+    "provider": "anthropic-api",
     "model": "claude-sonnet-4-6",
     "concurrency": 4
   },

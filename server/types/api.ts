@@ -55,17 +55,23 @@ export interface BlocksResponse {
   currentSlug: string;
 }
 
+export type AgentProviderName = 'anthropic-api' | 'claude-cli' | 'opencode-cli';
+
 export interface AppConfig {
   version: 1;
   anthropic?: {
+    /** Agent backend; unset → legacy useCLI mapping */
+    provider?: AgentProviderName;
     apiKey?: string;
     baseURL?: string;
     model?: string;
     concurrency?: number;
-    /** Use local `claude` CLI instead of Anthropic SDK */
+    /** Legacy flag: use local `claude` CLI (superseded by provider) */
     useCLI?: boolean;
-    /** Path to the `claude` binary (default: "claude") */
+    /** Path to the agent CLI binary */
     cliPath?: string;
+    /** Timeout for a single CLI invocation in ms */
+    cliTimeoutMs?: number;
   };
   imageGen?: {
     provider?: 'openai' | 'sensenova';
@@ -100,12 +106,14 @@ export interface AppConfig {
 export interface AppConfigPublic {
   version: 1;
   anthropic: {
+    provider?: AgentProviderName;
     apiKey: { set: boolean; last4?: string };
     baseURL?: string;
     model?: string;
     concurrency?: number;
     useCLI?: boolean;
     cliPath?: string;
+    cliTimeoutMs?: number;
   };
   imageGen: {
     provider?: 'openai' | 'sensenova';

@@ -8,24 +8,83 @@
     @update-show="(v: boolean) => !v && emit('close')"
   >
     <n-tabs v-model:value="activeTab" type="line" size="small">
-      <!-- Anthropic -->
-      <n-tab-pane name="anthropic" tab="Anthropic">
+      <!-- AI Agent（组件生成 / 视觉评审） -->
+      <n-tab-pane name="anthropic" tab="AI Agent">
         <n-form label-placement="left" label-width="90" :style="{ paddingTop: '12px' }">
-          <n-form-item label="API Key">
-            <n-input
-              v-model:value="form.anthropic.apiKey"
-              type="password"
-              show-password-on="click"
-              placeholder="sk-ant-..."
-              clearable
+          <n-form-item label="Provider">
+            <n-select
+              v-model:value="form.anthropic.provider"
+              :options="agentProviderOptions"
+              style="width: 100%"
             />
           </n-form-item>
-          <n-form-item label="Base URL">
-            <n-input v-model:value="form.anthropic.baseURL" placeholder="https://api.anthropic.com" clearable />
-          </n-form-item>
-          <n-form-item label="Model">
-            <n-input v-model:value="form.anthropic.model" placeholder="claude-sonnet-4-6" clearable />
-          </n-form-item>
+
+          <!-- API 模式：key / baseURL / model -->
+          <template v-if="form.anthropic.provider === 'anthropic-api'">
+            <n-form-item label="API Key">
+              <n-input
+                v-model:value="form.anthropic.apiKey"
+                type="password"
+                show-password-on="click"
+                placeholder="sk-ant-... / sk-...（DeepSeek）/ GLM key"
+                clearable
+              />
+            </n-form-item>
+            <n-form-item label="Base URL">
+              <n-select
+                v-model:value="form.anthropic.baseURL"
+                :options="agentBaseUrlOptions"
+                placeholder="https://api.anthropic.com"
+                filterable
+                tag
+                clearable
+                style="width: 100%"
+              />
+            </n-form-item>
+            <n-form-item label="Model">
+              <n-select
+                v-model:value="form.anthropic.model"
+                :options="agentModelOptions"
+                placeholder="claude-sonnet-4-6"
+                filterable
+                tag
+                clearable
+                style="width: 100%"
+              />
+            </n-form-item>
+          </template>
+
+          <!-- CLI 模式：binary 路径 / 超时 / opencode 模型 -->
+          <template v-else>
+            <n-form-item label="CLI 路径">
+              <n-input
+                v-model:value="form.anthropic.cliPath"
+                :placeholder="form.anthropic.provider === 'opencode-cli' ? 'opencode' : 'claude'"
+                clearable
+              />
+            </n-form-item>
+            <n-form-item v-if="form.anthropic.provider === 'opencode-cli'" label="Model">
+              <n-input
+                v-model:value="form.anthropic.model"
+                placeholder="provider/model（如 deepseek/deepseek-chat）"
+                clearable
+              />
+            </n-form-item>
+            <n-form-item v-else label="Model">
+              <span style="font-size: 12px; color: #999">
+                claude CLI 使用 claude login 账号的默认模型（不透传 model）
+              </span>
+            </n-form-item>
+            <n-form-item label="CLI 超时">
+              <n-input-number
+                v-model:value="form.anthropic.cliTimeoutMs"
+                :min="30000" :max="3600000" :step="30000" style="width: 100%"
+              >
+                <template #suffix>ms</template>
+              </n-input-number>
+            </n-form-item>
+          </template>
+
           <n-form-item label="动画并发">
             <n-select
               v-model:value="form.anthropic.concurrency"
@@ -38,7 +97,9 @@
               测试连通性
             </n-button>
             <span v-if="testResult.anthropic" :style="{ marginLeft: '12px', fontSize: '13px' }">
-              <span v-if="testResult.anthropic.ok" style="color: #18a058">连接成功 ({{ testResult.anthropic.latencyMs }}ms)</span>
+              <span v-if="testResult.anthropic.ok" style="color: #18a058">
+                连接成功 ({{ testResult.anthropic.latencyMs }}ms{{ testResult.anthropic.message ? ' · ' + testResult.anthropic.message : '' }})
+              </span>
               <span v-else style="color: #d03050">{{ testResult.anthropic.message }}</span>
             </span>
           </n-form-item>
@@ -244,6 +305,25 @@ const imageGenProviderOptions = [
   { label: 'OpenAI 兼容 API', value: 'openai' },
 ]
 
+const agentProviderOptions = [
+  { label: 'Anthropic 兼容 API（Claude / DeepSeek / GLM）', value: 'anthropic-api' },
+  { label: 'Claude CLI（claude login 凭证）', value: 'claude-cli' },
+  { label: 'OpenCode CLI（模型在 opencode 里配置）', value: 'opencode-cli' },
+]
+
+const agentBaseUrlOptions = [
+  { label: 'Anthropic 官方 (api.anthropic.com)', value: 'https://api.anthropic.com' },
+  { label: 'DeepSeek (api.deepseek.com/anthropic)', value: 'https://api.deepseek.com/anthropic' },
+  { label: '智谱 GLM (open.bigmodel.cn/api/anthropic)', value: 'https://open.bigmodel.cn/api/anthropic' },
+]
+
+const agentModelOptions = [
+  { label: 'claude-sonnet-4-6', value: 'claude-sonnet-4-6' },
+  { label: 'deepseek-chat', value: 'deepseek-chat' },
+  { label: 'deepseek-reasoner', value: 'deepseek-reasoner' },
+  { label: 'glm-4.6', value: 'glm-4.6' },
+]
+
 const anthropicConcurrencyOptions = [2, 3, 4, 5, 6, 7, 8].map((v) => ({
   label: String(v),
   value: v,
@@ -258,9 +338,12 @@ function clampAnthropicConcurrency(value: number | null | undefined): number {
 
 const form = reactive({
   anthropic: {
+    provider: 'anthropic-api' as 'anthropic-api' | 'claude-cli' | 'opencode-cli',
     apiKey: '' as string,
-    baseURL: '' as string,
-    model: '' as string,
+    baseURL: '' as string | null,
+    model: '' as string | null,
+    cliPath: '' as string,
+    cliTimeoutMs: 600000 as number | null,
     concurrency: 4 as number | null,
   },
   imageGen: {
@@ -316,9 +399,13 @@ async function loadConfig() {
   if (!res.ok) return
 
   const c = res.data
+  form.anthropic.provider =
+    c.anthropic.provider ?? (c.anthropic.useCLI ? 'claude-cli' : 'anthropic-api')
   form.anthropic.apiKey = ''
   form.anthropic.baseURL = c.anthropic.baseURL ?? ''
   form.anthropic.model = c.anthropic.model ?? ''
+  form.anthropic.cliPath = c.anthropic.cliPath ?? ''
+  form.anthropic.cliTimeoutMs = c.anthropic.cliTimeoutMs ?? 600000
   form.anthropic.concurrency = clampAnthropicConcurrency(c.anthropic.concurrency)
 
   form.imageGen.provider = c.imageGen.provider ?? 'sensenova'
@@ -358,11 +445,14 @@ async function onSave() {
     // Build patch: only include non-empty apiKey if user typed one
     const patch: Record<string, unknown> = {}
 
-    // Anthropic
+    // AI Agent
     const aPatch: Record<string, unknown> = {}
+    aPatch.provider = form.anthropic.provider
     if (form.anthropic.apiKey) aPatch.apiKey = form.anthropic.apiKey
     aPatch.baseURL = form.anthropic.baseURL || null
     aPatch.model = form.anthropic.model || null
+    aPatch.cliPath = form.anthropic.cliPath || null
+    aPatch.cliTimeoutMs = form.anthropic.cliTimeoutMs
     aPatch.concurrency = form.anthropic.concurrency
     patch.anthropic = aPatch
 
