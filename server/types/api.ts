@@ -72,6 +72,15 @@ export interface AppConfig {
     cliPath?: string;
     /** Timeout for a single CLI invocation in ms */
     cliTimeoutMs?: number;
+    /** 评审独立配置（可选；未设字段沿用生成配置）。生成模型无视觉能力时使用。 */
+    review?: {
+      provider?: AgentProviderName;
+      model?: string;
+      baseURL?: string;
+      apiKey?: string;
+      cliPath?: string;
+      cliTimeoutMs?: number;
+    };
   };
   imageGen?: {
     provider?: 'openai' | 'sensenova';
@@ -114,6 +123,14 @@ export interface AppConfigPublic {
     useCLI?: boolean;
     cliPath?: string;
     cliTimeoutMs?: number;
+    review?: {
+      provider?: AgentProviderName;
+      model?: string;
+      baseURL?: string;
+      apiKey: { set: boolean; last4?: string };
+      cliPath?: string;
+      cliTimeoutMs?: number;
+    };
   };
   imageGen: {
     provider?: 'openai' | 'sensenova';

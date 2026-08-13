@@ -69,6 +69,22 @@ export interface AnthropicConfig {
   cliPath?: string;
   /** Timeout for a single CLI invocation in ms (default: 600000). */
   cliTimeoutMs?: number;
+  /**
+   * 视觉评审的独立 agent 配置（可选，未设置的字段沿用上面的生成配置）。
+   * 评审需要多模态：生成模型没有视觉能力时（如 deepseek-chat），
+   * 在这里指定一个支持看图的模型。
+   */
+  review?: AgentReviewConfig;
+}
+
+/** Per-field overrides for the visual-review agent (falls back to generation config). */
+export interface AgentReviewConfig {
+  provider?: AgentProviderName;
+  model?: string;
+  baseURL?: string;
+  apiKey?: string;
+  cliPath?: string;
+  cliTimeoutMs?: number;
 }
 
 export interface LoudnormConfig {

@@ -92,6 +92,57 @@
               style="width: 100%"
             />
           </n-form-item>
+
+          <n-divider style="margin: 4px 0 12px" />
+          <n-form-item label="独立评审模型">
+            <n-switch v-model:value="form.anthropic.reviewEnabled" />
+            <span style="margin-left: 12px; font-size: 12px; color: #999">
+              生成模型无视觉能力时（如 deepseek-chat），评审需指定支持看图的模型
+            </span>
+          </n-form-item>
+          <template v-if="form.anthropic.reviewEnabled">
+            <n-form-item label="Provider">
+              <n-select
+                v-model:value="form.anthropic.review.provider"
+                :options="agentProviderOptions"
+                placeholder="同生成 provider"
+                clearable
+                style="width: 100%"
+              />
+            </n-form-item>
+            <n-form-item label="Model">
+              <n-select
+                v-model:value="form.anthropic.review.model"
+                :options="agentModelOptions"
+                placeholder="同生成模型"
+                filterable
+                tag
+                clearable
+                style="width: 100%"
+              />
+            </n-form-item>
+            <n-form-item label="Base URL">
+              <n-select
+                v-model:value="form.anthropic.review.baseURL"
+                :options="agentBaseUrlOptions"
+                placeholder="同生成 Base URL"
+                filterable
+                tag
+                clearable
+                style="width: 100%"
+              />
+            </n-form-item>
+            <n-form-item label="API Key">
+              <n-input
+                v-model:value="form.anthropic.review.apiKey"
+                type="password"
+                show-password-on="click"
+                placeholder="留空沿用生成配置的 Key"
+                clearable
+              />
+            </n-form-item>
+          </template>
+
           <n-form-item>
             <n-button size="small" :loading="testing.anthropic" @click="testService('anthropic')">
               测试连通性
@@ -345,6 +396,13 @@ const form = reactive({
     cliPath: '' as string,
     cliTimeoutMs: 600000 as number | null,
     concurrency: 4 as number | null,
+    reviewEnabled: false as boolean,
+    review: {
+      provider: null as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | null,
+      model: '' as string | null,
+      baseURL: '' as string | null,
+      apiKey: '' as string,
+    },
   },
   imageGen: {
     provider: 'sensenova' as 'openai' | 'sensenova',
@@ -407,6 +465,11 @@ async function loadConfig() {
   form.anthropic.cliPath = c.anthropic.cliPath ?? ''
   form.anthropic.cliTimeoutMs = c.anthropic.cliTimeoutMs ?? 600000
   form.anthropic.concurrency = clampAnthropicConcurrency(c.anthropic.concurrency)
+  form.anthropic.reviewEnabled = !!c.anthropic.review
+  form.anthropic.review.provider = c.anthropic.review?.provider ?? null
+  form.anthropic.review.model = c.anthropic.review?.model ?? ''
+  form.anthropic.review.baseURL = c.anthropic.review?.baseURL ?? ''
+  form.anthropic.review.apiKey = ''
 
   form.imageGen.provider = c.imageGen.provider ?? 'sensenova'
   form.imageGen.baseURL = c.imageGen.baseURL ?? ''
@@ -454,6 +517,17 @@ async function onSave() {
     aPatch.cliPath = form.anthropic.cliPath || null
     aPatch.cliTimeoutMs = form.anthropic.cliTimeoutMs
     aPatch.concurrency = form.anthropic.concurrency
+    if (form.anthropic.reviewEnabled) {
+      aPatch.review = {
+        provider: form.anthropic.review.provider || null,
+        model: form.anthropic.review.model || null,
+        baseURL: form.anthropic.review.baseURL || null,
+        // 留空 = 沿用已保存的 review key（如有）
+        ...(form.anthropic.review.apiKey ? { apiKey: form.anthropic.review.apiKey } : {}),
+      }
+    } else {
+      aPatch.review = null
+    }
     patch.anthropic = aPatch
 
     // ImageGen

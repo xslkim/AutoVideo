@@ -46,6 +46,16 @@ function publicConfig(overlay: AppConfig): AppConfigPublic {
       useCLI: overlay.anthropic?.useCLI,
       cliPath: overlay.anthropic?.cliPath,
       cliTimeoutMs: overlay.anthropic?.cliTimeoutMs,
+      review: overlay.anthropic?.review
+        ? {
+            provider: overlay.anthropic.review.provider,
+            model: overlay.anthropic.review.model,
+            baseURL: overlay.anthropic.review.baseURL,
+            apiKey: mask(overlay.anthropic.review.apiKey),
+            cliPath: overlay.anthropic.review.cliPath,
+            cliTimeoutMs: overlay.anthropic.review.cliTimeoutMs,
+          }
+        : undefined,
     },
     imageGen: {
       provider: overlay.imageGen?.provider,

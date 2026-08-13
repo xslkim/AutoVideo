@@ -57,9 +57,29 @@ export function saveStoredConfig(repoRoot: string, config: AppConfig): void {
 }
 
 /**
- * Merge a PUT patch into the stored config (service-level deep merge).
- * Field semantics: null → clear; "" or undefined → keep existing.
+ * Recursively merge patch fields into target.
+ * Field semantics: null → clear; "" or undefined → keep existing;
+ * nested objects (e.g. anthropic.review) merge field-by-field.
  */
+function mergeFields(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) {
+      delete target[k];
+    } else if (typeof v === 'object' && !Array.isArray(v)) {
+      const nested: Record<string, unknown> =
+        typeof target[k] === 'object' && target[k] !== null
+          ? { ...(target[k] as Record<string, unknown>) }
+          : {};
+      mergeFields(nested, v as Record<string, unknown>);
+      target[k] = nested;
+    } else if (v !== '') {
+      target[k] = v;
+    }
+    // v === "" means "unchanged" → skip
+  }
+}
+
+/** Merge a PUT patch into the stored config (service-level deep merge). */
 export function mergeStoredConfig(stored: AppConfig, patch: Partial<AppConfig>): AppConfig {
   const merged: AppConfig = { ...stored, version: 1 };
 
@@ -67,14 +87,7 @@ export function mergeStoredConfig(stored: AppConfig, patch: Partial<AppConfig>):
     const patchSvc = patch[svc];
     if (!patchSvc) continue;
     const target: Record<string, unknown> = { ...(stored[svc] || {}) };
-    for (const [k, v] of Object.entries(patchSvc)) {
-      if (v === null) {
-        delete target[k];
-      } else if (v !== '') {
-        target[k] = v;
-      }
-      // v === "" means "unchanged" → skip
-    }
+    mergeFields(target, patchSvc as Record<string, unknown>);
     (merged as unknown as Record<string, unknown>)[svc] = target;
   }
 
@@ -106,6 +119,7 @@ export function resolveWebConfig(repoRoot: string): AppConfig {
       useCLI: stored.anthropic?.useCLI ?? undefined,
       cliPath: stored.anthropic?.cliPath || undefined,
       cliTimeoutMs: stored.anthropic?.cliTimeoutMs ?? undefined,
+      review: stored.anthropic?.review ? { ...stored.anthropic.review } : undefined,
     },
     imageGen: {
       provider: stored.imageGen?.provider

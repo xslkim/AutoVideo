@@ -493,6 +493,16 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
     cliTimeoutMs: config.anthropic.cliTimeoutMs,
   };
 
+  // Visual review may use a different agent (e.g. generation on deepseek-chat,
+  // which has no vision, review on a multimodal model). Unset override fields
+  // fall back to the generation config.
+  const reviewOverrides = Object.fromEntries(
+    Object.entries(config.anthropic.review ?? {}).filter(
+      ([, v]) => v !== undefined && v !== ""
+    )
+  );
+  const reviewAgentConfig: AnthropicConfig = { ...anthropicConfig, ...reviewOverrides };
+
   if (dryRun) {
     console.log(
       `[dry-run] Would process ${targetBlocks.length} block(s): ${targetBlocks.map((b) => b.id).join(", ")}`
@@ -805,7 +815,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                       frameTimesSec,
                       narrationLines: narrationLineSecs,
                     },
-                    anthropicConfig,
+                    reviewAgentConfig,
                     abortController.signal
                   );
                   if (!review.pass) {

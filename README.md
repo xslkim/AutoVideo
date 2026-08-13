@@ -12,7 +12,7 @@ AutoVideo 通过 HTTP 调用若干 AI 服务。框架只连接 endpoint,**不负
 
 | 服务 | 用途 | 必需? | 部署指引 |
 |------|------|--------|---------|
-| **Claude API** | 视觉组件生成 / 评审 | ✅ | 设 `ANTHROPIC_API_KEY`,或用 `claude` CLI 登录 |
+| **AI Agent** | 视觉组件生成 / 评审 | ✅ | 三选一:Anthropic 兼容 API(Claude / DeepSeek / GLM,设 `ANTHROPIC_API_KEY` + baseURL)、`claude` CLI、`opencode` CLI。Web 设置面板或 `autovideo.config.json` → `anthropic.provider` 配置 |
 | **VoxCPM2** (TTS) | 旁白语音合成 | ✅ | [`third_servers/voxcpm-tts/`](third_servers/voxcpm-tts/) |
 | **SenseNova-U1** | 文生图(image 视觉模式) | ⬜ | [`third_servers/sensenova-t2i/`](third_servers/sensenova-t2i/) |
 | **MuseTalk** | 口型同步(avatar 模式) | ⬜ | [`third_servers/musetalk-lipsync/`](third_servers/musetalk-lipsync/) |
