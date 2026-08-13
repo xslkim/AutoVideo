@@ -104,6 +104,13 @@ export interface ImageMetrics {
    * collide with the subtitles. Undefined when no strip was reserved.
    */
   safeBandEdge?: number;
+  /**
+   * Mean edge energy in the outermost few pixel columns on each side.
+   * Text/card borders clipped by the canvas edge score high; decorative
+   * glows/gradients that intentionally bleed off-canvas are low-frequency and
+   * score near zero, so they don't trigger this.
+   */
+  edgeClip: { left: number; right: number };
 }
 
 export interface VisualMetricsResult {
@@ -401,6 +408,15 @@ const EDGE_CONTENT_THRESHOLD = 2.0;
  * happens to graze the line does not trigger a rewrite.
  */
 const SAFE_BAND_EDGE_LIMIT = 3.0;
+/** Width in px of the strips probed at the left/right canvas edges. */
+const EDGE_CLIP_STRIP_PX = 6;
+/**
+ * Edge energy at the canvas edge above which content is considered clipped.
+ * Calibrated on real slides: clipped card text scores 0.25–3.2, clean layouts
+ * (including cards ~10px from the edge) score 0, and a decorative glow
+ * bleeding off-canvas scores ~0.11.
+ */
+const EDGE_CLIP_LIMIT = 0.2;
 
 /**
  * Mean brightness of the edge map for a single crop of the image.
@@ -463,6 +479,13 @@ export async function computeImageMetrics(
       ? await cellEdgeMean(pngPath, 0, usableHeight, dims.width, safeBottom, 0)
       : undefined;
 
+  // Clipping probes lean optimistic on measurement failure (onError = 0):
+  // a broken ffmpeg run must not flag a slide as clipped.
+  const [edgeClipLeft, edgeClipRight] = await Promise.all([
+    cellEdgeMean(pngPath, 0, 0, EDGE_CLIP_STRIP_PX, usableHeight, 0),
+    cellEdgeMean(pngPath, dims.width - EDGE_CLIP_STRIP_PX, 0, EDGE_CLIP_STRIP_PX, usableHeight, 0),
+  ]);
+
   const resolved = await Promise.all(
     cells.map(async (cell) => ({ r: cell.r, c: cell.c, content: (await cell.mean) > EDGE_CONTENT_THRESHOLD })),
   );
@@ -491,6 +514,7 @@ export async function computeImageMetrics(
       bottom: rowFraction(GRID_ROWS - 1),
     },
     ...(safeBandEdge !== undefined ? { safeBandEdge } : {}),
+    edgeClip: { left: edgeClipLeft, right: edgeClipRight },
   };
 }
 
@@ -560,6 +584,17 @@ export async function assessVisualMetrics(args: {
         `内容覆盖约 ${Math.round(image.coverage * 100)}% 的画面（上限 ≤${Math.round(thresholds.maxCoverage * 100)}%），画面过于密集。请增大元素间距、缩小非核心元素、减少装饰性内容，让画面有呼吸感。`,
       );
     }
+    const clippedSides: string[] = [];
+    if (image.edgeClip.left > EDGE_CLIP_LIMIT) clippedSides.push("左");
+    if (image.edgeClip.right > EDGE_CLIP_LIMIT) clippedSides.push("右");
+    if (clippedSides.length > 0) {
+      issues.push(
+        `画布${clippedSides.join("、")}边缘检测到被裁切的内容（文字/卡片超出屏幕）。` +
+          `常见原因：横向排列（时间轴、卡片行）的首尾元素以端点节点为中心居中，导致溢出。` +
+          `请把首尾节点位置向内缩进，保证每个含文字元素的 left/right 边缘（中心 x ± 元素宽/2）都在 [0, width] 内；` +
+          `或减小首尾卡片/标签宽度。装饰性光晕可以出血到画面外，但文字、卡片、标签必须完整可见。`,
+      );
+    }
     if (image.safeBandEdge !== undefined && image.safeBandEdge > SAFE_BAND_EDGE_LIMIT) {
       issues.push(
         `底部 subtitleSafeBottom（${safeBottom ?? 0}px）区域内有可见元素，会被字幕遮挡。请确保所有内容元素的底边不超过 height - subtitleSafeBottom（根容器仍为全 height，背景填满全屏，只有内容元素需要避让字幕区）。`,
@@ -582,7 +617,7 @@ export async function assessVisualMetrics(args: {
   }
 
   const feedback = [
-    "Visual-quality check failed — 画面过于简单/空旷，请重写组件解决以下问题：",
+    "Visual-quality check failed — 请重写组件解决以下问题：",
     ...issues.map((s, i) => `${i + 1}. ${s}`),
     "保持技术契约不变（默认导出、AnimationProps、仅 import react/remotion），只改进视觉密度与布局。",
   ].join("\n");

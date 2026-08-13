@@ -2,7 +2,16 @@ import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { computeStaticMetrics, assessVisualMetrics, checkNarrationSyncContract } from "../../src/ai/visual-metrics.js";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import {
+  computeStaticMetrics,
+  computeImageMetrics,
+  assessVisualMetrics,
+  checkNarrationSyncContract,
+} from "../../src/ai/visual-metrics.js";
+
+const execFileAsync = promisify(execFile);
 
 const tmpFiles: string[] = [];
 function writeTsx(content: string): string {
@@ -173,6 +182,64 @@ describe("assessVisualMetrics (static-only)", () => {
     expect(res.pass).toBe(true);
     expect(res.feedback).toBe("");
   });
+});
+
+describe("computeImageMetrics edge clipping", () => {
+  /**
+   * Render a dark 1920x1080 test card with four text-like white bars starting
+   * at `barX`. barX = 0 simulates a card/label clipped by the left canvas
+   * edge; barX = 100 is a clean layout.
+   */
+  async function makePng(barX: number): Promise<string> {
+    const p = path.join(os.tmpdir(), `vm-img-${Date.now()}-${Math.random().toString(36).slice(2)}.png`);
+    const boxes = [300, 320, 340, 360]
+      .map((y) => `drawbox=x=${barX}:y=${y}:w=60:h=6:color=white:t=fill`)
+      .join(",");
+    await execFileAsync("ffmpeg", [
+      "-y", "-f", "lavfi", "-i", "color=c=0x0d1117:s=1920x1080:d=1",
+      "-vf", boxes, "-frames:v", "1", p,
+    ], { timeout: 20000 });
+    tmpFiles.push(p);
+    return p;
+  }
+
+  it("flags content clipped at the left edge but not a clean layout", async () => {
+    const clipped = await makePng(0);
+    const clean = await makePng(100);
+    const dims = { width: 1920, height: 1080, safeBottom: 150 };
+
+    const mClipped = await computeImageMetrics(clipped, dims);
+    expect(mClipped.edgeClip.left).toBeGreaterThan(0.2);
+    expect(mClipped.edgeClip.right).toBeLessThan(0.2);
+
+    const mClean = await computeImageMetrics(clean, dims);
+    expect(mClean.edgeClip.left).toBeLessThan(0.2);
+    expect(mClean.edgeClip.right).toBeLessThan(0.2);
+  }, 60000);
+
+  it("surfaces clipping as actionable feedback in assessVisualMetrics", async () => {
+    const clipped = await makePng(0);
+    const tsx = writeTsx(`
+      import React from "react";
+      export default function C({ height }: any) {
+        return (
+          <div style={{ fontSize: height * 0.09 }}>
+            <span style={{ fontSize: height * 0.04 }}>a</span>
+            <span style={{ fontSize: height * 0.04 }}>b</span>
+            <span style={{ fontSize: height * 0.03 }}>c</span>
+          </div>
+        );
+      }
+    `);
+    const res = await assessVisualMetrics({
+      tsxPath: tsx, pngPath: clipped, width: 1920, height: 1080,
+      thresholds: { minFontCoeff: 0.07, minAnyFontCoeff: 0.028, minElements: 4, minCoverage: 0, maxCoverage: 0 },
+      safeBottom: 150,
+    });
+    expect(res.pass).toBe(false);
+    expect(res.feedback).toContain("裁切");
+    expect(res.feedback).toContain("左");
+  }, 60000);
 });
 
 describe("checkNarrationSyncContract", () => {
