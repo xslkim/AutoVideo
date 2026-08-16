@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "src/cli/visuals.ts": {
-    "mtime": 1786812864.5852764,
-    "ast_hash": "6bc9cde99145ae94c72a76678e0faf87",
+    "mtime": 1786772548.7209556,
+    "ast_hash": "0e816a03fbf48d442bf7c1d16a08ef0a",
     "semantic_hash": ""
   },
   "src/components/slides/ShaderCodeSlide.tsx": {

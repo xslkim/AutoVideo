@@ -175,8 +175,8 @@
     "semantic_hash": "8fc88dcbeee697d0b91844df05b8be8a"
   },
   "src/ai/validate.ts": {
-    "mtime": 1786772604.691151,
-    "ast_hash": "fad639a52aa933206d309dc6453659fe",
+    "mtime": 1786720972.7198236,
+    "ast_hash": "319580234f39b2af23863b11fac6f0fa",
     "semantic_hash": ""
   },
   "src/ai/visual-metrics.ts": {
@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "src/cli/visuals.ts": {
-    "mtime": 1786812864.5852764,
-    "ast_hash": "6bc9cde99145ae94c72a76678e0faf87",
+    "mtime": 1786592633.8261666,
+    "ast_hash": "1ede49ee615ca3b1a8d24468a0dd9744",
     "semantic_hash": ""
   },
   "src/components/slides/ShaderCodeSlide.tsx": {
@@ -250,8 +250,8 @@
     "semantic_hash": "1979c85fe66c11679bf21b4f1c0401e8"
   },
   "src/config/defaults.ts": {
-    "mtime": 1786772527.6835635,
-    "ast_hash": "fc660601dc85442e89b6a03e626ca0fe",
+    "mtime": 1786603756.9394834,
+    "ast_hash": "1e58a6b7eb987212e6de309cdd23a910",
     "semantic_hash": ""
   },
   "src/config/load.ts": {
@@ -415,8 +415,8 @@
     "semantic_hash": "96f52ff836ece009892a2705d7910779"
   },
   "tests/ai/validate.test.ts": {
-    "mtime": 1786772719.9825706,
-    "ast_hash": "ab56c05c5f9d2c528bf4d09180177e24",
+    "mtime": 1786720973.9478235,
+    "ast_hash": "71dd88bbdbcb1c1fce9444c36dfb906d",
     "semantic_hash": ""
   },
   "tests/ai/visual-metrics.test.ts": {
@@ -430,8 +430,8 @@
     "semantic_hash": "c6d0326657e2881907d3bc419ff053b2"
   },
   "tests/cli/compile.test.ts": {
-    "mtime": 1786772675.6023972,
-    "ast_hash": "01940c11b46d19551916c0a8ea00e802",
+    "mtime": 1785946508.8203952,
+    "ast_hash": "e3a4e8d400188e1692afc5cb34f49a1e",
     "semantic_hash": ""
   },
   "tests/cli/doctor.test.ts": {
@@ -785,8 +785,8 @@
     "semantic_hash": "bb76aa4c0ddd9fd34a51310e9cb64770"
   },
   "docs/AUTHORING.md": {
-    "mtime": 1786772659.534795,
-    "ast_hash": "7b4b39609816963b2951d747ac8c7a8b",
+    "mtime": 1786549258.1305604,
+    "ast_hash": "69bd174222944b75586224b865d9eec4",
     "semantic_hash": ""
   },
   "docs/BUILD.md": {
