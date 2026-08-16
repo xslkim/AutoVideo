@@ -190,15 +190,18 @@ avatarRef: ./avatar.mp4
 
 ### 3.0 如何选择视觉模式（重要）
 
-> **画面留白多 / 对比图 / 需要精确文字（数据、代码、卡片）的块，优先用 `image` 或 `html`，不要用 `animation`。**
+> **优先级规则：能用静态画面表达的内容，`html` 截图优先于 `animation`。**
+> `html` 是确定性管线（手写 HTML → headless Chrome 截图），不调 AI、无重试、无质量门，渲染结果与源码严格一致；`animation` 由 LLM 现场生成组件，质量取决于模型的指令遵循能力。只有真正需要动效编排时才选 `animation`。
 
 | 场景 | 推荐模式 | 原因 |
 |------|---------|------|
-| 信息密集、需要丰富动画（流程图、时间轴、动效编排） | `animation` | React 组件可做复杂动效 |
-| 对比卡片、终端窗口、需要精确文字/代码 | `html`（手写 HTML，最可控）或 `image`（描述→文生图，最省事） | 文字清晰，不走 coverage 门 |
-| 画面元素少、天然留白多（单一标题、简单对比） | `image` 或 `html` | `animation` 这类布局 coverage 难达 70%，会反复重试失败 |
+| 对比卡片、终端窗口、需要精确文字/代码/数据/算式 | **`html`（首选）** | 像素级可控、文字清晰，不走 coverage 门，不会生成失败 |
+| 画面元素少、天然留白多（单一标题、简单对比） | `html` 或 `image` | `animation` 这类布局 coverage 难达 70%，会反复重试失败 |
+| 必须跟随旁白做多阶段动效编排（流程推进、时间轴高亮、分阶段揭示） | `animation` | 只有 Remotion 组件能做行级联动动效；`html` 截图为静态画面，仅支持 `@enter`/`@exit` 整体过渡 |
 
-⚠️ **`animation` 模式有视觉质量门（`minCoverage: 0.7`）**：生成的 React 组件若画面覆盖率 < 70%（留白多），会被判"画面过于简单/空旷"并反复重试（最多 5 次），可能耗尽重试导致该块失败。**对比图、量化图、单一元素等天然留白的画面，请改用 `image` 或 `html`**——它们不走 coverage 门、不会因此失败。
+⚠️ **`animation` 模式有视觉质量门（`minCoverage: 0.7`）**：生成的 React 组件若画面覆盖率 < 70%（留白多），会被判"画面过于简单/空旷"并反复重试（最多 5 次），可能耗尽重试导致该块失败。**对比图、量化图、单一元素等天然留白的画面，请改用 `html` 或 `image`**——它们不走 coverage 门、不会因此失败。
+
+⚠️ **`animation` 模式的生成质量取决于 LLM 的指令遵循能力**：实测可能出现不遵守布局锚点（元素重叠/越界）、引用未声明的变量（编译失败）、`interpolate()` 区间使用运行时值（渲染崩溃）等问题。即使描述写得再精确，也不能保证一次生成成功。**同一个画面如果能用 HTML 静态表达，就不要交给 animation。**
 
 ⚠️ **`html` 模式的 `--- visual ---` 必须是完整 HTML/CSS 源码**（compile 直接写盘、不调 AI），不是中文描述。若只想用描述驱动，请用 `image`（描述→文生图）或 `animation`（描述→组件）。
 
@@ -664,7 +667,7 @@ voiceRef: ../../B00.wav
 2. **块 ID 全局唯一**：跨文件不可重号
 3. **每个块必须包含** `--- visual ---` 和 `--- narration ---` 两个 section
 4. **section 顺序固定**：`>>>` 标题 → 指令行（可选）→ `--- visual ---` → `--- narration ---`
-5. **`@visual` 模式**：`animation`（默认，AI 生成组件）/ `image`（AI 生成图片）/ `image(./path)`（本地图片）/ `video(./path)`（本地 mp4 视频）
+5. **`@visual` 模式**：`animation`（默认，AI 生成组件）/ `html`（手写 HTML 截图，**静态画面首选**）/ `image`（AI 生成图片）/ `image(./path)`（本地图片）/ `video(./path)`（本地 mp4 视频）。**优先级：能用静态画面表达的内容 `html` 优先于 `animation`，只有必须动效编排时才用 `animation`（详见 §3.0）**
 6. **动画预设值**必须是：`fade` `fade-up` `fade-down` `slide-left` `slide-right` `zoom-in` `zoom-out` `none`
 7. **`@duration` 格式**：必须是 `<数字>s`，如 `8s`、`1.5s`
 8. **新建块默认指令**：`@enter: fade` / `@exit: fade` / `@visual: animation`
