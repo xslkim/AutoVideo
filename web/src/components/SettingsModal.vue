@@ -26,7 +26,7 @@
                 v-model:value="form.anthropic.apiKey"
                 type="password"
                 show-password-on="click"
-                placeholder="sk-ant-... / sk-...（DeepSeek）/ GLM key"
+                placeholder="sk-ant-... / sk-...（DeepSeek）/ GLM key / Kimi key"
                 clearable
               />
             </n-form-item>
@@ -390,7 +390,7 @@ const imageGenProviderOptions = [
 ]
 
 const agentProviderOptions = [
-  { label: 'Anthropic 兼容 API（Claude / DeepSeek / GLM）', value: 'anthropic-api' },
+  { label: 'Anthropic 兼容 API（Claude / DeepSeek / GLM / Kimi）', value: 'anthropic-api' },
   { label: 'Claude CLI（claude login 凭证）', value: 'claude-cli' },
   { label: 'OpenCode CLI（模型在 opencode 里配置）', value: 'opencode-cli' },
   { label: 'Codex CLI（ChatGPT 登录 / DeepSeek / GLM via OpenRouter）', value: 'codex-cli' },
@@ -400,6 +400,9 @@ const agentBaseUrlOptions = [
   { label: 'Anthropic 官方 (api.anthropic.com)', value: 'https://api.anthropic.com' },
   { label: 'DeepSeek (api.deepseek.com/anthropic)', value: 'https://api.deepseek.com/anthropic' },
   { label: '智谱 GLM (open.bigmodel.cn/api/anthropic)', value: 'https://open.bigmodel.cn/api/anthropic' },
+  { label: 'Kimi 月之暗面 (api.moonshot.cn/anthropic)', value: 'https://api.moonshot.cn/anthropic' },
+  { label: 'Kimi 国际版 (api.moonshot.ai/anthropic)', value: 'https://api.moonshot.ai/anthropic' },
+  { label: 'Kimi Code 订阅包月 (api.kimi.com/coding)', value: 'https://api.kimi.com/coding' },
 ]
 
 const agentModelOptions = [
@@ -407,6 +410,8 @@ const agentModelOptions = [
   { label: 'deepseek-chat', value: 'deepseek-chat' },
   { label: 'deepseek-reasoner', value: 'deepseek-reasoner' },
   { label: 'glm-4.6', value: 'glm-4.6' },
+  { label: 'kimi-k3[1m]（Kimi K3，1M 上下文）', value: 'kimi-k3[1m]' },
+  { label: 'kimi-k3（Kimi K3，256K）', value: 'kimi-k3' },
 ]
 
 // codex 只支持 OpenAI Responses API：DeepSeek 官方端点原生支持；
