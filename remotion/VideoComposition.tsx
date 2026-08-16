@@ -113,7 +113,21 @@ function getDynamicComponent(
 ): React.LazyExoticComponent<React.ComponentType<any>> {
   if (!componentCache.has(blockId)) {
     const LazyComp = lazy(() =>
-      import(`../src/blocks/${blockId}/Component`).catch(() => {
+      import(`../src/blocks/${blockId}/Component`)
+        .then((mod) => {
+          // React.lazy requires `default`. Some LLM outputs only emit
+          // `export const AnimatedVisual = …` — that loads as
+          // `{ default: undefined }` and Remotion throws React #306.
+          if (typeof mod.default === "function") return mod;
+          const named = Object.values(mod).find((v) => typeof v === "function");
+          if (typeof named === "function") {
+            return { default: named as React.ComponentType<any> };
+          }
+          throw new Error(
+            `Block ${blockId} has no default export and no function export`,
+          );
+        })
+        .catch(() => {
         const Placeholder: React.FC = () => (
           <AbsoluteFill
             style={{

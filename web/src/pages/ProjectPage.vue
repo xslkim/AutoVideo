@@ -18,7 +18,8 @@
 
     <!-- Body: left sidebar + center + right panel (resizable) -->
     <div class="project-body">
-      <n-split direction="horizontal" default-size="220px" :min="120" :max="400">
+      <!-- min/max 必须带 px：数字会被当成容器比例，点击分割条会把左侧撑满 -->
+      <n-split direction="horizontal" default-size="220px" min="120px" max="400px">
         <template #1>
           <div class="sidebar-left">
             <BlockSidebar
