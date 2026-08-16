@@ -350,8 +350,9 @@ export const DEFAULT_QUALITY: QualityConfig = DEFAULT_CONFIG.render.quality;
 /**
  * Fraction of the frame height reserved at the bottom for subtitles.
  *
- * The subtitle band itself is ~14 % of the height at two lines, so 0.15 left
- * only single-digit pixels of clearance and slides read as if they collide
- * with the text. 0.20 gives a comfortable gap on every aspect ratio.
+ * 50/1080 ≈ 0.046 reserves a ~50px band on 1080p. The subtitle capsule
+ * auto-shrinks to fit inside this band (SubtitleOverlay.fitFontSize), so this
+ * constant doubles as the subtitle size cap — raise it if subtitles should
+ * render larger.
  */
-export const SUBTITLE_SAFE_BOTTOM_PCT = 0.2;
+export const SUBTITLE_SAFE_BOTTOM_PCT = 50 / 1080;

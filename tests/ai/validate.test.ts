@@ -421,6 +421,46 @@ export default function Component() {
     }
   });
 
+  it("should fail a component that only has a named export (no default)", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "NamedOnly.tsx",
+        `import React from "react";
+import { AbsoluteFill } from "remotion";
+
+export const AnimatedVisual: React.FC<any> = () => {
+  return React.createElement(AbsoluteFill, null);
+};
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(false);
+      expect(result.errors.some((e) => e.includes("default export"))).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
+  it("should accept export { Comp as default }", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "AsDefault.tsx",
+        `import React from "react";
+const Comp = () => null;
+export { Comp as default };
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
   it("should not flag .start/.end inside comments or string literals", () => {
     const dir = createTempDir();
     try {
@@ -432,6 +472,87 @@ export default function Component() {
   const warning = "lineTimings[0].end is invalid";
   return null;
 }
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(true);
+    } finally {
+     cleanupDir(dir);
+    }
+  });
+
+  it("should flag subtitleSafeBottom declared but never used in layout", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "SafeBottomUnused.tsx",
+        `import React from "react";
+
+interface AnimationProps { height: number; subtitleSafeBottom: number; }
+
+const App: React.FC<AnimationProps> = ({ height, subtitleSafeBottom }) => {
+  const cardH = height * 0.3; // computed from raw height — slides under subtitles
+  return <div style={{ height: cardH }} />;
+};
+
+export default App;
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(false);
+      expect(result.errors.some((e) => e.includes("subtitleSafeBottom unused"))).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
+  it("should flag availH derived from subtitleSafeBottom but never referenced", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "AvailHDead.tsx",
+        `import React from "react";
+
+interface AnimationProps { height: number; subtitleSafeBottom: number; }
+
+const App: React.FC<AnimationProps> = ({ height, subtitleSafeBottom }) => {
+  const availableHeight = height - subtitleSafeBottom; // dead — never used
+  const cardH = height * 0.3;
+  return <div style={{ height: cardH }} />;
+};
+
+export default App;
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(false);
+      expect(
+        result.errors.some((e) => e.includes("`availableHeight` is derived from subtitleSafeBottom but never used")),
+      ).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
+  it("should pass when layout derives from availH = height - subtitleSafeBottom", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "AvailHUsed.tsx",
+        `import React from "react";
+
+interface AnimationProps { height: number; subtitleSafeBottom: number; }
+
+const App: React.FC<AnimationProps> = ({ height, subtitleSafeBottom }) => {
+  const availH = height - subtitleSafeBottom;
+  const cardH = availH * 0.3;
+  return <div style={{ height: cardH, top: availH - cardH }} />;
+};
+
+export default App;
 `,
       );
       const result = astStaticScan(tsx);

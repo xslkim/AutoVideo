@@ -160,6 +160,98 @@ function isLineTimingsIndexAccess(node: unknown): boolean {
   return false;
 }
 
+/**
+ * Statically verify the component actually consumes `subtitleSafeBottom` in
+ * its layout math. Catches the two failure modes that let content slide
+ * under the subtitles:
+ *
+ * 1. The prop is declared (interface + destructuring) but never read in a
+ *    value position — the layout was computed from raw `height`.
+ * 2. A derived constant (`const availH = height - subtitleSafeBottom`) is
+ *    declared but never referenced afterwards — dead code, layout still uses
+ *    raw `height` fractions.
+ *
+ * Components that never mention `subtitleSafeBottom` at all are skipped —
+ * the generator prompt mandates the prop, and the check must not fire on
+ * legacy fixtures that predate it.
+ */
+function scanSafeBottomUsage(ast: BabelFile): string[] {
+  const errors: string[] = [];
+  // Value-position reads of each identifier (interface members, type
+  // annotations, and destructuring bindings excluded).
+  const idCounts = new Map<string, number>();
+  // `const X = <init referencing subtitleSafeBottom>` → X must be used later.
+  const derivedNames: string[] = [];
+
+  const isTypeNode = (n: Record<string, unknown>) =>
+    typeof n.type === "string" && (n.type as string).startsWith("TS");
+
+  const visit = (node: unknown, inBinding: boolean): void => {
+    if (!node || typeof node !== "object") return;
+    const n = node as Record<string, unknown>;
+    const binding =
+      inBinding || n.type === "ObjectPattern" || n.type === "ArrayPattern" || isTypeNode(n);
+    if (n.type === "Identifier" && typeof n.name === "string" && !binding) {
+      idCounts.set(n.name, (idCounts.get(n.name) ?? 0) + 1);
+    }
+    if (n.type === "VariableDeclarator") {
+      const id = n.id as Record<string, unknown> | undefined;
+      if (id?.type === "Identifier" && typeof id.name === "string" && n.init) {
+        const before = idCounts.get("subtitleSafeBottom") ?? 0;
+        visit(n.init, binding);
+        if ((idCounts.get("subtitleSafeBottom") ?? 0) > before) {
+          derivedNames.push(id.name);
+        }
+        visit(id, true); // the binding itself is not a use
+        return;
+      }
+    }
+    for (const key of Object.keys(n)) {
+      if (key === "loc" || key === "start" || key === "end" || key === "type" || key === "range") continue;
+      const child = n[key];
+      if (Array.isArray(child)) {
+        for (const item of child) visit(item, binding);
+      } else if (child && typeof child === "object") {
+        visit(child, binding);
+      }
+    }
+  };
+
+  visit(ast.program, false);
+
+  // Mentions anywhere (interface members, destructuring bindings, types) —
+  // regex over the parsed AST (comments are dropped by the parser, so this
+  // cannot fire on prose). Components that never mention the prop are
+  // skipped: the generator prompt mandates it, legacy fixtures don't have it.
+  const mentioned = /subtitleSafeBottom/.test(JSON.stringify(ast.program));
+  const valueUses = idCounts.get("subtitleSafeBottom") ?? 0;
+  if (!mentioned) return errors;
+
+  // Failure mode 1: mentioned only inside bindings/types (interface member /
+  // destructured prop) — zero value-position reads.
+  if (valueUses === 0 && derivedNames.length === 0) {
+    errors.push(
+      "subtitleSafeBottom unused: the component accepts the subtitle safe zone prop " +
+        "but never reads it in its layout math. Declare `const availH = height - subtitleSafeBottom;` " +
+        "and compute every vertical position/height from availH — fractions of raw `height` " +
+        "push content under the subtitles.",
+    );
+  }
+
+  // Failure mode 2: derived const declared but never referenced afterwards.
+  for (const name of derivedNames) {
+    if ((idCounts.get(name) ?? 0) === 0) {
+      errors.push(
+        `\`${name}\` is derived from subtitleSafeBottom but never used — the vertical layout ` +
+          `does not actually avoid the subtitle band. Compute all y positions/heights from ` +
+          `\`${name}\` and verify the lowest element's bottom edge ≤ ${name}.`,
+      );
+    }
+  }
+
+  return errors;
+}
+
 export function astStaticScan(tsxPath: string): ASTScanResult {
   const errors: string[] = [];
   const imports: string[] = [];
@@ -174,6 +266,8 @@ export function astStaticScan(tsxPath: string): ASTScanResult {
       imports: [],
     };
   }
+  const safeBottomFindings = scanSafeBottomUsage(ast);
+  errors.push(...safeBottomFindings);
 
   function getLine(node: unknown): string {
     const n = node as Record<string, unknown>;
@@ -248,7 +342,37 @@ export function astStaticScan(tsxPath: string): ASTScanResult {
   }
 
   walk(ast);
+
+  // React.lazy() in remotion/VideoComposition.tsx requires a default export.
+  // A named-only export (export const AnimatedVisual = …) loads as
+  // `{ default: undefined }` and Remotion throws minified React error #306.
+  if (!hasDefaultExport(ast)) {
+    errors.push(
+      "Missing default export. Remotion loads the component via React.lazy(), " +
+        "which requires `export default …`. A named-only export " +
+        "(`export const AnimatedVisual = …`) renders as undefined (React #306). " +
+        "Add `export default <ComponentName>;` at the end of the file.",
+    );
+  }
+
   return { pass: errors.length === 0, errors, imports };
+}
+
+/** True when the module has `export default …` or `export { X as default }`. */
+function hasDefaultExport(ast: BabelFile): boolean {
+  for (const stmt of ast.program.body) {
+    if (stmt.type === "ExportDefaultDeclaration") return true;
+    if (stmt.type === "ExportNamedDeclaration") {
+      for (const spec of stmt.specifiers ?? []) {
+        if (spec.type === "ExportSpecifier") {
+          const exported = spec.exported;
+          const name = exported.type === "Identifier" ? exported.name : exported.value;
+          if (name === "default") return true;
+        }
+      }
+    }
+  }
+  return false;
 }
 
 // --- tsc type-check ---
