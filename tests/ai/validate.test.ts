@@ -561,6 +561,74 @@ export default App;
       cleanupDir(dir);
     }
   });
+
+  it("should fail when interpolate() inputRange references a runtime progress variable", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "DynamicRange.tsx",
+        `import React from "react";
+import { interpolate } from "remotion";
+
+interface AnimationProps { height: number; subtitleSafeBottom: number; }
+
+const App: React.FC<AnimationProps> = ({ height, subtitleSafeBottom }) => {
+  const availH = height - subtitleSafeBottom;
+  const cardH = availH * 0.3;
+  const progress = interpolate(frame, [0, 100], [0, 1], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+  const fade = interpolate(frame, [start + progress * 0.3, start + progress * 0.5], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  return <div style={{ height: cardH * fade, top: availH - cardH }} />;
+};
+
+export default App;
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(false);
+      expect(
+        result.errors.some((e) => e.includes("inputRange references \`progress\`")),
+      ).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
+
+  it("should pass when interpolate() inputRange uses constant derived frame values", () => {
+    const dir = createTempDir();
+    try {
+      const tsx = writeFixture(
+        dir,
+        "ConstantRange.tsx",
+        `import React from "react";
+import { interpolate } from "remotion";
+
+interface AnimationProps { height: number; subtitleSafeBottom: number; }
+
+const App: React.FC<AnimationProps> = ({ height, subtitleSafeBottom }) => {
+  const availH = height - subtitleSafeBottom;
+  const cardH = availH * 0.3;
+  const kvStart = 207;
+  const kvEnd = 500;
+  const fade = interpolate(frame, [kvStart, kvStart + Math.max(1, kvEnd - kvStart * 0.5)], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  return <div style={{ height: cardH * fade, top: availH - cardH }} />;
+};
+
+export default App;
+`,
+      );
+      const result = astStaticScan(tsx);
+      expect(result.pass).toBe(true);
+    } finally {
+      cleanupDir(dir);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -326,7 +326,9 @@ Compute all font sizes from \`width\` / \`height\` props (e.g. \`fontSize: heigh
 - For code/terminal blocks: the block container should occupy at least 70 % of the canvas width and 50 % of the available height.
 - Reserve the bottom \`subtitleSafeBottom\` pixels — subtitles are drawn there and will cover anything you put underneath. Nothing visible may extend below \`height - subtitleSafeBottom\`. **The root container MUST be full \`height\`** with \`backgroundColor: theme.colors.bg\` filling the entire canvas — do NOT set the container height to \`height - subtitleSafeBottom\` or you will create an ugly black bar at the bottom. Instead, constrain only the *content elements* (titles, cards, code blocks, etc.) to the \`height - subtitleSafeBottom\` area by computing their positions from \`availableHeight = height - subtitleSafeBottom\`. Background fills, decorations, and gradients should span the full \`height\`.
 - **REQUIRED safe-bottom pattern (statically validated):** declare \`const availH = height - subtitleSafeBottom;\` once, then compute EVERY vertical position, height, and stacked-gap in the content cluster from \`availH\` (or from \`width\`) — NEVER from raw \`height\`. Declaring \`availH\` (or any equivalent like \`availableHeight\`) without actually using it in the layout math is a HARD validation failure, even if the component compiles.
+- **Vertical budget accounting (MANDATORY when stacking 3+ zones or using flex flow):** before writing JSX, sum every zone: title + zone1 + zone2 + … + last-zone-height + gaps, then verify \`lastZoneTop + lastZoneHeight + margins ≤ availH\`. Flex/flow children STILL consume vertical space — a child with \`top: cardClusterY\` followed by note text + cards row + margins can easily end at \`cardClusterY + noteH + cardH + margins\`, well past \`availH\`. If the sum overflows, SHRINK zone heights/gaps or drop content; never let the stack drift below \`availH\`. When the description gives explicit zone anchors (e.g. "卡片行 y=710 高 180"), use them verbatim instead of deriving your own chain.
 - **Top title band protection:** when the description places a persistent title at the top, the strip from the top edge down to \`titleBottom + 0.03 \* height\` is RESERVED — no other element may enter, cover, or slide into it at any frame. When a later phase shrinks/relocates an earlier cluster ("缩小上移"), anchor its new top edge explicitly below the title band; never implement an unspecified "move up" as "move to the top of the canvas". The band is a LAYOUT CONSTRAINT only — do NOT render any overlay, mask, gradient strip, or background block to "implement" it; such a block would cover the title itself.
+- **interpolate() inputRange must be CONSTANT frame values** (literals or values derived once from \`props.lineTimings\`/\`fps\`). NEVER place a runtime progress variable — a value returned by another interpolate() — inside an inputRange: at some frames the range collapses to [x, x] and Remotion throws "inputRange must be strictly monotonically increasing" (statically validated, hard failure). Express the animation in outputRange/easing instead, and guard any computed range with Math.max(start + 1, end).
 - **NO OVERLAPPING TEXT (CRITICAL):** Calculate vertical positions so that no two text elements overlap. When stacking elements vertically (title → card1 → card2 → card3), compute each element's y position based on the PREVIOUS element's bottom edge PLUS a gap. Do NOT position elements independently with hardcoded fractions that may collide. Example pattern:
   \`\`\`tsx
   const titleH = titleSize * 1.2; // lineHeight accounted for
@@ -427,7 +429,8 @@ Before emitting code, mentally verify:
 14. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
 15. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.
 16. Is \`availH = height - subtitleSafeBottom\` declared AND used in every vertical computation (y positions, heights, gaps)? A declared-but-unused \`availH\` fails validation. Verify the lowest element's bottom edge ≤ \`availH\`.
-17. If the description has a persistent top title, does every other element stay strictly below it at EVERY frame — including during phase transitions where an earlier cluster shrinks or relocates? If anything enters the title band, re-anchor it below \`titleBottom\` + gap.`;
+17. If the description has a persistent top title, does every other element stay strictly below it at EVERY frame — including during phase transitions where an earlier cluster shrinks or relocates? If anything enters the title band, re-anchor it below \`titleBottom\` + gap.
+18. Is every interpolate() inputRange made of CONSTANT frame values (lineTimings/fps or literals), with no runtime progress variable inside? Are computed ranges guarded with Math.max(start + 1, end)?`;
 }
 
 // ── Main visuals function ─────────────────────────────────────────────
@@ -864,7 +867,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
             }
 
             if (attempt === MAX_RETRIES - 1) {
-              // 3 attempts exhausted → fail
+              // All attempts exhausted → fail
               console.error(
                 `✗ Block ${blockLabel}: failed after ${MAX_RETRIES} attempts`
               );

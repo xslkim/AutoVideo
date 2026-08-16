@@ -350,9 +350,16 @@ export const DEFAULT_QUALITY: QualityConfig = DEFAULT_CONFIG.render.quality;
 /**
  * Fraction of the frame height reserved at the bottom for subtitles.
  *
- * 50/1080 ≈ 0.046 reserves a ~50px band on 1080p. The subtitle capsule
- * auto-shrinks to fit inside this band (SubtitleOverlay.fitFontSize), so this
- * constant doubles as the subtitle size cap — raise it if subtitles should
- * render larger.
+ * Doubles as BOTH the content-avoidance band AND the subtitle capsule's
+ * height budget — SubtitleOverlay.fitFontSize auto-shrinks captions to fit
+ * inside (band − bottomMarginPx), so keep it ≥ the capsule's real height or
+ * captions will overlap content.
+ *
+ * Math @1080p with the dark-code theme (fontSizePct 0.04 → 43.2px base,
+ * lineHeight 1.4, paddingPx 14, bottomMarginPx 28):
+ *   single-line capsule = 43.2 × 1.4 + 28 ≈ 88.5px → band ≥ 117px minimum
+ *   two-line capsule ≈ 149px → needs band ≥ 177px for full size
+ * 120/1080 → single-line captions render at full 43.2px (normal lines are
+ * short); only ≥36-char lines wrap to two lines and shrink to ~27px.
  */
-export const SUBTITLE_SAFE_BOTTOM_PCT = 50 / 1080;
+export const SUBTITLE_SAFE_BOTTOM_PCT = 120 / 1080;

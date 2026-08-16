@@ -252,6 +252,68 @@ function scanSafeBottomUsage(ast: BabelFile): string[] {
   return errors;
 }
 
+// `const p = interpolate(frame, ...)` followed by using `p` inside another
+// interpolate() inputRange: at some frames the range collapses to [x, x] and
+// Remotion throws "inputRange must be strictly monotonically increasing".
+function scanInterpolateRanges(ast: BabelFile): string[] {
+  const errors: string[] = [];
+  const progressNames = new Set<string>();
+
+  const collect = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    const n = node as Record<string, unknown>;
+    if (n.type === "VariableDeclarator") {
+      const id = n.id as Record<string, unknown> | undefined;
+      const init = n.init as Record<string, unknown> | undefined;
+      const callee = init?.callee as Record<string, unknown> | undefined;
+      if (id?.type === "Identifier" && callee?.type === "Identifier" && callee.name === "interpolate") {
+        progressNames.add(id.name as string);
+      }
+    }
+    for (const key of Object.keys(n)) {
+      if (key === "loc" || key === "start" || key === "end" || key === "range") continue;
+      const child = n[key];
+      if (Array.isArray(child)) child.forEach(collect);
+      else if (child && typeof child === "object") collect(child);
+    }
+  };
+  collect(ast.program);
+  if (progressNames.size === 0) return errors;
+
+  const check = (node: unknown): void => {
+    if (!node || typeof node !== "object") return;
+    const n = node as Record<string, unknown>;
+    if (n.type === "CallExpression") {
+      const callee = n.callee as Record<string, unknown> | undefined;
+      const args = n.arguments as unknown[];
+      if (callee?.type === "Identifier" && callee.name === "interpolate" && args.length >= 2) {
+        const rangeJson = JSON.stringify(args[1]);
+        for (const name of progressNames) {
+          if (rangeJson.includes(`"name":"${name}"`)) {
+            errors.push(
+              `interpolate() inputRange references \`${name}\`, which is itself an interpolate() ` +
+                `result — at some frames the range collapses to [x, x] and Remotion throws ` +
+                `"inputRange must be strictly monotonically increasing". Use constant frame ` +
+                `values (derived from lineTimings/fps) for inputRange and animate outputRange ` +
+                `instead; guard computed ranges with Math.max(start + 1, end).`,
+            );
+            break;
+          }
+        }
+      }
+    }
+    for (const key of Object.keys(n)) {
+      if (key === "loc" || key === "start" || key === "end" || key === "range") continue;
+      const child = n[key];
+      if (Array.isArray(child)) child.forEach(check);
+      else if (child && typeof child === "object") check(child);
+    }
+  };
+  check(ast.program);
+
+  return errors;
+}
+
 export function astStaticScan(tsxPath: string): ASTScanResult {
   const errors: string[] = [];
   const imports: string[] = [];
@@ -268,6 +330,7 @@ export function astStaticScan(tsxPath: string): ASTScanResult {
   }
   const safeBottomFindings = scanSafeBottomUsage(ast);
   errors.push(...safeBottomFindings);
+  errors.push(...scanInterpolateRanges(ast));
 
   function getLine(node: unknown): string {
     const n = node as Record<string, unknown>;

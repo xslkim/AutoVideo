@@ -78,7 +78,7 @@ describe("compile", () => {
     expect(script.meta.height).toBe(1080);
     expect(script.meta.fps).toBe(30);
     expect(script.meta.theme).toBe("dark-code");
-    expect(script.meta.subtitleSafeBottom).toBe(Math.floor(1080 * (50 / 1080)));
+    expect(script.meta.subtitleSafeBottom).toBe(Math.floor(1080 * (120 / 1080)));
 
     // ---- Blocks checks ----
     expect(script.blocks).toHaveLength(2);
@@ -292,14 +292,14 @@ describe("compile", () => {
   // subtitleSafeBottom calculation
   // -------------------------------------------------------------------------
 
-  it("should compute subtitleSafeBottom as floor(height * 50/1080)", async () => {
+  it("should compute subtitleSafeBottom as floor(height * 120/1080)", async () => {
     const result = await compile({
       projectPath: FIXTURE_PROJECT,
       outDir: resolve(OUTPUT_BASE, "safe-bottom-test"),
     });
 
-    // 16:9 → 1920×1080, subtitleSafeBottom = floor(1080 * 50/1080) = 50
-    expect(result.script.meta.subtitleSafeBottom).toBe(50);
+    // 16:9 → 1920×1080, subtitleSafeBottom = floor(1080 * 120/1080) = 120
+    expect(result.script.meta.subtitleSafeBottom).toBe(120);
   });
 
   // -------------------------------------------------------------------------
@@ -385,7 +385,7 @@ describe("compile", () => {
     expect(script.meta.height).toBe(1080);
     expect(script.meta.fps).toBe(30);
     expect(script.meta.theme).toBe("dark-code");
-    expect(script.meta.subtitleSafeBottom).toBe(50);
+    expect(script.meta.subtitleSafeBottom).toBe(120);
 
     // Blocks
     expect(script.blocks).toHaveLength(2);

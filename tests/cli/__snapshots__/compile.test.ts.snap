@@ -65,7 +65,7 @@ exports[`compile > should produce stable script.json snapshot for 2-block fixtur
     "height": 1080,
     "schemaVersion": "1.0",
     "skipLipsync": false,
-    "subtitleSafeBottom": 50,
+    "subtitleSafeBottom": 120,
     "theme": "dark-code",
     "title": "Test Video",
     "voiceRef": "/home/xsl/AutoVideo/tests/fixtures/compile-test/B00.wav",
