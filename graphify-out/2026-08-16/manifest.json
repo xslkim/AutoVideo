@@ -175,8 +175,8 @@
     "semantic_hash": "8fc88dcbeee697d0b91844df05b8be8a"
   },
   "src/ai/validate.ts": {
-    "mtime": 1786772604.691151,
-    "ast_hash": "fad639a52aa933206d309dc6453659fe",
+    "mtime": 1786865451.0650098,
+    "ast_hash": "2bdc6ef15fc5646aecd4bdad790ce619",
     "semantic_hash": ""
   },
   "src/ai/visual-metrics.ts": {
@@ -235,8 +235,8 @@
     "semantic_hash": ""
   },
   "src/cli/visuals.ts": {
-    "mtime": 1786772548.7209556,
-    "ast_hash": "0e816a03fbf48d442bf7c1d16a08ef0a",
+    "mtime": 1786869425.9635036,
+    "ast_hash": "19d1d9ca6183e1d51a59c6036491f4ae",
     "semantic_hash": ""
   },
   "src/components/slides/ShaderCodeSlide.tsx": {
@@ -250,8 +250,8 @@
     "semantic_hash": "1979c85fe66c11679bf21b4f1c0401e8"
   },
   "src/config/defaults.ts": {
-    "mtime": 1786772527.6835635,
-    "ast_hash": "fc660601dc85442e89b6a03e626ca0fe",
+    "mtime": 1786867618.1634762,
+    "ast_hash": "7069aa565e17883094a06012bdf23323",
     "semantic_hash": ""
   },
   "src/config/load.ts": {
@@ -415,8 +415,8 @@
     "semantic_hash": "96f52ff836ece009892a2705d7910779"
   },
   "tests/ai/validate.test.ts": {
-    "mtime": 1786772719.9825706,
-    "ast_hash": "ab56c05c5f9d2c528bf4d09180177e24",
+    "mtime": 1786865496.2163584,
+    "ast_hash": "f5407836c732ad206c817764f7cbfb3f",
     "semantic_hash": ""
   },
   "tests/ai/visual-metrics.test.ts": {
@@ -430,8 +430,8 @@
     "semantic_hash": "c6d0326657e2881907d3bc419ff053b2"
   },
   "tests/cli/compile.test.ts": {
-    "mtime": 1786772675.6023972,
-    "ast_hash": "01940c11b46d19551916c0a8ea00e802",
+    "mtime": 1786867627.9856932,
+    "ast_hash": "a48024a0ca113ff708ad01047ee7dbb7",
     "semantic_hash": ""
   },
   "tests/cli/doctor.test.ts": {
@@ -785,8 +785,8 @@
     "semantic_hash": "bb76aa4c0ddd9fd34a51310e9cb64770"
   },
   "docs/AUTHORING.md": {
-    "mtime": 1786772659.534795,
-    "ast_hash": "7b4b39609816963b2951d747ac8c7a8b",
+    "mtime": 1786867641.3801255,
+    "ast_hash": "a1d79b6c053517f9d6070b8d2a1da03f",
     "semantic_hash": ""
   },
   "docs/BUILD.md": {
@@ -1105,8 +1105,8 @@
     "semantic_hash": ""
   },
   "deepseek.bash": {
-    "mtime": 1786599824.6533074,
-    "ast_hash": "cf6b894b2f5cf7913a18e2bb6ec9b8e3",
+    "mtime": 1786859949.9711878,
+    "ast_hash": "ad5c6446668ade2cc841d9c7c47ab8e7",
     "semantic_hash": ""
   },
   "src/ai/agent/codex-cli.ts": {

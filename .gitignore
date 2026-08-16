@@ -10,6 +10,7 @@ web/dist/
 *.log
 __pycache__/
 api_key.txt
+deepseek.bash
 
 # third_servers: clone 的上游仓库、虚拟环境与模型权重不进 git
 # (无结尾斜杠,以同时匹配真实目录和本机软链接)
