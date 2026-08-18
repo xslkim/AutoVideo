@@ -140,8 +140,8 @@
     "semantic_hash": "9b3be0a56f23b42890707e045dcfdc9b"
   },
   "server/services/taskRunner.ts": {
-    "mtime": 1787068320.016,
-    "ast_hash": "4fce9225745e8cb090fcd2357f859bba",
+    "mtime": 1786591949.3342795,
+    "ast_hash": "3d6558b33621497fada627a8c6c5f63a",
     "semantic_hash": ""
   },
   "server/types/api.ts": {
@@ -190,8 +190,8 @@
     "semantic_hash": ""
   },
   "src/cache/store.ts": {
-    "mtime": 1787065046.4180133,
-    "ast_hash": "3bc64fb16fa420141655fb96b743e7f8",
+    "mtime": 1785944932.5801933,
+    "ast_hash": "f2446b397ed136af15226fad02f64e5c",
     "semantic_hash": ""
   },
   "src/cli/build.ts": {
@@ -225,13 +225,13 @@
     "semantic_hash": "adbab7a54f8058e7427965e5d98bcfbe"
   },
   "src/cli/render.ts": {
-    "mtime": 1787049028.0460887,
-    "ast_hash": "0f8b68147d3d523ccdd69a074547f1ea",
+    "mtime": 1785946158.0155127,
+    "ast_hash": "ac784dbe05d5a3fc870223ed2d7a32ef",
     "semantic_hash": ""
   },
   "src/cli/tts.ts": {
-    "mtime": 1787065191.43149,
-    "ast_hash": "a327465956122878892eb35453978872",
+    "mtime": 1785945822.5535831,
+    "ast_hash": "bf3a7ccc9b4881889bdaa2175d82c380",
     "semantic_hash": ""
   },
   "src/cli/visuals.ts": {
@@ -250,8 +250,8 @@
     "semantic_hash": "1979c85fe66c11679bf21b4f1c0401e8"
   },
   "src/config/defaults.ts": {
-    "mtime": 1787065023.7494323,
-    "ast_hash": "764921e613e07a6abf34069f085200e0",
+    "mtime": 1786890425.5209665,
+    "ast_hash": "7069aa565e17883094a06012bdf23323",
     "semantic_hash": ""
   },
   "src/config/load.ts": {
@@ -330,8 +330,8 @@
     "semantic_hash": ""
   },
   "src/render/lipsync.ts": {
-    "mtime": 1787048993.1303442,
-    "ast_hash": "27a691332993d1422091f1b168b6234b",
+    "mtime": 1785944442.2658665,
+    "ast_hash": "24f1984de0c40b1a6a668762a2d4e324",
     "semantic_hash": ""
   },
   "src/render/loudnorm.ts": {
@@ -370,8 +370,8 @@
     "semantic_hash": ""
   },
   "src/tts/voxcpm-client.ts": {
-    "mtime": 1787065065.3798714,
-    "ast_hash": "e7e31d938b2334122fa23d907458a807",
+    "mtime": 1785944720.599454,
+    "ast_hash": "35514376352b54b35daef0fef831c695",
     "semantic_hash": ""
   },
   "src/tts/voxcpm-server.ts": {
@@ -460,8 +460,8 @@
     "semantic_hash": "a4e8600666c5fdd350e4c6b5c56e3555"
   },
   "tests/cli/tts.test.ts": {
-    "mtime": 1787065370.8925097,
-    "ast_hash": "c91a8b2945b9d8564530aedfc4af5e73",
+    "mtime": 1785946569.4001012,
+    "ast_hash": "3a0352e782da2defaad71ceceb965282",
     "semantic_hash": ""
   },
   "tests/cli/visuals.test.ts": {
@@ -590,9 +590,9 @@
     "semantic_hash": "a1b7c66b80d8ee9c2ba5a59c323905a4"
   },
   "third_servers/voxcpm-tts/server.py": {
-    "mtime": 1787065809.8597047,
-    "ast_hash": "4d6b0b4ca0e6b766750ee5ce4760257b",
-    "semantic_hash": ""
+    "mtime": 1782029302.6184096,
+    "ast_hash": "ed31333c495b55c749b96a82c35726dd",
+    "semantic_hash": "ed31333c495b55c749b96a82c35726dd"
   },
   "third_servers/voxcpm-tts/start.sh": {
     "mtime": 1782313334.8167148,
@@ -960,8 +960,8 @@
     "semantic_hash": ""
   },
   "src/tts/provider.ts": {
-    "mtime": 1787065093.811743,
-    "ast_hash": "ab6fe3199d9c769fa17d61dc9fc9ed0f",
+    "mtime": 1785944901.0172238,
+    "ast_hash": "d4a9a12952ee4e509aa92e3acf0fd0bb",
     "semantic_hash": ""
   },
   "tests/ai/visual-review.test.ts": {
@@ -1020,8 +1020,8 @@
     "semantic_hash": ""
   },
   "dict.global.md": {
-    "mtime": 1787068317.4354513,
-    "ast_hash": "4a92499ebdaa2ee57b88fcf01e34a21b",
+    "mtime": 1786362726.2736087,
+    "ast_hash": "79c16ab9b65ff8c5bb7d576054ff8da8",
     "semantic_hash": ""
   },
   "src/compile/sync-lint.ts": {
