@@ -8,8 +8,11 @@
  *   2. Start VoxCPM service (autoStart fallback)
  *   3. Register voiceRef → get voiceId
  *   4. Compute voiceRefHash / voxcpmModelVersion
- *   5. p-limit(voxcpm.concurrency) for line-level concurrency
- *   6. Per line: cache lookup → miss → client.speak() → put cache
+ *   5. p-limit(voxcpm.concurrency) across blocks; lines within a block run
+ *      sequentially as a continuation chain (prev line's audio = next line's
+ *      prompt) to keep the cloned voice stable
+ *   6. Per line: cache lookup (key includes predecessor's audio hash) →
+ *      miss → client.speak() → put cache
  *   7. Block concatenation: concat all line WAVs + punctuation-aware silence → public/audio/B**.wav
  *   8. Compute lineTimings and write back to script.json.blocks[].audio
  *   9. Failure: 3 retries (5s interval), then AbortController cancel
@@ -256,19 +259,35 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
   const audioDir = path.resolve(scriptDir, "public/audio");
   fs.mkdirSync(audioDir, { recursive: true });
 
-  // Flatten all lines across all blocks for concurrent processing
-  interface LineTask {
-    blockId: string;
-    blockIndex: number;
-    lineIndex: number;
-    ttsText: string;
-    cacheKey: AudioKey;
+  // Results storage: blockId → lineIndex → { wavPath, durationSec }
+  const lineResults = new Map<string, Map<number, { wavPath: string; durationSec: number }>>();
+
+  if (verbose) {
+    const totalLines = blocks.reduce((n, b) => n + b.narration.lines.length, 0);
+    console.log(`[tts] Total lines to process: ${totalLines}`);
   }
 
-  const tasks: LineTask[] = [];
-  for (let bi = 0; bi < blocks.length; bi++) {
-    const block = blocks[bi];
+  /**
+   * Process one block's lines SEQUENTIALLY.
+   *
+   * Lines are a continuation chain: line N is synthesized with line N-1's
+   * audio as the prompt (VoxCPM2 ref_continuation mode), which keeps the
+   * cloned voice stable across the block. A line's waveform therefore
+   * depends on its predecessor — the cache key folds in the predecessor's
+   * content hash (chainPrevHash), so re-generating any line correctly
+   * invalidates the lines after it. Block level stays parallel via pLimit.
+   */
+  async function processBlock(block: Block): Promise<void> {
+    const blockResults = new Map<number, { wavPath: string; durationSec: number }>();
+    lineResults.set(block.id, blockResults);
+
+    let prevWav: Buffer | undefined;
+    let prevText: string | undefined;
+    let prevHash: string | undefined;
+
     for (let li = 0; li < block.narration.lines.length; li++) {
+      if (abortController.signal.aborted) return;
+
       const line = block.narration.lines[li];
       // dict.md rewrites reach the engine but never the subtitles.
       const spoken = line.speakText ?? line.ttsText;
@@ -277,122 +296,109 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
         voiceRefHash,
         provider: provider.name,
         providerParamsJson,
+        // First line of a block has no predecessor → key stays compatible
+        // with pre-chaining cache entries.
+        ...(prevHash ? { chainPrevHash: prevHash } : {}),
       };
-      tasks.push({
-        blockId: block.id,
-        blockIndex: bi,
-        lineIndex: li,
-        ttsText: spoken,
-        cacheKey,
-      });
-    }
-  }
 
-  if (verbose) {
-    console.log(`[tts] Total lines to process: ${tasks.length}`);
-  }
-
-  // Results storage: blockId → lineIndex → { wavPath, durationSec }
-  const lineResults = new Map<string, Map<number, { wavPath: string; durationSec: number }>>();
-
-  // Process a single line task
-  async function processLine(task: LineTask): Promise<void> {
-    if (abortController.signal.aborted) return;
-
-    const { blockId, lineIndex, ttsText, cacheKey } = task;
-
-    // Initialize results map for this block
-    if (!lineResults.has(blockId)) {
-      lineResults.set(blockId, new Map());
-    }
-    const blockResults = lineResults.get(blockId)!;
-
-    // ── Cache lookup ─────────────────────────────────────────────
-    if (!force) {
-      try {
-        const cached = await cacheStore.get("audio", cacheKey);
-        if (cached) {
-          const durationSec = getWavDurationSec(cached);
-          blockResults.set(lineIndex, { wavPath: cached, durationSec });
-          cacheHits++;
-          if (verbose) {
-            console.log(`[tts] Cache hit: ${blockId} line ${lineIndex}`);
-          }
-          return;
-        }
-      } catch (err) {
-        if (verbose) {
-          console.warn(
-            `[tts] Cache lookup error for ${blockId} line ${lineIndex}: ${err}`
-          );
-        }
-      }
-    }
-
-    // ── TTS API call with retry ──────────────────────────────────
-    let lastError: Error | null = null;
-    for (let attempt = 1; attempt <= RETRY_COUNT; attempt++) {
-      if (abortController.signal.aborted) return;
-
-      try {
-        const wavBuffer = await provider.speak(
-          ttsText,
-          voiceId,
-          abortController.signal
-        );
-
-        apiCalls++;
-
-        // Write to temp file to get duration
-        const tmpWav = writeTempWav(`${blockId}_L${lineIndex}`, wavBuffer);
-        const durationSec = getWavDurationSec(tmpWav);
-
-        // Store in cache
-        const cachedPath = await cacheStore.put("audio", cacheKey, tmpWav, cacheKey);
-
-        // Clean up temp file
+      // ── Cache lookup ────────────────────────────────────────────
+      let wavPath: string | null = null;
+      if (!force) {
         try {
-          fs.unlinkSync(tmpWav);
-          fs.rmdirSync(path.dirname(tmpWav));
-        } catch { /* ignore */ }
-
-        blockResults.set(lineIndex, { wavPath: cachedPath, durationSec });
-
-        if (verbose) {
-          console.log(
-            `[tts] API call: ${blockId} line ${lineIndex} (${durationSec.toFixed(2)}s)`
-          );
-        }
-        return; // Success
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err));
-        if (verbose) {
-          console.warn(
-            `[tts] Attempt ${attempt}/${RETRY_COUNT} failed for ${blockId} line ${lineIndex}: ${lastError.message}`
-          );
-        }
-        if (attempt < RETRY_COUNT) {
-          await sleep(RETRY_DELAY_MS);
+          const cached = await cacheStore.get("audio", cacheKey);
+          if (cached) {
+            wavPath = cached;
+            cacheHits++;
+            if (verbose) {
+              console.log(`[tts] Cache hit: ${block.id} line ${li}`);
+            }
+          }
+        } catch (err) {
+          if (verbose) {
+            console.warn(
+              `[tts] Cache lookup error for ${block.id} line ${li}: ${err}`
+            );
+          }
         }
       }
-    }
 
-    // All retries exhausted — abort everything
-    const errorMsg = lastError?.message ?? "unknown error";
-    failedBlocks.push({ blockId, error: errorMsg });
-    console.error(
-      `[tts] FAILED: ${blockId} line ${lineIndex} after ${RETRY_COUNT} retries: ${errorMsg}`
-    );
-    abortController.abort();
-    throw new TtsError(
-      `TTS failed for ${blockId} line ${lineIndex}: ${errorMsg}`,
-      "ERR_TTS_LINE_FAILED"
-    );
+      // ── TTS API call with retry ─────────────────────────────────
+      if (!wavPath) {
+        let lastError: Error | null = null;
+        for (let attempt = 1; attempt <= RETRY_COUNT; attempt++) {
+          if (abortController.signal.aborted) return;
+
+          try {
+            const wavBuffer = await provider.speak(
+              spoken,
+              voiceId,
+              { prevWav, prevText },
+              abortController.signal
+            );
+
+            apiCalls++;
+
+            // Write to temp file to get duration
+            const tmpWav = writeTempWav(`${block.id}_L${li}`, wavBuffer);
+
+            // Store in cache
+            const cachedPath = await cacheStore.put("audio", cacheKey, tmpWav, cacheKey);
+
+            // Clean up temp file
+            try {
+              fs.unlinkSync(tmpWav);
+              fs.rmdirSync(path.dirname(tmpWav));
+            } catch { /* ignore */ }
+
+            wavPath = cachedPath;
+
+            if (verbose) {
+              console.log(
+                `[tts] API call: ${block.id} line ${li} (${getWavDurationSec(cachedPath).toFixed(2)}s)`
+              );
+            }
+            break; // Success
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            if (verbose) {
+              console.warn(
+                `[tts] Attempt ${attempt}/${RETRY_COUNT} failed for ${block.id} line ${li}: ${lastError.message}`
+              );
+            }
+            if (attempt < RETRY_COUNT) {
+              await sleep(RETRY_DELAY_MS);
+            }
+          }
+        }
+
+        if (!wavPath) {
+          // All retries exhausted — abort everything
+          const errorMsg = lastError?.message ?? "unknown error";
+          failedBlocks.push({ blockId: block.id, error: errorMsg });
+          console.error(
+            `[tts] FAILED: ${block.id} line ${li} after ${RETRY_COUNT} retries: ${errorMsg}`
+          );
+          abortController.abort();
+          throw new TtsError(
+            `TTS failed for ${block.id} line ${li}: ${errorMsg}`,
+            "ERR_TTS_LINE_FAILED"
+          );
+        }
+      }
+
+      const durationSec = getWavDurationSec(wavPath);
+      blockResults.set(li, { wavPath, durationSec });
+
+      // Advance the chain: this line's audio prompts the next line.
+      prevWav = fs.readFileSync(wavPath);
+      prevText = spoken;
+      prevHash = crypto.createHash("md5").update(prevWav).digest("hex");
+    }
   }
 
-  // Execute all line tasks with concurrency limit
+  // Blocks run in parallel; lines within a block are sequential (chained).
   const limit = pLimit(voxcpmCfg.concurrency);
-  const promises = tasks.map((task) => limit(() => processLine(task)));
+  const promises = blocks.map((block) => limit(() => processBlock(block)));
 
   try {
     await Promise.all(promises);

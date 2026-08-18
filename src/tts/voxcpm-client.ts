@@ -30,6 +30,16 @@ export interface SpeakOptions {
    * like "cam0", "0.1" and "16:9" reach the model unnormalized.
    */
   normalize: boolean;
+  /**
+   * Previous line's WAV bytes. Sent with prevText as a continuation prompt
+   * (VoxCPM2 ref_continuation mode) to keep the cloned voice stable across
+   * the lines of a block.
+   */
+  prevWav?: Buffer;
+  /** Raw text of the previous line; the server applies the same preprocessing. */
+  prevText?: string;
+  /** Folded into the server-side deterministic seed; change to re-roll takes. */
+  seedSalt?: string;
 }
 
 export class VoxcpmClient {
@@ -108,6 +118,9 @@ export class VoxcpmClient {
         denoise: opts.denoise,
         retry_badcase: opts.retryBadcase,
         normalize: opts.normalize,
+        prev_wav_base64: opts.prevWav ? opts.prevWav.toString("base64") : undefined,
+        prev_text: opts.prevText,
+        seed_salt: opts.seedSalt ?? "",
       }),
       signal: signal ?? AbortSignal.timeout(this.timeout),
     });

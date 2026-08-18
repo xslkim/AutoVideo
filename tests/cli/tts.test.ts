@@ -19,7 +19,7 @@ import type { Script } from "../../src/types/script.js";
 
 // ── Generate a valid minimal WAV buffer (48kHz, mono, 16-bit PCM) ──────
 
-function generateWavBuffer(durationSec: number = 0.3): Buffer {
+function generateWavBuffer(durationSec: number = 0.3, freqHz: number = 440): Buffer {
   const sampleRate = 48000;
   const numChannels = 1;
   const bitsPerSample = 16;
@@ -50,14 +50,27 @@ function generateWavBuffer(durationSec: number = 0.3): Buffer {
   buf.write("data", 36);
   buf.writeUInt32LE(dataSize, 40);
 
-  // Fill with a simple sine wave (440 Hz)
+  // Fill with a simple sine wave
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
-    const val = Math.floor(Math.sin(2 * Math.PI * 440 * t) * 8000);
+    const val = Math.floor(Math.sin(2 * Math.PI * freqHz * t) * 8000);
     buf.writeInt16LE(val, 44 + i * 2);
   }
 
   return buf;
+}
+
+/**
+ * Deterministic stand-in for real synthesis: the WAV depends on the text
+ * AND the continuation prompt, mirroring the real engine where line N's
+ * waveform is a function of line N-1's audio. This makes chain-invalidation
+ * behavior testable.
+ */
+function wavForRequest(parsed: Record<string, unknown>): Buffer {
+  const basis = `${parsed.text ?? ""}|${parsed.prev_wav_base64 ?? ""}`;
+  let h = 0;
+  for (let i = 0; i < basis.length; i++) h = (h * 31 + basis.charCodeAt(i)) >>> 0;
+  return generateWavBuffer(0.3, 220 + (h % 440));
 }
 
 // ── Mock VoxCPM server ──────────────────────────────────────────────────
@@ -68,12 +81,13 @@ function createMockServer(): Promise<{
   server: http.Server;
   speechCallCount: { value: number };
   voiceCallCount: { value: number };
+  speechBodies: { value: Record<string, unknown>[] };
   setFailNextSpeech: (n: number) => void;
 }> {
   const speechCallCount = { value: 0 };
   const voiceCallCount = { value: 0 };
+  const speechBodies: { value: Record<string, unknown>[] } = { value: [] };
   let failNextSpeech = 0;
-  const wavBuffer = generateWavBuffer(0.3);
 
   const server = http.createServer((req, res) => {
     let body = "";
@@ -96,6 +110,7 @@ function createMockServer(): Promise<{
 
       if (req.url === "/v1/speech") {
         speechCallCount.value++;
+        speechBodies.value.push(parsed);
         if (failNextSpeech > 0) {
           failNextSpeech--;
           res.writeHead(500, { "Content-Type": "application/json" });
@@ -103,7 +118,7 @@ function createMockServer(): Promise<{
           return;
         }
         res.writeHead(200, { "Content-Type": "audio/wav" });
-        res.end(wavBuffer);
+        res.end(wavForRequest(parsed));
         return;
       }
 
@@ -122,6 +137,7 @@ function createMockServer(): Promise<{
           server,
           speechCallCount,
           voiceCallCount,
+          speechBodies,
           setFailNextSpeech: (n: number) => { failNextSpeech = n; },
         });
       } else {
@@ -256,6 +272,7 @@ describe("TTS command", () => {
     // Reset counters
     mock.speechCallCount.value = 0;
     mock.voiceCallCount.value = 0;
+    mock.speechBodies.value = [];
     mock.setFailNextSpeech(0);
   });
 
@@ -424,6 +441,61 @@ describe("TTS command", () => {
     const scriptPath = writeScript(emptyScript);
 
     await expect(tts(makeOpts(scriptPath))).rejects.toThrow(/blocks array is empty/);
+  });
+
+  // ── Line chaining test ────────────────────────────────────────────
+
+  it("chains lines within a block: line N carries line N-1 audio+text, first line has none", async () => {
+    const scriptPath = writeScript(makeTestScript(voiceRefPath));
+    await tts(makeOpts(scriptPath));
+
+    const bodies = mock.speechBodies.value;
+    expect(bodies).toHaveLength(10);
+
+    const byText = new Map(bodies.map((b) => [b.text as string, b]));
+
+    // First line of each block: no continuation prompt
+    const b01First = byText.get("第一行内容，")!;
+    const b02First = byText.get("第二块第一行")!;
+    for (const first of [b01First, b02First]) {
+      expect(first.prev_wav_base64).toBeUndefined();
+      expect(first.prev_text).toBeUndefined();
+    }
+
+    // Later lines: carry the previous line's raw text and audio
+    const b01Second = byText.get("第二行内容。")!;
+    expect(b01Second.prev_text).toBe("第一行内容，");
+    expect(typeof b01Second.prev_wav_base64).toBe("string");
+    expect((b01Second.prev_wav_base64 as string).length).toBeGreaterThan(0);
+
+    const b02Fifth = byText.get("第二块第五行")!;
+    expect(b02Fifth.prev_text).toBe("第二块第四行");
+    expect(typeof b02Fifth.prev_wav_base64).toBe("string");
+  });
+
+  // ── Chain invalidation test ───────────────────────────────────────
+
+  it("chain invalidation: re-synthesizing a line busts the cache of later lines", async () => {
+    // Run 1: populate cache
+    const scriptPath1 = writeScript(makeTestScript(voiceRefPath));
+    await tts(makeOpts(scriptPath1));
+    expect(mock.speechCallCount.value).toBe(10);
+
+    // Make the mock return different audio for B01 line 0 onwards
+    mock.speechCallCount.value = 0;
+    mock.speechBodies.value = [];
+
+    // Run 2 with a script where B01 line 0 text changed — line 0 gets a new
+    // (unchained) key → miss; every later B01 line's chainPrevHash changes →
+    // miss. B02 is untouched → all hits.
+    const script2 = makeTestScript(voiceRefPath);
+    script2.blocks[0].narration.lines[0].ttsText = "改动后的第一行，";
+    const scriptPath2 = writeScript(script2);
+    const result = await tts(makeOpts(scriptPath2));
+
+    // B01: all 5 lines re-synthesized (chain busted); B02: 5 cache hits
+    expect(result.apiCalls).toBe(5);
+    expect(result.cacheHits).toBe(5);
   });
 
   // ── Retry test ────────────────────────────────────────────────────

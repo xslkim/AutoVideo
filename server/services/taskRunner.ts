@@ -109,8 +109,8 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
   const snapshotDir = path.join(outDir, '_snapshot');
   fs.mkdirSync(snapshotDir, { recursive: true });
 
-  // Individual files
-  for (const file of ['project.json', 'meta.md', 'script.md']) {
+  // Individual files (dict.md: project pronunciation dictionary, optional)
+  for (const file of ['project.json', 'meta.md', 'script.md', 'dict.md']) {
     const src = path.join(projectDir, file);
     if (fs.existsSync(src)) {
       fs.copyFileSync(src, path.join(snapshotDir, file));

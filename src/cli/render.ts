@@ -34,7 +34,7 @@ import { renderBlocks, type RenderBlocksResult } from "../render/render-blocks.j
 import { concatPartials } from "../render/concat.js";
 import { applyLoudnorm, type LoudnormResult } from "../render/loudnorm.js";
 import { runQA, type QAResult } from "../render/qa.js";
-import { extractAudio, generateLipsync, overlayLipsync, probeVideoSize, padAudio, concatLipsyncVideos, LipsyncError } from "../render/lipsync.js";
+import { extractAudio, generateLipsync, overlayLipsync, probeVideoSize, probeVideoDurationSec, padAudio, concatLipsyncVideos, LipsyncError } from "../render/lipsync.js";
 
 const DEFAULT_AVATAR_RADIUS = 24;
 
@@ -644,18 +644,34 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     for (let i = 0; i < blockCount; i++) {
       const block = blocksToConcat[i];
       const blockLipsyncPath = path.join(lipsyncDir, `${block.id}.mp4`);
+      const totalSec = block.timing?.totalSec ?? block.audio!.durationSec;
 
-      // Cache hit: reuse existing lipsync if the block partial was unchanged
+      // Cache hit: reuse existing lipsync if the block partial was unchanged.
+      // The file must also match the current block duration — a lipsync
+      // generated for an older audio take (e.g. left over from a failed run
+      // whose partial was later re-rendered and cached) would otherwise be
+      // spliced in with the mouth off the narration by the duration delta.
       if (fs.existsSync(blockLipsyncPath) && block.render?.cacheHit) {
-        emit(50 + Math.round((i / blockCount) * 17), `口型同步: ${block.id} (缓存)`);
-        console.log(`[render] Lipsync cache hit for ${block.id}`);
-        continue;
+        let reusable = false;
+        try {
+          const lipSec = await probeVideoDurationSec(blockLipsyncPath);
+          reusable = Math.abs(lipSec - totalSec) <= 0.15;
+        } catch {
+          reusable = false; // unreadable file → regenerate
+        }
+        if (reusable) {
+          emit(50 + Math.round((i / blockCount) * 17), `口型同步: ${block.id} (缓存)`);
+          console.log(`[render] Lipsync cache hit for ${block.id}`);
+          continue;
+        }
+        console.log(
+          `[render] Lipsync for ${block.id} is stale (duration mismatch vs block ${totalSec.toFixed(2)}s) — regenerating`,
+        );
       }
 
       const audioRelPath = block.audio!.wavPath;
       const audioPath = path.join(buildDir, audioRelPath);
       const enterMs = (block.timing?.enterSec ?? 0) * 1000;
-      const totalSec = block.timing?.totalSec ?? block.audio!.durationSec;
 
       // Pad audio to match block total duration (enter-silence + narration + exit-silence)
       const paddedAudioPath = path.join(lipsyncDir, `${block.id}_padded.wav`);

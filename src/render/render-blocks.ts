@@ -19,7 +19,7 @@ import pLimit from 'p-limit';
 import type { Script, Block } from '../types/script.js';
 import { DEFAULT_QUALITY, type AutoVideoConfig } from '../config/defaults.js';
 import { CacheStore, type PartialKey } from '../cache/store.js';
-import { renderHtmlBlock, HTML_RENDERER_VERSION } from './html-render.js';
+import { captureHtmlScreenshot, HTML_RENDERER_VERSION } from './html-render.js';
 import { getTheme } from '../../remotion/engine/theme.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -114,45 +114,72 @@ export async function renderBlocks(
   const failures: Array<{ id: string; error: Error }> = [];
   let aborted = false;
 
-  // ── Step 1: Bundle once (skip if all blocks are html) ───────────────────
-  // html blocks bypass Remotion entirely (puppeteer renderer); if every block
-  // is html there is nothing to bundle, so skip the Remotion bundle step.
-  const hasRemotionBlocks = script.blocks.some((b) => b.visualMode !== 'html');
-
-  let serveUrl: string | null = null;
-  if (hasRemotionBlocks) {
-    const remotionRootPath = path.join(buildDir, 'remotion-root.tsx');
-    if (!fs.existsSync(remotionRootPath)) {
-      throw new Error(
-        `Remotion root not found at ${remotionRootPath}. Run root-render first.`
+  // ── Step 0: html screenshots (must land before bundling) ────────────────
+  // html blocks render through Remotion with a Puppeteer screenshot as the
+  // visual base layer (<Img> + SubtitleOverlay + Audio). bundle() snapshots
+  // publicDir at bundle time, so captures must happen first. The sidecar
+  // .sha skips re-capturing when the HTML source is unchanged.
+  const htmlBlocks = script.blocks.filter((b) => b.visualMode === 'html');
+  if (htmlBlocks.length > 0) {
+    const theme = getTheme(script.meta.theme);
+    const shotsDir = path.join(buildDir, 'public', 'html-shots');
+    ensureDir(shotsDir);
+    for (const block of htmlBlocks) {
+      if (!block.visual.htmlPath) {
+        throw new Error(`Block ${block.id}: html mode requires visual.htmlPath`);
+      }
+      const htmlContent = fs.readFileSync(
+        path.join(buildDir, block.visual.htmlPath),
+        'utf-8',
       );
+      const hash = crypto.createHash('md5').update(htmlContent).digest('hex');
+      const shotPath = path.join(shotsDir, `${block.id}.png`);
+      const hashPath = path.join(shotsDir, `${block.id}.sha`);
+      if (
+        fs.existsSync(shotPath) &&
+        fs.existsSync(hashPath) &&
+        fs.readFileSync(hashPath, 'utf-8') === hash
+      ) {
+        console.log(`[render-blocks] Screenshot cache hit: ${block.id}`);
+        continue;
+      }
+      console.log(`[render-blocks] Capturing html screenshot: ${block.id}...`);
+      await captureHtmlScreenshot(block, {
+        buildDir,
+        meta: script.meta,
+        theme,
+        outputPngPath: shotPath,
+        config,
+        signal: externalSignal,
+      });
+      fs.writeFileSync(hashPath, hash, 'utf-8');
     }
-
-    console.log(`[render-blocks] Bundling Remotion project...`);
-    const bundleStartTime = Date.now();
-
-    serveUrl = await bundle({
-      entryPoint: remotionRootPath,
-      // Remotion bundles to a temp dir by default; we can specify publicDir
-      publicDir: path.join(buildDir, 'public'),
-    });
-
-    console.log(
-      `[render-blocks] Bundle complete in ${((Date.now() - bundleStartTime) / 1000).toFixed(1)}s → ${serveUrl}`
-    );
-  } else {
-    console.log(`[render-blocks] All blocks are html mode — skipping Remotion bundle.`);
   }
+
+  // ── Step 1: Bundle once ─────────────────────────────────────────────────
+  const remotionRootPath = path.join(buildDir, 'remotion-root.tsx');
+  if (!fs.existsSync(remotionRootPath)) {
+    throw new Error(
+      `Remotion root not found at ${remotionRootPath}. Run root-render first.`
+    );
+  }
+
+  console.log(`[render-blocks] Bundling Remotion project...`);
+  const bundleStartTime = Date.now();
+
+  const serveUrl = await bundle({
+    entryPoint: remotionRootPath,
+    // Remotion bundles to a temp dir by default; we can specify publicDir
+    publicDir: path.join(buildDir, 'public'),
+  });
+
+  console.log(
+    `[render-blocks] Bundle complete in ${((Date.now() - bundleStartTime) / 1000).toFixed(1)}s → ${serveUrl}`
+  );
 
   // ── Step 2: Render each block ───────────────────────────────────────────
   const limiter = pLimit(blockConcurrency);
   const { cancelSignal, cancel } = makeCancelSignal();
-
-  // html blocks use a standard AbortSignal (not Remotion's CancelSignal).
-  // Bridge the two: when cancel() fires (external abort or sibling failure),
-  // also abort the AbortController so in-flight html renders stop.
-  const htmlAbort = new AbortController();
-  cancelSignal(() => htmlAbort.abort());
 
   // Forward external signal cancellation to internal cancel
   if (externalSignal) {
@@ -189,99 +216,39 @@ export async function renderBlocks(
       });
 
       // ══════════════════════════════════════════════════════════════════
-      // html mode: puppeteer renderer (bypasses Remotion entirely)
+      // Remotion path: animation / image / video / html modes.
+      // html blocks render their Step-0 screenshot as the visual base layer
+      // (<Img>) inside BlockComposition — subtitles / audio / enter-exit are
+      // identical to every other mode.
       // ══════════════════════════════════════════════════════════════════
-      if (block.visualMode === 'html') {
+
+      // Compute cache key. html blocks have no Component.tsx; the HTML
+      // source is their visual identity (it also determines the screenshot).
+      const isHtml = block.visualMode === 'html';
+
+      let visualContent: string;
+      if (isHtml) {
         if (!block.visual.htmlPath) {
           throw new Error(`Block ${blockId}: html mode requires visual.htmlPath`);
         }
-
-        // Cache key: HTML content hash + audio hash + renderer version (§9.1).
-        // componentHash field is reused for HTML content; remotionVersion is
-        // reused for the html renderer version tag.
-        const htmlContent = fs.readFileSync(
+        visualContent = fs.readFileSync(
           path.join(buildDir, block.visual.htmlPath),
           'utf-8',
         );
-
-        const htmlPartialKey: PartialKey = {
-          componentHash: crypto.createHash('md5').update(htmlContent).digest('hex'),
-          audioHash: crypto.createHash('md5').update(audioContent).digest('hex'),
-          theme: script.meta.theme,
-          width: script.meta.width,
-          height: script.meta.height,
-          fps: script.meta.fps,
-          enter: block.enter ?? 'fade',
-          exit: block.exit ?? 'fade',
-          remotionVersion: HTML_RENDERER_VERSION,
-          qualityJson: JSON.stringify({
-            ...quality,
-            subtitleSafeBottom: script.meta.subtitleSafeBottom,
-          }),
-        };
-
-        if (!isForce) {
-          const cached = await cache.get('partial', htmlPartialKey);
-          if (cached) {
-            copyFile(cached, fullPartialPath);
-            console.log(`[render-blocks] Cache hit (html): ${blockId}`);
-            cacheHits++;
-            results.push({ id: blockId, partialPath, cacheHit: true });
-            return;
-          }
+      } else {
+        const componentPath = block.visual.componentPath;
+        if (!componentPath) {
+          throw new Error(`Block ${blockId} has no componentPath`);
         }
-
-        console.log(`[render-blocks] Rendering html block ${blockId}...`);
-        renders++;
-
-        try {
-          const theme = getTheme(script.meta.theme);
-          await renderHtmlBlock(block, {
-            buildDir,
-            meta: script.meta,
-            theme,
-            quality,
-            outputMp4Path: fullPartialPath,
-            config,
-            signal: htmlAbort.signal,
-          });
-
-          await cache.put('partial', htmlPartialKey, fullPartialPath, htmlPartialKey);
-          results.push({ id: blockId, partialPath, cacheHit: false });
-        } catch (err) {
-          const error = err instanceof Error ? err : new Error(String(err));
-          console.error(`[render-blocks] html block ${blockId} failed: ${error.message}`);
-          failures.push({ id: blockId, error });
-
-          if (!aborted) {
-            aborted = true;
-            cancel();
-            console.error(
-              `[render-blocks] Aborting all in-flight renders due to ${blockId} failure`,
-            );
-          }
-        }
-        return;
+        visualContent = fs.readFileSync(
+          path.join(buildDir, componentPath),
+          'utf-8',
+        );
       }
-
-      // ══════════════════════════════════════════════════════════════════
-      // Remotion path: animation / image / video modes
-      // ══════════════════════════════════════════════════════════════════
-
-      // Compute cache key
-      const componentPath = block.visual.componentPath;
-      if (!componentPath) {
-        throw new Error(`Block ${blockId} has no componentPath`);
-      }
-
-      const fullComponentPath = path.join(buildDir, componentPath);
-
-      // Read component content for cache key computation
-      const componentContent = fs.readFileSync(fullComponentPath, 'utf-8');
 
       const remotionVersion = getRemotionVersion();
       const partialKey: PartialKey = {
-        componentHash: crypto.createHash('md5').update(componentContent).digest('hex'),
+        componentHash: crypto.createHash('md5').update(visualContent).digest('hex'),
         audioHash: crypto.createHash('md5').update(audioContent).digest('hex'),
         theme: script.meta.theme,
         width: script.meta.width,
@@ -289,7 +256,11 @@ export async function renderBlocks(
         fps: script.meta.fps,
         enter: block.enter ?? 'fade',
         exit: block.exit ?? 'fade',
-        remotionVersion,
+        // HTML_RENDERER_VERSION tags the html capture+composition pipeline;
+        // bumping it invalidates html partials without touching others.
+        remotionVersion: isHtml
+          ? `${remotionVersion}+${HTML_RENDERER_VERSION}`
+          : remotionVersion,
         // Encoding settings are part of the identity of a partial: mixing
         // partials produced under different settings would splice visibly
         // different quality (and possibly different pix_fmt) into one video.

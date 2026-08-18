@@ -31,6 +31,14 @@ export interface AudioKey {
   provider?: string;
   /** Serialized engine settings that affect the waveform */
   providerParamsJson?: string;
+  /**
+   * MD5 of the previous line's WAV within the same block. Lines are
+   * synthesized as a continuation chain (the previous line's audio is the
+   * prompt for the next), so a line's waveform depends on its predecessor.
+   * Absent for the first line of a block, keeping its key compatible with
+   * pre-chaining cache entries.
+   */
+  chainPrevHash?: string;
 }
 
 export interface ComponentKey {

@@ -17,6 +17,7 @@ import {
   Sequence,
   Audio,
   AbsoluteFill,
+  Img,
 } from "remotion";
 import { BlockFrame } from "./engine/block-frame";
 import { SubtitleOverlay } from "./components/SubtitleOverlay";
@@ -52,9 +53,11 @@ interface BlockData {
   title: string;
   enter: AnimationPreset;
   exit: AnimationPreset;
+  visualMode?: string;
   visual: {
     description: string;
     componentPath?: string;
+    htmlPath?: string;
   };
   narration: {
     lines: NarrationLine[];
@@ -203,6 +206,10 @@ export const BlockComposition: React.FC<BlockCompositionProps> = ({
 
   const theme = getTheme(script.meta.theme);
 
+  // html blocks render their Puppeteer-captured screenshot as the visual
+  // base layer; every other mode uses the LLM-generated dynamic component.
+  const isHtml = block.visualMode === "html";
+
   // Timing — from block.timing (set by render stage), or fallback defaults
   const enterFrames = block.timing?.enterFrames ?? Math.round(0.5 * fps);
   const holdFrames = block.timing
@@ -214,7 +221,9 @@ export const BlockComposition: React.FC<BlockCompositionProps> = ({
   const durationInFrames =
     block.timing?.frames ?? enterFrames + holdFrames + exitFrames;
 
-  // Dynamic component
+  // Dynamic component. For html blocks this is never rendered, and since
+  // React.lazy defers the import until first render, no missing
+  // Component.tsx is ever fetched.
   const DynamicComponent = getDynamicComponent(blockId);
 
   // Narration line timings, converted from audio-relative ms to
@@ -246,15 +255,24 @@ export const BlockComposition: React.FC<BlockCompositionProps> = ({
       durationInFrames={durationInFrames}
       fps={fps}
     >
-      {/* 1. Dynamic LLM-generated component (with Suspense fallback) */}
-      <Suspense
-        key="component"
-        fallback={
-          <AbsoluteFill style={{ backgroundColor: theme.colors.bg }} />
-        }
-      >
-        <DynamicComponent {...animProps} key={`comp-${blockId}`} />
-      </Suspense>
+      {/* 1. Visual base layer: html screenshot or LLM-generated component */}
+      {isHtml ? (
+        <AbsoluteFill>
+          <Img
+            src={staticFile(`html-shots/${block.id}.png`)}
+            style={{ width: "100%", height: "100%" }}
+          />
+        </AbsoluteFill>
+      ) : (
+        <Suspense
+          key="component"
+          fallback={
+            <AbsoluteFill style={{ backgroundColor: theme.colors.bg }} />
+          }
+        >
+          <DynamicComponent {...animProps} key={`comp-${blockId}`} />
+        </Suspense>
+      )}
 
       {/* 2. Subtitle overlay (only when lineTimings available) */}
       {block.audio?.lineTimings ? (

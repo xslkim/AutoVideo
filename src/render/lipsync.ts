@@ -426,6 +426,45 @@ export function probeVideoSize(videoPath: string): Promise<{ width: number; heig
   });
 }
 
+/**
+ * Probe a video file's container duration (seconds) using ffprobe.
+ */
+export function probeVideoDurationSec(videoPath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("ffprobe", [
+      "-v", "error",
+      "-show_entries", "format=duration",
+      "-of", "json",
+      videoPath,
+    ], { stdio: ["ignore", "pipe", "pipe"] });
+
+    let stdout = "";
+    proc.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+
+    proc.on("error", (err) => {
+      reject(new LipsyncError(`ffprobe failed to start: ${err.message}`));
+    });
+
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new LipsyncError(`ffprobe exited with code ${code}`));
+        return;
+      }
+      try {
+        const parsed = JSON.parse(stdout) as { format?: { duration?: string } };
+        const duration = Number(parsed.format?.duration);
+        if (!Number.isFinite(duration) || duration <= 0) {
+          reject(new LipsyncError("ffprobe: could not read video duration"));
+          return;
+        }
+        resolve(duration);
+      } catch {
+        reject(new LipsyncError("ffprobe: failed to parse output"));
+      }
+    });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // FFmpeg runner
 // ---------------------------------------------------------------------------

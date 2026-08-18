@@ -26,6 +26,12 @@ export interface VoxcpmConfig {
   retryBadcase: boolean;
   /** Run wetext normalization (numbers, units, symbols) before synthesis */
   normalize: boolean;
+  /**
+   * Salt folded into the server-side deterministic seed (empty = stable
+   * default). Change to any string to re-roll all takes. When set, it joins
+   * the audio cache key — a new salt therefore re-synthesizes everything.
+   */
+  seedSalt?: string;
   /** Max concurrent TTS lines */
   concurrency: number;
 }
@@ -269,6 +275,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     denoise: false,
     retryBadcase: true,
     normalize: true,
+    seedSalt: "",
     concurrency: 4,
   },
   anthropic: {

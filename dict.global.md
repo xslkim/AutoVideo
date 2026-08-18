@@ -97,3 +97,4 @@ CICD       => C I C D
 OpenAI     => Open A I
 Ollama     => Oh llama
 llama.cpp  => llama C plus plus
+/\bubuntu\b/gi => 乌班图

@@ -33,6 +33,7 @@ interface StreamInfo {
   rFrameRate: string;
   pixFmt: string;
   sampleAspectRatio: string;
+  timeBase: string;
 }
 
 // ── ffprobe helpers ────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ function probeVideoStreams(filePath: string): StreamInfo[] {
       rFrameRate: s.r_frame_rate ?? "",
       pixFmt: s.pix_fmt ?? "",
       sampleAspectRatio: s.sample_aspect_ratio ?? "",
+      timeBase: s.time_base ?? "",
     });
   }
 
@@ -127,6 +129,14 @@ export function validatePartials(partialPaths: string[]): void {
     if (s.sampleAspectRatio !== ref.sampleAspectRatio) {
       mismatches.push(
         `SAR: expected ${ref.sampleAspectRatio}, got ${s.sampleAspectRatio}`
+      );
+    }
+    if (s.timeBase !== ref.timeBase) {
+      // Mixed track timescales (e.g. 1/15360 html partials vs 1/90000
+      // Remotion partials) silently corrupt segment timestamps under
+      // concat stream-copy — the overlay pass then freezes on those blocks.
+      mismatches.push(
+        `time base: expected ${ref.timeBase}, got ${s.timeBase}`
       );
     }
 

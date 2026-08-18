@@ -36,7 +36,12 @@ export interface TtsProvider {
   registerVoice(wavPath: string): Promise<string>;
 
   /** Synthesize one narration line; resolves to WAV bytes. */
-  speak(text: string, voiceId: string, signal?: AbortSignal): Promise<Buffer>;
+  speak(
+    text: string,
+    voiceId: string,
+    chain?: SpeakChain,
+    signal?: AbortSignal,
+  ): Promise<Buffer>;
 
   /**
    * Settings that change the produced audio. Everything returned here goes
@@ -50,6 +55,16 @@ export class TtsProviderError extends Error {
     super(message);
     this.name = "TtsProviderError";
   }
+}
+
+/**
+ * Continuation context for line-level voice chaining: the previous line's
+ * synthesized audio + its raw text, used by the engine as a continuation
+ * prompt so every line of a block keeps the same voice.
+ */
+export interface SpeakChain {
+  prevWav?: Buffer;
+  prevText?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +114,12 @@ export class VoxcpmProvider implements TtsProvider {
     return this.client.registerVoice(wavPath);
   }
 
-  speak(text: string, voiceId: string, signal?: AbortSignal): Promise<Buffer> {
+  speak(
+    text: string,
+    voiceId: string,
+    chain?: SpeakChain,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
     return this.client.speak(
       {
         text,
@@ -109,6 +129,9 @@ export class VoxcpmProvider implements TtsProvider {
         denoise: this.cfg.denoise,
         retryBadcase: this.cfg.retryBadcase,
         normalize: this.cfg.normalize,
+        prevWav: chain?.prevWav,
+        prevText: chain?.prevText,
+        seedSalt: this.cfg.seedSalt ?? "",
       },
       signal,
     );
@@ -121,6 +144,9 @@ export class VoxcpmProvider implements TtsProvider {
       denoise: this.cfg.denoise,
       normalize: this.cfg.normalize,
       modelVersion: this.modelVersion,
+      // Only fold the salt into the cache key when set — the empty default
+      // keeps providerParamsJson byte-identical to pre-salt cache entries.
+      ...(this.cfg.seedSalt ? { seedSalt: this.cfg.seedSalt } : {}),
     };
   }
 }
