@@ -603,11 +603,22 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   // ── Step 7: ffmpeg concat ──────────────────────────────────────────
 
-  // In --block mode only concat the requested blocks (staged / partial build).
-  // In full mode concat all blocks (non-target partials are reused from disk).
-  const blocksToConcat = targetBlockIds
-    ? blocks.filter((b) => targetBlockIds.has(b.id))
-    : blocks;
+  // Always assemble the full timeline from every block whose partial exists
+  // on disk (in script order). Re-rendering a single block via --block /
+  // blockIds must not truncate final.mp4 to just that block — non-target
+  // partials are reused from disk. In a staged build where some partials
+  // have not been rendered yet, concat what exists and warn.
+  const blocksToConcat = blocks.filter((b) => {
+    const rel = b.render?.partialPath ?? `output/partials/${b.id}.mp4`;
+    return fs.existsSync(path.join(buildDir, rel));
+  });
+  const missingBlocks = blocks.filter((b) => !blocksToConcat.includes(b));
+  if (missingBlocks.length > 0) {
+    console.warn(
+      `[render] Warning: final.mp4 will be incomplete — no partial on disk for: ` +
+        missingBlocks.map((b) => b.id).join(", ")
+    );
+  }
 
   const partialRelPaths = blocksToConcat.map(
     (b) => b.render?.partialPath ?? `output/partials/${b.id}.mp4`

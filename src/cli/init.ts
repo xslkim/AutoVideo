@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as fs from "fs";
+import { slugify } from "../utils/slugify.js";
 
 /**
  * autovideo init <dir>
@@ -17,9 +18,13 @@ export async function initCommand(
   // Find template directory - look in several candidate locations:
   // 1. Relative to package.json (development mode)
   // 2. Relative to this source file
+  // (__dirname is CJS-only; guard it so `tsx` ESM mode doesn't throw while
+  // eagerly evaluating the array.)
   const candidates = [
     path.resolve(process.cwd(), "templates/starter"),
-    path.resolve(__dirname, "../../templates/starter"),
+    ...(typeof __dirname !== "undefined"
+      ? [path.resolve(__dirname, "../../templates/starter")]
+      : []),
   ];
 
   let templateDir: string | undefined;
@@ -55,6 +60,27 @@ export async function initCommand(
 
   // Copy all files from template to target
   copyDirRecursive(templateDir, resolvedTarget);
+
+  // Write an explicit lowercase slug into meta.md. Both the CLI
+  // (slugify(title)) and the Web UI (slug || project name) derive the build
+  // directory from this — an explicit slug keeps them pointing at the same
+  // build/<slug>/ directory.
+  const metaPath = path.join(resolvedTarget, "meta.md");
+  if (fs.existsSync(metaPath)) {
+    const slug = slugify(path.basename(resolvedTarget));
+    const lines = fs.readFileSync(metaPath, "utf-8").split("\n");
+    const slugIdx = lines.findIndex((l) => l.startsWith("slug:"));
+    if (slugIdx >= 0) {
+      lines[slugIdx] = `slug: ${slug}`;
+    } else {
+      const titleIdx = lines.findIndex((l) => l.startsWith("title:"));
+      if (titleIdx >= 0) lines.splice(titleIdx + 1, 0, `slug: ${slug}`);
+    }
+    fs.writeFileSync(metaPath, lines.join("\n"), "utf-8");
+    if (options?.verbose) {
+      console.log(`Set slug: ${slug}`);
+    }
+  }
 
   console.log(`✓ Project initialized in ${targetDir}/`);
   console.log();

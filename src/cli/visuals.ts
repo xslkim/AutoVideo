@@ -298,8 +298,8 @@ The available canvas is \`width × (height - subtitleSafeBottom)\`. **Fill the a
 ### Padding & content area
 
 - Outer padding around the content cluster: AT MOST \`min(width, height) * 0.06\` (≈ 65 px on 1080p). NEVER use larger margins like 100 px or 10 % of the canvas — that produces dead space.
-- The bounding box of all visible elements (titles, cards, code blocks, etc.) MUST cover at least **70 % of the available canvas area**. Sparse single-element layouts that float in the middle of a huge empty canvas are BANNED.
-- Achieve 70% coverage by SCALING UP described elements, not by adding new ones. Make titles bigger, cards wider/taller, fonts larger.
+- The bounding box of all visible elements (titles, cards, code blocks, etc.) MUST cover at least **60 % of the available canvas area**. Sparse single-element layouts that float in the middle of a huge empty canvas are BANNED.
+- Achieve 60% coverage by SCALING UP described elements, not by adding new ones. Make titles bigger, cards wider/taller, fonts larger. Do NOT overscale past the explicit sizes given in the description (e.g. a stated 36px title stays 36px) — when the description specifies concrete sizes/anchors, follow them verbatim; coverage follows from the description, not the other way around.
 
 ### Font sizes (assume 1080p; scale proportionally if width/height differ)
 
@@ -346,6 +346,7 @@ Compute all font sizes from \`width\` / \`height\` props (e.g. \`fontSize: heigh
   - Cards/labels centered on timeline nodes at the extreme ends: if the first node is near \`x = pad\`, the card centered on it will overflow left; if the last node is near \`x = width - pad\`, the card will overflow right.
   - Fix by either: (a) insetting the first/last node positions so \`nodeX(0) - cardW/2 >= 0\` and \`nodeX(last) + cardW/2 <= width\`, or (b) reducing card width, or (c) shifting edge cards inward while keeping their connector lines to the original node position.
   - Decorative glows/blurs that intentionally extend beyond the canvas are fine (they have no readable content and are clipped by the viewport), but text-bearing elements (cards, labels, badges, titles) MUST be fully on-screen.
+- **SINGLE-LINE LABEL FIT (pills, badges, tabs, tag rows):** text inside a fixed-width container must NEVER wrap to a second line. Before choosing font-size, estimate the LONGEST label's width: CJK char ≈ 1em, ASCII letter/digit ≈ 0.55em, space ≈ 0.3em. Then set \`fontSize ≤ containerInnerWidth / longestLabelEm\` (keep ~10% slack for border/padding) and add \`whiteSpace: "nowrap"\` to the label style. A row of equal-width pills sharing one font size MUST be sized from the LONGEST label in the row — e.g. six pills with labels "01 环境 … 06 配置与发布" are sized from "06 配置与发布" (≈ 6.4em), not from the short ones.
 
 ## Motion design (CRITICAL — this is reviewed separately from layout)
 

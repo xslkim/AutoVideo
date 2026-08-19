@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import path from 'node:path';
 import fs from 'node:fs';
 import { projectGuard, PROJECT_NAME_RE } from '../middleware/pathGuard.js';
+import { slugify } from '../../src/utils/slugify.js';
 import {
   listProjects,
   getProject,
@@ -65,36 +66,28 @@ export function createProjectRoutes(projectsRoot: string) {
       fs.copyFileSync(defaultVoicePath, path.join(projDir, 'B00.wav'));
     }
 
-    // Replace title and slug in meta.md if provided
-    if (body.title || body.slug) {
-      const metaPath = path.join(projDir, 'meta.md');
-      if (fs.existsSync(metaPath)) {
-        let metaContent = fs.readFileSync(metaPath, 'utf-8');
-        if (body.title) {
-          metaContent = metaContent.replace(/^title:.*$/m, `title: ${body.title}`);
-        }
-        if (body.slug) {
-          metaContent = metaContent.replace(/^(slug:.*)?$/m, ``);
-        }
-        // Add slug line if specified (after title line or in the frontmatter block)
-        if (body.slug) {
-          // Insert slug after title line
-          const lines = metaContent.split('\n');
-          const titleIdx = lines.findIndex(l => l.startsWith('title:'));
-          if (titleIdx >= 0) {
-            const slugLine = `slug: ${body.slug}`;
-            // Check if slug already exists in the frontmatter
-            const existingSlugIdx = lines.findIndex(l => l.startsWith('slug:'));
-            if (existingSlugIdx >= 0) {
-              lines[existingSlugIdx] = slugLine;
-            } else {
-              lines.splice(titleIdx + 1, 0, slugLine);
-            }
-          }
-          metaContent = lines.join('\n');
-        }
-        fs.writeFileSync(metaPath, metaContent, 'utf-8');
+    // Always write an explicit lowercase slug into meta.md. The CLI derives
+    // its build directory from slugify(title), the Web UI from slug || project
+    // name — an explicit slug keeps both on the same build/<slug>/ directory.
+    const metaPath = path.join(projDir, 'meta.md');
+    if (fs.existsSync(metaPath)) {
+      let metaContent = fs.readFileSync(metaPath, 'utf-8');
+      if (body.title) {
+        metaContent = metaContent.replace(/^title:.*$/m, `title: ${body.title}`);
       }
+      const slug = slugify(String(body.slug || body.title || name));
+      const lines = metaContent.split('\n');
+      const slugIdx = lines.findIndex((l) => l.startsWith('slug:'));
+      if (slugIdx >= 0) {
+        lines[slugIdx] = `slug: ${slug}`;
+      } else {
+        const titleIdx = lines.findIndex((l) => l.startsWith('title:'));
+        if (titleIdx >= 0) {
+          lines.splice(titleIdx + 1, 0, `slug: ${slug}`);
+        }
+      }
+      metaContent = lines.join('\n');
+      fs.writeFileSync(metaPath, metaContent, 'utf-8');
     }
 
     const project = getProject(projectsRoot, name);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { slugify } from '../../src/utils/slugify.js';
 
 // ---------------------------------------------------------------------------
 // ETag helpers
@@ -91,7 +92,11 @@ function parseMetaFields(content: string): MetaFields {
 }
 
 function computeSlug(meta: MetaFields, projectName: string): string {
-  return meta.slug || projectName;
+  // Explicit slug wins — slugified (lowercase) to match the CLI, which also
+  // runs slugify() over the slug override in resolveOutDir. Without a slug,
+  // fall back to the project name verbatim (legacy Web-only projects keep
+  // their existing build directory).
+  return meta.slug ? slugify(meta.slug) : projectName;
 }
 
 // ---------------------------------------------------------------------------

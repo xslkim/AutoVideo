@@ -486,7 +486,7 @@ const form = reactive({
     minFontCoeff: 0.07 as number | null,
     minAnyFontCoeff: 0.028 as number | null,
     minElements: 4 as number | null,
-    minCoverage: 0.7 as number | null,
+    minCoverage: 0.6 as number | null,
     review: true as boolean,
     maxReviewRounds: 1 as number | null,
   },
@@ -549,7 +549,7 @@ async function loadConfig() {
   form.visualQuality.minFontCoeff = c.visualQuality?.minFontCoeff ?? 0.07
   form.visualQuality.minAnyFontCoeff = c.visualQuality?.minAnyFontCoeff ?? 0.028
   form.visualQuality.minElements = c.visualQuality?.minElements ?? 4
-  form.visualQuality.minCoverage = c.visualQuality?.minCoverage ?? 0.7
+  form.visualQuality.minCoverage = c.visualQuality?.minCoverage ?? 0.6
   form.visualQuality.review = c.visualQuality?.review ?? true
   form.visualQuality.maxReviewRounds = c.visualQuality?.maxReviewRounds ?? 1
 
