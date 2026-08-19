@@ -183,10 +183,14 @@ avatarRef: ./avatar.mp4
 | `@visual: animation`（默认） | **原样发送给 Claude AI**，生成 React/Remotion 动画组件 | `src/blocks/{id}/Component.tsx` |
 | `@visual: image` | **原样发送给文生图 API**，作为图片生成的 prompt | `public/images/{id}.png`（API 生成） |
 | `@visual: html` | **直接当作 HTML/CSS 源码**写入 `public/html/{id}.html`，由 headless Chrome 截图（**不调 AI**；`--- visual ---` 必须是完整 HTML，不是描述） | `public/html/{id}.html` + 截图 |
-
-默认本地文生图后端为 **SenseNova-U1**（`http://127.0.0.1:8765/api/t2i`），在 `autovideo.config.json` 的 `imageGen` 段或 Web 设置面板配置；也支持 OpenAI 兼容 API（`provider: openai`）。
 | `@visual: image(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/images/{id}.png`（直接复制本地文件） |
 | `@visual: video(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/videos/{id}.mp4`（直接复制本地文件） |
+
+默认本地文生图后端为 **SenseNova-U1**（`http://127.0.0.1:8765/api/t2i`），在 `autovideo.config.json` 的 `imageGen` 段或 Web 设置面板配置；也支持 OpenAI 兼容 API（`provider: openai`）。
+
+> 📝 **注释语法（`<!-- -->`，各模式通用）**：视觉描述中可以用 HTML 注释 `<!-- ... -->` 标注**纯文档内容**——命令示例、录屏操作记录、草稿备注等。编译时会剥离注释，注释**不参与视频生成**：不发送给 AI、不扫描其中的文件路径、不写入 script.json（`html` 模式的源码注释由浏览器原生忽略，效果相同）。
+>
+> ⚠️ 描述正文（注释外）中出现 `./xxx.yml` 这类相对路径会被**当作资产引用**，要求文件真实存在，否则编译报错。含路径的命令示例**必须**包进 `<!-- -->` 注释里（详见 §3.2 视频模式示例）。
 
 ### 3.0 如何选择视觉模式（重要）
 
@@ -390,7 +394,8 @@ avatarRef: ./avatar.mp4
 
 --- visual ---
 （此描述仅作文档参考，实际使用 ./assets/demo.mp4 视频文件）
-程序运行时的实时渲染画面，相机环绕场景一周
+<!-- 录屏操作记录：cd repo && pnpm dev --patch ./config/app.yml，
+     终端打印 "ready in 1.2s"。成片约 24 秒。 -->
 
 --- narration ---
 这是程序实际运行的画面
@@ -402,6 +407,7 @@ avatarRef: ./avatar.mp4
 - 格式为 **mp4**（H.264 编码，`yuv420p` 像素格式以确保兼容性）
 - 分辨率建议与视频输出一致（16:9 用 1920×1080）
 - `--- visual ---` 描述**仅作文档用途**，不参与生成，也不发送给任何 AI 服务
+- ⚠️ **录屏的命令示例必须包在 `<!-- -->` 注释里**：描述正文中形如 `--patch ./config/app.yml` 的片段会被当作资产引用，因文件不存在而编译失败（Web 端会弹"上传缺失文件"卡住）
 - 视频会出现在画面中央（contain 适配，黑底），与图片模式一致
 - **时长关系**：视频片段时长与块时长（由旁白决定）通常不一致——
   - 视频比块短：循环播放直到块结束
@@ -686,6 +692,7 @@ voiceRef: ../../B00.wav
 21. **资产路径**：图片用 `./` 开头的相对路径
 22. **文件编码**：UTF-8
 23. **`meta.md` 必填字段**：`title`；其余有默认值
+24. ⚠️ **视觉描述注释**：`<!-- ... -->` 为纯文档内容，编译时剥离、不参与生成；描述正文中的命令示例含 `./xxx` 路径时**必须**包进注释，否则被当作资产引用导致编译失败（详见 §3）
 
 ---
 

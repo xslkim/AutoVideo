@@ -16,4 +16,14 @@ describe('scriptAssetRefs', () => {
       './所有参数保持和Unity UI面板一致，左手坐标系.jpg',
     ]);
   });
+
+  it('ignores paths inside HTML comments', () => {
+    const script = `
+@visual: video(./assets/e02-b06-mount.mp4)
+<!-- 文档参考：--patch ./scratch-plugin/cordis.yml，素材 ./docs/old.mp4 -->
+`;
+    expect(extractScriptAssetRefs(script)).toEqual([
+      './assets/e02-b06-mount.mp4',
+    ]);
+  });
 });

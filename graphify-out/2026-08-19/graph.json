@@ -159,7 +159,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "bin_autovideo",
-      "community": 94,
+      "community": 34,
       "community_name": "autovideo.ts",
       "norm_label": "autovideo.ts"
     },
@@ -170,7 +170,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "bin_autovideo_program",
-      "community": 94,
+      "community": 34,
       "community_name": "autovideo.ts",
       "norm_label": "program"
     },
@@ -182,7 +182,7 @@
       "_callable": true,
       "_origin": "ast",
       "id": "bin_autovideo_getconfig",
-      "community": 94,
+      "community": 34,
       "community_name": "autovideo.ts",
       "norm_label": "getconfig()"
     },
@@ -193,7 +193,7 @@
       "source_location": "L173",
       "_origin": "ast",
       "id": "bin_autovideo_dict",
-      "community": 94,
+      "community": 34,
       "community_name": "autovideo.ts",
       "norm_label": "dict"
     },
@@ -903,8 +903,8 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "package_dependencies_proper_lockfile",
-      "community": 30,
-      "community_name": "dependencies",
+      "community": 77,
+      "community_name": "proper-lockfile",
       "norm_label": "proper-lockfile"
     },
     {
@@ -914,8 +914,8 @@
       "source_location": "L28",
       "_origin": "ast",
       "id": "proper_lockfile",
-      "community": 30,
-      "community_name": "dependencies",
+      "community": 77,
+      "community_name": "proper-lockfile",
       "norm_label": "proper-lockfile"
     },
     {
@@ -991,8 +991,8 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "package_dependencies_remotion",
-      "community": 113,
-      "community_name": "remotion",
+      "community": 30,
+      "community_name": "dependencies",
       "norm_label": "remotion"
     },
     {
@@ -1002,8 +1002,8 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "remotion",
-      "community": 113,
-      "community_name": "remotion",
+      "community": 30,
+      "community_name": "dependencies",
       "norm_label": "remotion"
     },
     {
@@ -1754,8 +1754,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "remotion_engine_theme_gettheme",
-      "community": 89,
-      "community_name": "defaults.ts",
+      "community": 6,
+      "community_name": "VideoComposition.tsx",
       "norm_label": "gettheme()"
     },
     {
@@ -2989,8 +2989,8 @@
       "source_location": "L100",
       "_origin": "ast",
       "id": "schemas_script_schema_properties_enter",
-      "community": 63,
-      "community_name": "enum",
+      "community": 48,
+      "community_name": "properties",
       "norm_label": "enter"
     },
     {
@@ -3000,8 +3000,8 @@
       "source_location": "L101",
       "_origin": "ast",
       "id": "schemas_script_schema_enter_type",
-      "community": 63,
-      "community_name": "enum",
+      "community": 48,
+      "community_name": "properties",
       "norm_label": "type"
     },
     {
@@ -3110,8 +3110,8 @@
       "source_location": "L104",
       "_origin": "ast",
       "id": "schemas_script_schema_properties_exit",
-      "community": 48,
-      "community_name": "properties",
+      "community": 63,
+      "community_name": "enum",
       "norm_label": "exit"
     },
     {
@@ -3121,8 +3121,8 @@
       "source_location": "L105",
       "_origin": "ast",
       "id": "schemas_script_schema_exit_type",
-      "community": 48,
-      "community_name": "properties",
+      "community": 63,
+      "community_name": "enum",
       "norm_label": "type"
     },
     {
@@ -5606,31 +5606,31 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "server_utils_scriptassetrefs",
-      "community": 44,
-      "community_name": "parser/assets.ts",
+      "community": 83,
+      "community_name": "taskRunner.ts",
       "norm_label": "scriptassetrefs.ts"
     },
     {
       "label": "SCRIPT_ASSET_REF_REGEX",
       "file_type": "code",
       "source_file": "server/utils/scriptAssetRefs.ts",
-      "source_location": "L4",
+      "source_location": "L2",
       "_origin": "ast",
       "id": "server_utils_scriptassetrefs_script_asset_ref_regex",
-      "community": 44,
-      "community_name": "parser/assets.ts",
+      "community": 83,
+      "community_name": "taskRunner.ts",
       "norm_label": "script_asset_ref_regex"
     },
     {
       "label": "extractScriptAssetRefs()",
       "file_type": "code",
       "source_file": "server/utils/scriptAssetRefs.ts",
-      "source_location": "L8",
+      "source_location": "L6",
       "_callable": true,
       "_origin": "ast",
       "id": "server_utils_scriptassetrefs_extractscriptassetrefs",
-      "community": 44,
-      "community_name": "parser/assets.ts",
+      "community": 83,
+      "community_name": "taskRunner.ts",
       "norm_label": "extractscriptassetrefs()"
     },
     {
@@ -7055,8 +7055,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_ai_validate_validatecomponentoptions",
-      "community": 16,
-      "community_name": "validate.ts",
+      "community": 93,
+      "community_name": "visuals.ts",
       "norm_label": "validatecomponentoptions"
     },
     {
@@ -7651,7 +7651,7 @@
       "_origin": "ast",
       "id": "src_cache_store",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "store.ts"
     },
     {
@@ -7664,7 +7664,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachetype",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "cachetype"
     },
     {
@@ -7677,7 +7677,7 @@
       "_origin": "ast",
       "id": "src_cache_store_audiokey",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "audiokey"
     },
     {
@@ -7690,7 +7690,7 @@
       "_origin": "ast",
       "id": "src_cache_store_componentkey",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "componentkey"
     },
     {
@@ -7702,8 +7702,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_cache_store_partialkey",
-      "community": 34,
-      "community_name": "store.ts",
+      "community": 89,
+      "community_name": "defaults.ts",
       "norm_label": "partialkey"
     },
     {
@@ -7716,7 +7716,7 @@
       "_origin": "ast",
       "id": "src_cache_store_imagekey",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "imagekey"
     },
     {
@@ -7729,7 +7729,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachekey",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "cachekey"
     },
     {
@@ -7742,7 +7742,7 @@
       "_origin": "ast",
       "id": "src_cache_store_manifestentry",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "manifestentry"
     },
     {
@@ -7755,7 +7755,7 @@
       "_origin": "ast",
       "id": "src_cache_store_manifest",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "manifest"
     },
     {
@@ -7768,7 +7768,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestoreoptions",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "cachestoreoptions"
     },
     {
@@ -7781,7 +7781,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestats",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "cachestats"
     },
     {
@@ -7794,7 +7794,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cleanoptions",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "cleanoptions"
     },
     {
@@ -7806,7 +7806,7 @@
       "_origin": "ast",
       "id": "src_cache_store_hashkey",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "hashkey()"
     },
     {
@@ -7818,7 +7818,7 @@
       "_origin": "ast",
       "id": "src_cache_store_extfortype",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "extfortype()"
     },
     {
@@ -7830,7 +7830,7 @@
       "_origin": "ast",
       "id": "src_cache_store_dirfortype",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "dirfortype()"
     },
     {
@@ -7841,7 +7841,7 @@
       "_origin": "ast",
       "id": "src_cache_store_evict_priority",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "evict_priority"
     },
     {
@@ -7853,7 +7853,7 @@
       "_origin": "ast",
       "id": "src_cache_store_ensuredir",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "ensuredir()"
     },
     {
@@ -7866,7 +7866,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "cachestore"
     },
     {
@@ -7878,7 +7878,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_constructor",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": ".constructor()"
     },
     {
@@ -7890,7 +7890,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_get",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": ".get()"
     },
     {
@@ -7902,7 +7902,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_put",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": ".put()"
     },
     {
@@ -7914,7 +7914,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_stats",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": ".stats()"
     },
     {
@@ -7926,7 +7926,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_clean",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": ".clean()"
     },
     {
@@ -7938,7 +7938,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_evictifoverlimit",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": ".evictifoverlimit()"
     },
     {
@@ -7950,7 +7950,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_readmanifest",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "._readmanifest()"
     },
     {
@@ -7962,7 +7962,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_writemanifest",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "._writemanifest()"
     },
     {
@@ -7974,7 +7974,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_computetotalsize",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "._computetotalsize()"
     },
     {
@@ -7986,7 +7986,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_withlock",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "._withlock()"
     },
     {
@@ -7998,7 +7998,7 @@
       "_origin": "ast",
       "id": "src_cache_store_cachestore_dir",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": ".dir()"
     },
     {
@@ -8095,7 +8095,7 @@
       "_origin": "ast",
       "id": "src_cli_cache",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "cache.ts"
     },
     {
@@ -8107,7 +8107,7 @@
       "_origin": "ast",
       "id": "src_cli_cache_formatbytes",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "formatbytes()"
     },
     {
@@ -8119,7 +8119,7 @@
       "_origin": "ast",
       "id": "src_cli_cache_getstore",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "getstore()"
     },
     {
@@ -8131,7 +8131,7 @@
       "_origin": "ast",
       "id": "src_cli_cache_runstats",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "runstats()"
     },
     {
@@ -8143,7 +8143,7 @@
       "_origin": "ast",
       "id": "src_cli_cache_runclean",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "runclean()"
     },
     {
@@ -8155,7 +8155,7 @@
       "_origin": "ast",
       "id": "src_cli_cache_isstale",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "isstale()"
     },
     {
@@ -8167,7 +8167,7 @@
       "_origin": "ast",
       "id": "src_cli_cache_isvalidtype",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "isvalidtype()"
     },
     {
@@ -8179,7 +8179,7 @@
       "_origin": "ast",
       "id": "src_cli_cache_padright",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "padright()"
     },
     {
@@ -8191,7 +8191,7 @@
       "_origin": "ast",
       "id": "src_cli_cache_registercachecommand",
       "community": 34,
-      "community_name": "store.ts",
+      "community_name": "autovideo.ts",
       "norm_label": "registercachecommand()"
     },
     {
@@ -8209,7 +8209,7 @@
       "label": "loadSchema()",
       "file_type": "code",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L57",
+      "source_location": "L56",
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_compile_loadschema",
@@ -8221,7 +8221,7 @@
       "label": "CompileError",
       "file_type": "code",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L72",
+      "source_location": "L71",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -8234,7 +8234,7 @@
       "label": ".constructor()",
       "file_type": "code",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L74",
+      "source_location": "L73",
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_compile_compileerror_constructor",
@@ -8246,7 +8246,7 @@
       "label": "CompileOptions",
       "file_type": "code",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L85",
+      "source_location": "L84",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -8259,7 +8259,7 @@
       "label": "CompileResult",
       "file_type": "code",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L108",
+      "source_location": "L107",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -8272,7 +8272,7 @@
       "label": "assertNoHtmlMarkerLines()",
       "file_type": "code",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L128",
+      "source_location": "L127",
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_compile_assertnohtmlmarkerlines",
@@ -8284,7 +8284,7 @@
       "label": "parseMetaArgs()",
       "file_type": "code",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L153",
+      "source_location": "L152",
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_compile_parsemetaargs",
@@ -8296,7 +8296,7 @@
       "label": "compile()",
       "file_type": "code",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L183",
+      "source_location": "L182",
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_compile_compile",
@@ -8312,7 +8312,7 @@
       "_origin": "ast",
       "id": "src_cli_dict",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "dict.ts"
     },
     {
@@ -8325,7 +8325,7 @@
       "_origin": "ast",
       "id": "src_cli_dict_dictsuggestoptions",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "dictsuggestoptions"
     },
     {
@@ -8337,7 +8337,7 @@
       "_origin": "ast",
       "id": "src_cli_dict_dictsuggestcommand",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "dictsuggestcommand()"
     },
     {
@@ -8600,7 +8600,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_cli_init",
-      "community": 94,
+      "community": 34,
       "community_name": "autovideo.ts",
       "norm_label": "init.ts"
     },
@@ -8612,7 +8612,7 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_init_initcommand",
-      "community": 94,
+      "community": 34,
       "community_name": "autovideo.ts",
       "norm_label": "initcommand()"
     },
@@ -8624,7 +8624,7 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_init_copydirrecursive",
-      "community": 94,
+      "community": 34,
       "community_name": "autovideo.ts",
       "norm_label": "copydirrecursive()"
     },
@@ -8635,8 +8635,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_cli_preview",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "preview.ts"
     },
     {
@@ -8648,8 +8648,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_cli_preview_previewerror",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "previewerror"
     },
     {
@@ -8660,8 +8660,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_preview_previewerror_constructor",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": ".constructor()"
     },
     {
@@ -8673,8 +8673,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_cli_preview_previewoptions",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "previewoptions"
     },
     {
@@ -8686,8 +8686,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_cli_preview_previewresult",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "previewresult"
     },
     {
@@ -8698,8 +8698,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_preview_findavailableport",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "findavailableport()"
     },
     {
@@ -8710,8 +8710,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_preview_copyremotionfiles",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "copyremotionfiles()"
     },
     {
@@ -8722,8 +8722,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_preview_ensurepublicscript",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "ensurepublicscript()"
     },
     {
@@ -8734,8 +8734,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_preview_generatepreviewrootforbuild",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "generatepreviewrootforbuild()"
     },
     {
@@ -8746,8 +8746,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_preview_preview",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "preview()"
     },
     {
@@ -9026,8 +9026,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_cli_visuals_visualserror",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 93,
+      "community_name": "visuals.ts",
       "norm_label": "visualserror"
     },
     {
@@ -9038,8 +9038,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_cli_visuals_visualserror_constructor",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 93,
+      "community_name": "visuals.ts",
       "norm_label": ".constructor()"
     },
     {
@@ -9064,8 +9064,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_cli_visuals_visualsresult",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 0,
+      "community_name": "build.ts",
       "norm_label": "visualsresult"
     },
     {
@@ -9686,8 +9686,8 @@
       "source_location": "L266",
       "_origin": "ast",
       "id": "src_config_defaults_default_config",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 78,
+      "community_name": "render.test.ts",
       "norm_label": "default_config"
     },
     {
@@ -9741,8 +9741,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_config_load",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "load.ts"
     },
     {
@@ -9752,8 +9752,8 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "src_config_load_meta_fields",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "meta_fields"
     },
     {
@@ -9764,8 +9764,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_config_load_expandpath",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "expandpath()"
     },
     {
@@ -9776,8 +9776,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_config_load_deepmerge",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "deepmerge()"
     },
     {
@@ -9789,8 +9789,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_config_load_metaoverrides",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "metaoverrides"
     },
     {
@@ -9801,8 +9801,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_config_load_parsemetaargs",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "parsemetaargs()"
     },
     {
@@ -9813,8 +9813,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_config_load_infertype",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "infertype()"
     },
     {
@@ -9825,8 +9825,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_config_load_readconfigfile",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "readconfigfile()"
     },
     {
@@ -9837,8 +9837,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_config_load_expandconfigpaths",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "expandconfigpaths()"
     },
     {
@@ -9850,8 +9850,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_config_load_loadconfigoptions",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "loadconfigoptions"
     },
     {
@@ -9863,8 +9863,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_config_load_loadconfigresult",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "loadconfigresult"
     },
     {
@@ -9875,8 +9875,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_config_load_loadconfig",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "loadconfig()"
     },
     {
@@ -9887,8 +9887,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_config_load_getdefaultconfig",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "getdefaultconfig()"
     },
     {
@@ -9924,8 +9924,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_parser_assets_assetprocessresult",
-      "community": 44,
-      "community_name": "parser/assets.ts",
+      "community": 50,
+      "community_name": "compile.ts",
       "norm_label": "assetprocessresult"
     },
     {
@@ -9965,22 +9965,10 @@
       "norm_label": "local_path_regex"
     },
     {
-      "label": "stripVisualComments()",
-      "file_type": "code",
-      "source_file": "src/parser/assets.ts",
-      "source_location": "L78",
-      "_callable": true,
-      "_origin": "ast",
-      "id": "src_parser_assets_stripvisualcomments",
-      "community": 44,
-      "community_name": "parser/assets.ts",
-      "norm_label": "stripvisualcomments()"
-    },
-    {
       "label": "CODE_EXTENSIONS",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L85",
+      "source_location": "L69",
       "_origin": "ast",
       "id": "src_parser_assets_code_extensions",
       "community": 44,
@@ -9991,7 +9979,7 @@
       "label": "LINE_RANGE_REGEXES",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L101",
+      "source_location": "L85",
       "_origin": "ast",
       "id": "src_parser_assets_line_range_regexes",
       "community": 44,
@@ -10002,7 +9990,7 @@
       "label": "computeFileHash()",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L124",
+      "source_location": "L108",
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_assets_computefilehash",
@@ -10014,7 +10002,7 @@
       "label": "toPosix()",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L133",
+      "source_location": "L117",
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_assets_toposix",
@@ -10026,7 +10014,7 @@
       "label": "relativePosixPath()",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L140",
+      "source_location": "L124",
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_assets_relativeposixpath",
@@ -10038,7 +10026,7 @@
       "label": "isCodeFile()",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L148",
+      "source_location": "L132",
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_assets_iscodefile",
@@ -10050,7 +10038,7 @@
       "label": "parseLineRange()",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L156",
+      "source_location": "L140",
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_assets_parselinerange",
@@ -10062,7 +10050,7 @@
       "label": "inlineCodeSnippet()",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L175",
+      "source_location": "L159",
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_assets_inlinecodesnippet",
@@ -10074,7 +10062,7 @@
       "label": "ensureDirForFile()",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L201",
+      "source_location": "L185",
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_assets_ensuredirforfile",
@@ -10086,7 +10074,7 @@
       "label": "FileRef",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L209",
+      "source_location": "L193",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
@@ -10099,7 +10087,7 @@
       "label": "processAssets()",
       "file_type": "code",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L242",
+      "source_location": "L226",
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_assets_processassets",
@@ -10212,8 +10200,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_parser_blocks_parseandmergeblocks",
-      "community": 43,
-      "community_name": "parser/blocks.ts",
+      "community": 94,
+      "community_name": "dict.ts",
       "norm_label": "parseandmergeblocks()"
     },
     {
@@ -10535,7 +10523,7 @@
       "_origin": "ast",
       "id": "src_parser_project",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "project.ts"
     },
     {
@@ -10548,7 +10536,7 @@
       "_origin": "ast",
       "id": "src_parser_project_rawprojectjson",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "rawprojectjson"
     },
     {
@@ -10561,7 +10549,7 @@
       "_origin": "ast",
       "id": "src_parser_project_resolvedproject",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "resolvedproject"
     },
     {
@@ -10574,7 +10562,7 @@
       "_origin": "ast",
       "id": "src_parser_project_projecterror",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "projecterror"
     },
     {
@@ -10586,7 +10574,7 @@
       "_origin": "ast",
       "id": "src_parser_project_projecterror_constructor",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": ".constructor()"
     },
     {
@@ -10598,7 +10586,7 @@
       "_origin": "ast",
       "id": "src_parser_project_readproject",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "readproject()"
     },
     {
@@ -10608,8 +10596,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_preview_root_preview",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "root-preview.ts"
     },
     {
@@ -10621,8 +10609,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_preview_root_preview_rootpreviewoptions",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "rootpreviewoptions"
     },
     {
@@ -10633,8 +10621,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_preview_root_preview_computedurationframes",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "computedurationframes()"
     },
     {
@@ -10645,8 +10633,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_preview_root_preview_generatepreviewroot",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "generatepreviewroot()"
     },
     {
@@ -11173,8 +11161,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_render_concat_concatpartials",
-      "community": 11,
-      "community_name": "render.ts",
+      "community": 35,
+      "community_name": "concat.ts",
       "norm_label": "concatpartials()"
     },
     {
@@ -11840,8 +11828,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "src_render_root_render",
-      "community": 11,
-      "community_name": "render.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "root-render.ts"
     },
     {
@@ -11853,8 +11841,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_render_root_render_rootrenderoptions",
-      "community": 11,
-      "community_name": "render.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "rootrenderoptions"
     },
     {
@@ -12056,7 +12044,7 @@
       "_origin": "ast",
       "id": "src_tts_lint_lintfinding",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "lintfinding"
     },
     {
@@ -12175,8 +12163,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "src_tts_pronounce_pronunciationrule",
-      "community": 39,
-      "community_name": "lint.ts",
+      "community": 22,
+      "community_name": "pronounce.ts",
       "norm_label": "pronunciationrule"
     },
     {
@@ -12212,7 +12200,7 @@
       "_origin": "ast",
       "id": "src_tts_pronounce_dict_filename",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "dict_filename"
     },
     {
@@ -12353,8 +12341,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_tts_pronounce_applypronunciation",
-      "community": 22,
-      "community_name": "pronounce.ts",
+      "community": 39,
+      "community_name": "lint.ts",
       "norm_label": "applypronunciation()"
     },
     {
@@ -13116,8 +13104,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "src_types_script_assertcompiledscript",
-      "community": 45,
-      "community_name": "script.ts",
+      "community": 69,
+      "community_name": "tts.ts",
       "norm_label": "assertcompiledscript()"
     },
     {
@@ -13815,7 +13803,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "tests_cli_init_test",
-      "community": 94,
+      "community": 34,
       "community_name": "autovideo.ts",
       "norm_label": "init.test.ts"
     },
@@ -13826,8 +13814,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "tests_cli_preview_test",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "preview.test.ts"
     },
     {
@@ -13838,8 +13826,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_cli_preview_test_maketestscript",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "maketestscript()"
     },
     {
@@ -13850,8 +13838,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_cli_preview_test_writescript",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "writescript()"
     },
     {
@@ -14026,8 +14014,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "tests_cli_visuals_test",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 0,
+      "community_name": "build.ts",
       "norm_label": "visuals.test.ts"
     },
     {
@@ -14038,8 +14026,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_cli_visuals_test_createtestscript",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 0,
+      "community_name": "build.ts",
       "norm_label": "createtestscript()"
     },
     {
@@ -14050,8 +14038,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_cli_visuals_test_createtestconfig",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 0,
+      "community_name": "build.ts",
       "norm_label": "createtestconfig()"
     },
     {
@@ -14062,8 +14050,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_cli_visuals_test_setuptempdir",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 0,
+      "community_name": "build.ts",
       "norm_label": "setuptempdir()"
     },
     {
@@ -14085,8 +14073,8 @@
       "source_location": "L195",
       "_origin": "ast",
       "id": "tests_cli_visuals_test_mockgenerate",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 0,
+      "community_name": "build.ts",
       "norm_label": "mockgenerate"
     },
     {
@@ -14096,8 +14084,8 @@
       "source_location": "L196",
       "_origin": "ast",
       "id": "tests_cli_visuals_test_mockvalidate",
-      "community": 112,
-      "community_name": "visuals.test.ts",
+      "community": 0,
+      "community_name": "build.ts",
       "norm_label": "mockvalidate"
     },
     {
@@ -14141,8 +14129,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "tests_config_load_test",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "load.test.ts"
     },
     {
@@ -14153,8 +14141,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_config_load_test_isabsolute",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 34,
+      "community_name": "autovideo.ts",
       "norm_label": "isabsolute()"
     },
     {
@@ -14244,7 +14232,7 @@
       "_origin": "ast",
       "id": "tests_parser_project_test",
       "community": 94,
-      "community_name": "autovideo.ts",
+      "community_name": "dict.ts",
       "norm_label": "project.test.ts"
     },
     {
@@ -14254,8 +14242,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "tests_preview_root_preview_test",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "root-preview.test.ts"
     },
     {
@@ -14266,8 +14254,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_preview_root_preview_test_createtwoblockscriptwithaudio",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "createtwoblockscriptwithaudio()"
     },
     {
@@ -14278,8 +14266,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_preview_root_preview_test_createscriptnoaudio",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "createscriptnoaudio()"
     },
     {
@@ -14290,8 +14278,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_preview_root_preview_test_createsingleblockverticalscript",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "createsingleblockverticalscript()"
     },
     {
@@ -14302,8 +14290,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_preview_root_preview_test_createmixedscript",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "createmixedscript()"
     },
     {
@@ -14314,8 +14302,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "tests_preview_root_preview_test_parsecompositions",
-      "community": 77,
-      "community_name": "load.ts",
+      "community": 45,
+      "community_name": "script.ts",
       "norm_label": "parsecompositions()"
     },
     {
@@ -14498,8 +14486,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "tests_server_scriptassetrefs_test",
-      "community": 44,
-      "community_name": "parser/assets.ts",
+      "community": 83,
+      "community_name": "taskRunner.ts",
       "norm_label": "scriptassetrefs.test.ts"
     },
     {
@@ -18052,8 +18040,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "web_src_components_editors_metaeditor_overwrite",
-      "community": 14,
-      "community_name": "BlockScriptEditor.vue",
+      "community": 33,
+      "community_name": "ScriptEditor.vue",
       "norm_label": "overwrite()"
     },
     {
@@ -20428,8 +20416,8 @@
       "_callable": true,
       "_origin": "ast",
       "id": "web_src_utils_api_setetag",
-      "community": 14,
-      "community_name": "BlockScriptEditor.vue",
+      "community": 33,
+      "community_name": "ScriptEditor.vue",
       "norm_label": "setetag()"
     },
     {
@@ -20538,8 +20526,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "web_src_utils_scriptparser",
-      "community": 28,
-      "community_name": "BlockSidebar.vue",
+      "community": 14,
+      "community_name": "BlockScriptEditor.vue",
       "norm_label": "utils/scriptparser.ts"
     },
     {
@@ -20551,8 +20539,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "web_src_utils_scriptparser_parsedblock",
-      "community": 28,
-      "community_name": "BlockSidebar.vue",
+      "community": 14,
+      "community_name": "BlockScriptEditor.vue",
       "norm_label": "parsedblock"
     },
     {
@@ -20564,8 +20552,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "web_src_utils_scriptparser_parsewarning",
-      "community": 28,
-      "community_name": "BlockSidebar.vue",
+      "community": 14,
+      "community_name": "BlockScriptEditor.vue",
       "norm_label": "parsewarning"
     },
     {
@@ -20577,8 +20565,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "web_src_utils_scriptparser_parseresult",
-      "community": 28,
-      "community_name": "BlockSidebar.vue",
+      "community": 14,
+      "community_name": "BlockScriptEditor.vue",
       "norm_label": "parseresult"
     },
     {
@@ -20602,8 +20590,8 @@
       "_callable_class": true,
       "_origin": "ast",
       "id": "web_src_utils_scriptparser_extractresult",
-      "community": 28,
-      "community_name": "BlockSidebar.vue",
+      "community": 14,
+      "community_name": "BlockScriptEditor.vue",
       "norm_label": "extractresult"
     },
     {
@@ -33203,7 +33191,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "server/utils/scriptAssetRefs.ts",
-      "source_location": "L8",
+      "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
       "source": "server_utils_scriptassetrefs",
@@ -33214,35 +33202,11 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "server/utils/scriptAssetRefs.ts",
-      "source_location": "L4",
+      "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
       "source": "server_utils_scriptassetrefs",
       "target": "server_utils_scriptassetrefs_script_asset_ref_regex",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports_from",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "server/utils/scriptAssetRefs.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "server_utils_scriptassetrefs",
-      "target": "src_parser_assets",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "server/utils/scriptAssetRefs.ts",
-      "source_location": "L1",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "server_utils_scriptassetrefs",
-      "target": "src_parser_assets_stripvisualcomments",
       "confidence_score": 1.0
     },
     {
@@ -33256,18 +33220,6 @@
       "source": "tests_server_scriptassetrefs_test",
       "target": "server_utils_scriptassetrefs",
       "confidence_score": 1.0
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/utils/scriptAssetRefs.ts",
-      "source_location": "L12",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "server_utils_scriptassetrefs_extractscriptassetrefs",
-      "target": "src_parser_assets_stripvisualcomments"
     },
     {
       "relation": "imports",
@@ -39979,7 +39931,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L128",
+      "source_location": "L127",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -39990,7 +39942,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L183",
+      "source_location": "L182",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40001,7 +39953,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L72",
+      "source_location": "L71",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40012,7 +39964,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L85",
+      "source_location": "L84",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40023,7 +39975,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L108",
+      "source_location": "L107",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40034,7 +39986,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L57",
+      "source_location": "L56",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40045,7 +39997,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L153",
+      "source_location": "L152",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40057,7 +40009,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L39",
+      "source_location": "L38",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40069,7 +40021,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L39",
+      "source_location": "L38",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40081,7 +40033,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L40",
+      "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40093,7 +40045,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L40",
+      "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40105,7 +40057,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L31",
+      "source_location": "L30",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40117,7 +40069,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L31",
+      "source_location": "L30",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40170,18 +40122,6 @@
       "_origin": "ast",
       "source": "src_cli_compile",
       "target": "src_parser_assets_processassets",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "src/cli/compile.ts",
-      "source_location": "L24",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_cli_compile",
-      "target": "src_parser_assets_stripvisualcomments",
       "confidence_score": 1.0
     },
     {
@@ -40309,7 +40249,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L38",
+      "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40321,7 +40261,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L38",
+      "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40333,7 +40273,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L38",
+      "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40345,7 +40285,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L32",
+      "source_location": "L31",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40357,7 +40297,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L32",
+      "source_location": "L31",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40369,7 +40309,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L32",
+      "source_location": "L31",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40381,7 +40321,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L32",
+      "source_location": "L31",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40393,7 +40333,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L32",
+      "source_location": "L31",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40405,7 +40345,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L42",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40417,7 +40357,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L42",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40429,7 +40369,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L42",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40441,7 +40381,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L42",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40453,7 +40393,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L42",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40465,7 +40405,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L42",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40477,7 +40417,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L42",
+      "source_location": "L41",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40489,7 +40429,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L30",
+      "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40501,7 +40441,7 @@
       "context": "import",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L30",
+      "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile",
@@ -40537,7 +40477,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L517",
+      "source_location": "L512",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40548,7 +40488,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L74",
+      "source_location": "L73",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compileerror",
@@ -40572,7 +40512,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L99",
+      "source_location": "L98",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compileoptions",
@@ -40584,7 +40524,7 @@
       "context": "field",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L109",
+      "source_location": "L108",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compileresult",
@@ -40608,7 +40548,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L480",
+      "source_location": "L475",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40620,7 +40560,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/cli/compile.ts",
-      "source_location": "L212",
+      "source_location": "L211",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40633,7 +40573,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L323",
+      "source_location": "L318",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40645,7 +40585,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L544",
+      "source_location": "L539",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40657,7 +40597,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L267",
+      "source_location": "L262",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40669,19 +40609,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L255",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_cli_compile_compile",
-      "target": "src_parser_assets_stripvisualcomments"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "src/cli/compile.ts",
-      "source_location": "L232",
+      "source_location": "L231",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40693,7 +40621,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L212",
+      "source_location": "L211",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40705,7 +40633,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L206",
+      "source_location": "L205",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40717,7 +40645,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L364",
+      "source_location": "L359",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40729,7 +40657,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L363",
+      "source_location": "L358",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40741,7 +40669,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L301",
+      "source_location": "L296",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40753,7 +40681,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L281",
+      "source_location": "L276",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -40765,7 +40693,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/cli/compile.ts",
-      "source_location": "L237",
+      "source_location": "L236",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_cli_compile_compile",
@@ -45035,7 +44963,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L85",
+      "source_location": "L69",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45046,7 +44974,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L124",
+      "source_location": "L108",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45057,7 +44985,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L201",
+      "source_location": "L185",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45068,7 +44996,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L209",
+      "source_location": "L193",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45079,7 +45007,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L175",
+      "source_location": "L159",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45090,7 +45018,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L148",
+      "source_location": "L132",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45101,7 +45029,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L101",
+      "source_location": "L85",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45123,7 +45051,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L156",
+      "source_location": "L140",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45134,7 +45062,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L242",
+      "source_location": "L226",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45145,7 +45073,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L140",
+      "source_location": "L124",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45156,18 +45084,7 @@
       "relation": "contains",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L78",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "src_parser_assets",
-      "target": "src_parser_assets_stripvisualcomments",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "src/parser/assets.ts",
-      "source_location": "L133",
+      "source_location": "L117",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets",
@@ -45234,24 +45151,12 @@
       "confidence_score": 1.0
     },
     {
-      "relation": "imports",
-      "context": "import",
-      "confidence": "EXTRACTED",
-      "source_file": "tests/parser/assets.test.ts",
-      "source_location": "L15",
-      "weight": 1.0,
-      "_origin": "ast",
-      "source": "tests_parser_assets_test",
-      "target": "src_parser_assets_stripvisualcomments",
-      "confidence_score": 1.0
-    },
-    {
       "relation": "references",
       "context": "call",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "src/parser/assets.ts",
-      "source_location": "L149",
+      "source_location": "L133",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets_iscodefile",
@@ -45262,7 +45167,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L307",
+      "source_location": "L291",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets_processassets",
@@ -45286,7 +45191,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L142",
+      "source_location": "L126",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets_relativeposixpath",
@@ -45298,7 +45203,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L320",
+      "source_location": "L304",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets_processassets",
@@ -45310,7 +45215,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L351",
+      "source_location": "L335",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets_processassets",
@@ -45334,7 +45239,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L352",
+      "source_location": "L336",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets_processassets",
@@ -45358,7 +45263,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L356",
+      "source_location": "L340",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets_processassets",
@@ -45382,7 +45287,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "src/parser/assets.ts",
-      "source_location": "L312",
+      "source_location": "L296",
       "weight": 1.0,
       "_origin": "ast",
       "source": "src_parser_assets_processassets",
@@ -62818,5 +62723,5 @@
       "source_file": "tests/fixtures/compile-test/assets/diagram.png"
     }
   ],
-  "built_at_commit": "89634405b57d23e9c66c79ab12734834d9c5d780"
+  "built_at_commit": "b2f98957e7fa93050d900cddbbb31ce2066c73a2"
 }

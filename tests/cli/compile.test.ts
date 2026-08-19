@@ -303,6 +303,61 @@ describe("compile", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Visual comments: `<!-- ... -->` is documentation-only
+  // -------------------------------------------------------------------------
+
+  it("should ignore HTML comments in visual descriptions (no asset scan, not in script.json)", async () => {
+    const tempDir = resolve(OUTPUT_BASE, "visual-comment-test");
+    mkdirSync(tempDir, { recursive: true });
+
+    const wavSrc = readFileSync(resolve(FIXTURES_DIR, "B00.wav"));
+    writeFileSync(resolve(tempDir, "B00.wav"), wavSrc);
+
+    writeFileSync(
+      resolve(tempDir, "project.json"),
+      JSON.stringify({ meta: "./meta.md", blocks: ["./content.md"] }),
+    );
+
+    writeFileSync(
+      resolve(tempDir, "meta.md"),
+      [
+        "--- meta ---",
+        "title: Visual Comment Test",
+        "aspect: 16:9",
+        "---",
+      ].join("\n"),
+    );
+
+    writeFileSync(
+      resolve(tempDir, "content.md"),
+      [
+        ">>> Test Block #B01",
+        "",
+        "--- visual ---",
+        "屏幕中央显示标题",
+        "<!-- 文档参考：pnpm dsh web --patch ./scratch-plugin/cordis.yml -->",
+        "",
+        "--- narration ---",
+        "正文内容",
+      ].join("\n"),
+    );
+
+    const outDir = resolve(OUTPUT_BASE, "visual-comment-out");
+    const result = await compile({
+      projectPath: resolve(tempDir, "project.json"),
+      outDir,
+    });
+
+    // Compile must succeed (comment path never treated as an asset ref)
+    const description = result.script.blocks[0].visual.description;
+    expect(description).toContain("屏幕中央显示标题");
+    // Comment content is stripped: not in script.json, no path leak
+    expect(description).not.toContain("<!--");
+    expect(description).not.toContain("cordis.yml");
+    expect(result.script.assets).toEqual({});
+  });
+
+  // -------------------------------------------------------------------------
   // E2E: microgpt-compatible fixture
   // -------------------------------------------------------------------------
 

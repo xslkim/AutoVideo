@@ -23,6 +23,7 @@ import { readMetaWithDimensions, type ResolvedMeta, type MetaOverrides } from ".
 import { parseAndMergeBlocks, type RawBlock } from "../parser/blocks.js";
 import {
   processAssets,
+  stripVisualComments,
   type BlockForAssets,
   type AssetProcessResult,
 } from "../parser/assets.js";
@@ -245,9 +246,13 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   // html blocks: pass empty visualDescription so processAssets does NOT scan
   // the HTML source for local paths (would mangle src="/href=" attributes).
   // The real HTML source is read directly from raw.visualDescription in Step 7.
+  // Visual comments (`<!-- ... -->`) are documentation-only: strip them before
+  // asset scanning so comment content (e.g. command examples like
+  // `--patch ./scratch-plugin/cordis.yml`) is never treated as an asset ref,
+  // never rewritten, and never reaches script.json / AI prompts.
   const blocksForAssets: BlockForAssets[] = rawBlocks.map((b) => ({
     id: b.id,
-    visualDescription: b.visualMode === 'html' ? '' : b.visualDescription,
+    visualDescription: b.visualMode === 'html' ? '' : stripVisualComments(b.visualDescription),
     sourceFilePath: b.sourceFilePath,
     ...(b.imageSource !== undefined ? { imageSource: b.imageSource } : {}),
     ...(b.videoSource !== undefined ? { videoSource: b.videoSource } : {}),

@@ -19,6 +19,7 @@ import {
   inlineCodeSnippet,
   isCodeFile,
   LOCAL_PATH_REGEX,
+  stripVisualComments,
   AssetError,
   type BlockForAssets,
 } from "../../src/parser/assets.js";
@@ -198,6 +199,26 @@ describe("inlineCodeSnippet", () => {
     expect(result).toContain("```js");
     expect(result).toContain("line 13");
     expect(result).toContain("line 20");
+  });
+});
+
+describe("stripVisualComments", () => {
+  it("removes paired comments, keeps other content", () => {
+    const text = "前文<!-- ./scratch-plugin/cordis.yml 仅文档参考 -->后文";
+    expect(stripVisualComments(text)).toBe("前文后文");
+  });
+
+  it("removes multi-line comments", () => {
+    const text = "标题\n<!--\n命令示例：--patch ./a/b.yml\n-->\n正文";
+    expect(stripVisualComments(text)).toBe("标题\n\n正文");
+  });
+
+  it("strips unclosed comment to end of string", () => {
+    expect(stripVisualComments("正文 <!-- ./a/b.yml")).toBe("正文 ");
+  });
+
+  it("leaves text without comments untouched", () => {
+    expect(stripVisualComments("./assets/arch.png 展示")).toBe("./assets/arch.png 展示");
   });
 });
 

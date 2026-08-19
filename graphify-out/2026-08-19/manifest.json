@@ -150,9 +150,9 @@
     "semantic_hash": ""
   },
   "server/utils/scriptAssetRefs.ts": {
-    "mtime": 1787134902.1462462,
-    "ast_hash": "18f27c145a4add135a3482527c687035",
-    "semantic_hash": ""
+    "mtime": 1780739490.6595883,
+    "ast_hash": "64a82c3733d19b346b92a4e3089f4c77",
+    "semantic_hash": "64a82c3733d19b346b92a4e3089f4c77"
   },
   "server/utils/uploadPaths.ts": {
     "mtime": 1780739490.6595883,
@@ -205,8 +205,8 @@
     "semantic_hash": "52435bfdf049688ba9e1a4deb724c432"
   },
   "src/cli/compile.ts": {
-    "mtime": 1787134873.438553,
-    "ast_hash": "e0017b03fb38d706ed79d11ec90d55e9",
+    "mtime": 1786362726.2736087,
+    "ast_hash": "0463d08993a50a4da4243ad16f7728cc",
     "semantic_hash": ""
   },
   "src/cli/doctor.ts": {
@@ -260,9 +260,9 @@
     "semantic_hash": "b7cb6fe5144770af7fab9d62998bfc26"
   },
   "src/parser/assets.ts": {
-    "mtime": 1787134858.7025142,
-    "ast_hash": "92d0e0b7b3ce0583349358ae873bb5ee",
-    "semantic_hash": ""
+    "mtime": 1781859831.4386523,
+    "ast_hash": "41db963351be69e0fea7d4437f1caf86",
+    "semantic_hash": "41db963351be69e0fea7d4437f1caf86"
   },
   "src/parser/blocks.ts": {
     "mtime": 1786206769.2923424,
@@ -430,8 +430,8 @@
     "semantic_hash": "c6d0326657e2881907d3bc419ff053b2"
   },
   "tests/cli/compile.test.ts": {
-    "mtime": 1787134957.5703979,
-    "ast_hash": "c68924bdcaf7ee8703aa8e4ff9ddda73",
+    "mtime": 1786890425.5209665,
+    "ast_hash": "a48024a0ca113ff708ad01047ee7dbb7",
     "semantic_hash": ""
   },
   "tests/cli/doctor.test.ts": {
@@ -505,9 +505,9 @@
     "semantic_hash": "daa4a0d085bb9e84155f0cf8fff065f5"
   },
   "tests/parser/assets.test.ts": {
-    "mtime": 1787134931.758038,
-    "ast_hash": "f0646c50f5bdf7d90eeb420993346d88",
-    "semantic_hash": ""
+    "mtime": 1781859831.427005,
+    "ast_hash": "6259a8c79c4df4cdfd18465b9bf8a448",
+    "semantic_hash": "6259a8c79c4df4cdfd18465b9bf8a448"
   },
   "tests/parser/meta.test.ts": {
     "mtime": 1777795118.4221034,
@@ -540,9 +540,9 @@
     "semantic_hash": "b58473f57058115253e766654b94c99a"
   },
   "tests/server/scriptAssetRefs.test.ts": {
-    "mtime": 1787134969.7942622,
-    "ast_hash": "f6b8a896a7f0d646183d0e2d3cb934bd",
-    "semantic_hash": ""
+    "mtime": 1780739490.6595883,
+    "ast_hash": "2a29aa43e16a1583852446a690641a36",
+    "semantic_hash": "2a29aa43e16a1583852446a690641a36"
   },
   "tests/server/uploadPaths.test.ts": {
     "mtime": 1780739490.6595883,

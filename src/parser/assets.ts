@@ -64,6 +64,22 @@ export class AssetError extends Error {
 export const LOCAL_PATH_REGEX = /(^|[\s(（])(\.\.?\/[a-zA-Z0-9_./-]+\.[a-zA-Z0-9]+)/gm;
 
 /**
+ * Regex to strip HTML comments (`<!-- ... -->`) from visual descriptions.
+ * Comments are author-facing documentation only: they never participate in
+ * asset scanning, path rewriting, or AI prompt generation.
+ */
+const VISUAL_COMMENT_REGEX = /<!--[\s\S]*?-->/g;
+
+/**
+ * Remove `<!-- ... -->` comment blocks from a visual description.
+ * Unclosed `<!--` (authoring mistake) is stripped to end-of-string so its
+ * content cannot leak into asset scanning either.
+ */
+export function stripVisualComments(text: string): string {
+  return text.replace(VISUAL_COMMENT_REGEX, "").replace(/<!--[\s\S]*$/, "");
+}
+
+/**
  * Source code file extensions that may be inlined.
  */
 const CODE_EXTENSIONS = new Set([
