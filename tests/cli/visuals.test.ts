@@ -643,6 +643,28 @@ describe("visuals command", () => {
     }
   });
 
+  it("freegen: a throwing generation call still feeds the error back (placeholder previousTsx)", async () => {
+    setupTempDir(createSingleBlockScript());
+
+    mockGenerate
+      .mockRejectedValueOnce(new Error("stream ended with empty response"))
+      .mockResolvedValueOnce({
+        tsx: VALID_TSX,
+        usage: { inputTokens: 100, outputTokens: 50 },
+      });
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+
+    await visuals({ scriptPath, config: createTestConfig(), verbose: false });
+
+    expect(mockGenerate).toHaveBeenCalledTimes(2);
+    // No TSX was produced on attempt 1, but the error must not be dropped:
+    // a placeholder stands in for the missing artifact (legacy fed "").
+    const retryContext = mockGenerate.mock.calls[1][0].retryContext;
+    expect(retryContext).toBeDefined();
+    expect(retryContext!.previousTsx).toContain("no component source");
+    expect(retryContext!.errorMessage).toContain("empty response");
+  });
+
   // ── JSON assembly mode (plan D) ───────────────────────────────────────
 
   it("assembly-first: assembled wrapper is written and component-gen is never called", async () => {

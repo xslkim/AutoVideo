@@ -16,7 +16,7 @@
 
 /**
  * Coefficients are multiplied by `height`. At 1080p this yields roughly:
- * display 112px · title 69px · subtitle 39px · body 29px · code 25px ·
+ * display 112px · title 63px · subtitle 39px · body 29px · code 25px ·
  * caption 22px · label 18px.
  */
 export const TYPE = {

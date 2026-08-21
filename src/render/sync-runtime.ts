@@ -37,14 +37,19 @@ export interface SyncRuntimeOptions {
 }
 
 /**
- * Resolve the repo root the same way src/cli/render.ts does: this file sits
- * two levels below the root both in src/ and in the compiled dist/ layout.
+ * Resolve the repo root: this file sits two levels below the root in src/.
+ * The compiled layout (dist/src/render/) resolves two levels up to dist/,
+ * so probe for the remotion/ directory and fall back one more level — the
+ * same assumption the old src/cli/render.ts copy block made (and got wrong
+ * for npm-installed CLIs).
  */
 function resolveRepoRoot(): string {
-  return path.resolve(
-    path.dirname(new URL(import.meta.url).pathname),
-    '../..',
-  );
+  const here = path.dirname(new URL(import.meta.url).pathname);
+  const twoUp = path.resolve(here, '../..');
+  if (fs.existsSync(path.join(twoUp, 'remotion'))) return twoUp;
+  const threeUp = path.resolve(here, '../../..');
+  if (fs.existsSync(path.join(threeUp, 'remotion'))) return threeUp;
+  return twoUp;
 }
 
 function copyDirRecursive(srcDir: string, destDir: string): void {
@@ -88,6 +93,10 @@ export function syncRemotionRuntime(
   const librarySrc = path.join(repoRoot, 'remotion', 'library');
   const libraryDest = path.join(buildDir, 'remotion', 'library');
   if (fs.existsSync(librarySrc)) {
+    // Clean-copy: the dest tree is wholly owned by this sync, so wipe it
+    // first — files deleted from the library must not linger in the build
+    // dir (they would be bundled and counted in computeLibraryHash).
+    fs.rmSync(libraryDest, { recursive: true, force: true });
     copyDirRecursive(librarySrc, libraryDest);
     console.log(`${logPrefix} Copied remotion library to ${libraryDest}`);
   } else {
@@ -110,8 +119,10 @@ function listFilesRecursive(dir: string, base: string): string[] {
 
 /**
  * Deterministic md5 over every file under <buildDir>/remotion/library/:
- * files are sorted by relative path, then their contents are concatenated
- * and hashed. Returns NO_LIBRARY_HASH when the library has not been synced.
+ * files are sorted by relative path, then each relative path and its
+ * contents are hashed (path included so a pure rename still re-keys the
+ * partial cache). Returns NO_LIBRARY_HASH when the library has not been
+ * synced.
  *
  * Computed against the build dir (not the repo) so the hash always reflects
  * the exact files that get bundled.
@@ -122,6 +133,7 @@ export function computeLibraryHash(buildDir: string): string {
 
   const hash = crypto.createHash('md5');
   for (const rel of listFilesRecursive(libraryDir, libraryDir).sort()) {
+    hash.update(rel);
     hash.update(fs.readFileSync(path.join(libraryDir, rel)));
   }
   return hash.digest('hex');

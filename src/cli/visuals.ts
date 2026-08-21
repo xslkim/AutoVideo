@@ -674,6 +674,10 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
         // failure) is never fed into a retryContext.
         let previousJson: string | null = null;
         let previousTsx: string | null = null;
+        // Which channel produced the latest failure — freegen error feedback
+        // must only fire for freegen failures (an assembly error must not
+        // leak into the first freegen retryContext after a fallback switch).
+        let lastFailureChannel: "assemble" | "freegen" | null = null;
 
         // Failure feedback is phrased per channel: the metrics/review copy
         // is written for free generation ("rewrite the component"), which
@@ -774,6 +778,19 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                 input.retryContext = {
                   previousTsx,
                   errorMessage: previousError ?? "",
+                };
+              } else if (
+                previousError !== null &&
+                lastFailureChannel === "freegen"
+              ) {
+                // generateComponent itself threw (empty/unparseable
+                // response): no TSX to show, but the error must still be fed
+                // back or the model retries blind. Placeholder stands in for
+                // the missing artifact (legacy fed an empty string).
+                input.retryContext = {
+                  previousTsx:
+                    "(previous generation produced no component source — see the error)",
+                  errorMessage: previousError,
                 };
               }
 
@@ -957,6 +974,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
             break;
           } catch (err: any) {
             const errMsg = err?.message ?? String(err);
+            lastFailureChannel = mode;
             if (mode === "assemble") {
               // Assembly failure — thrown by generateAssembly itself (bad
               // JSON / registry validation) or by a downstream gate
