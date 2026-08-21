@@ -21,6 +21,14 @@
 export type AgentProvider = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli";
 
 /**
+ * 思考强度（仅 anthropic-api 驱动生效；CLI 驱动忽略）。
+ * - "off":    thinking: disabled（现状默认）
+ * - "low"/"medium"/"high": thinking: enabled + budget_tokens 2048/8192/32768，
+ *   驱动会 clamp 到 max_tokens-1，低于 Anthropic 下限 1024 时退化为 "off"。
+ */
+export type ThinkingMode = "off" | "low" | "medium" | "high";
+
+/**
  * Connection/model configuration shared by all drivers.
  *
  * Mirrors autovideo.config.json → anthropic section. Structurally compatible
@@ -56,6 +64,8 @@ export interface AgentConfig {
   cliPath?: string;
   /** Timeout for a single CLI invocation in ms (default: 600000) */
   cliTimeoutMs?: number;
+  /** 思考强度（仅 anthropic-api 驱动生效），未设置等同 "off"。 */
+  thinking?: ThinkingMode;
 }
 
 /** A plain text-generation request (system + single user turn). */

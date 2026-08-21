@@ -46,6 +46,7 @@ function publicConfig(overlay: AppConfig): AppConfigPublic {
       useCLI: overlay.anthropic?.useCLI,
       cliPath: overlay.anthropic?.cliPath,
       cliTimeoutMs: overlay.anthropic?.cliTimeoutMs,
+      thinking: overlay.anthropic?.thinking,
       review: overlay.anthropic?.review
         ? {
             provider: overlay.anthropic.review.provider,

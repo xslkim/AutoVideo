@@ -52,6 +52,13 @@
                 style="width: 100%"
               />
             </n-form-item>
+            <n-form-item label="思考强度">
+              <n-select
+                v-model:value="form.anthropic.thinking"
+                :options="thinkingOptions"
+                style="width: 100%"
+              />
+            </n-form-item>
           </template>
 
           <!-- CLI 模式：binary 路径 / 超时 / opencode·codex 模型 -->
@@ -358,7 +365,7 @@
 import { ref, reactive, watch, computed } from 'vue'
 import { createDiscreteApi } from 'naive-ui'
 import { apiGet, apiPut, apiPost } from '../utils/api'
-import type { AppConfigPublic } from '../../../server/types/api'
+import type { AppConfigPublic, ThinkingMode } from '../../../server/types/api'
 
 const { message } = createDiscreteApi(['message'])
 
@@ -410,8 +417,17 @@ const agentModelOptions = [
   { label: 'deepseek-chat', value: 'deepseek-chat' },
   { label: 'deepseek-reasoner', value: 'deepseek-reasoner' },
   { label: 'glm-4.6', value: 'glm-4.6' },
-  { label: 'kimi-k3[1m]（Kimi K3，1M 上下文）', value: 'kimi-k3[1m]' },
-  { label: 'kimi-k3（Kimi K3，256K）', value: 'kimi-k3' },
+  { label: 'kimi-k3（Kimi K3 / Kimi Code 订阅）', value: 'kimi-k3' },
+  { label: 'k3-256k（Kimi K3，256K 上下文）', value: 'k3-256k' },
+]
+
+// 思考强度（仅 anthropic-api 生效）：off = thinking disabled；
+// 其余档位对应 thinking.budget_tokens，驱动会 clamp 到 max_tokens-1。
+const thinkingOptions = [
+  { label: '关闭（默认）', value: 'off' },
+  { label: '低（budget 2048）', value: 'low' },
+  { label: '中（budget 8192）', value: 'medium' },
+  { label: '高（budget 32768）', value: 'high' },
 ]
 
 // codex 只支持 OpenAI Responses API：DeepSeek 官方端点原生支持；
@@ -454,6 +470,7 @@ const form = reactive({
     cliPath: '' as string,
     cliTimeoutMs: 600000 as number | null,
     concurrency: 4 as number | null,
+    thinking: 'off' as ThinkingMode,
     reviewEnabled: false as boolean,
     review: {
       provider: null as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli' | null,
@@ -523,6 +540,7 @@ async function loadConfig() {
   form.anthropic.cliPath = c.anthropic.cliPath ?? ''
   form.anthropic.cliTimeoutMs = c.anthropic.cliTimeoutMs ?? 600000
   form.anthropic.concurrency = clampAnthropicConcurrency(c.anthropic.concurrency)
+  form.anthropic.thinking = c.anthropic.thinking ?? 'off'
   form.anthropic.reviewEnabled = !!c.anthropic.review
   form.anthropic.review.provider = c.anthropic.review?.provider ?? null
   form.anthropic.review.model = c.anthropic.review?.model ?? ''
@@ -575,6 +593,7 @@ async function onSave() {
     aPatch.cliPath = form.anthropic.cliPath || null
     aPatch.cliTimeoutMs = form.anthropic.cliTimeoutMs
     aPatch.concurrency = form.anthropic.concurrency
+    aPatch.thinking = form.anthropic.thinking
     if (form.anthropic.reviewEnabled) {
       aPatch.review = {
         provider: form.anthropic.review.provider || null,

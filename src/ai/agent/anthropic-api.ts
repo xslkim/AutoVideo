@@ -22,9 +22,30 @@ import type {
   AgentImageReviewRequest,
   AgentResult,
   AgentTextRequest,
+  ThinkingMode,
 } from "./types.js";
 
 const DEFAULT_MODEL = "claude-sonnet-4-6";
+
+/** ThinkingMode → thinking.budget_tokens 预算。 */
+const THINKING_BUDGETS: Record<Exclude<ThinkingMode, "off">, number> = {
+  low: 2048,
+  medium: 8192,
+  high: 32768,
+};
+
+/**
+ * Map ThinkingMode to the Messages API `thinking` param.
+ * "off"/未设置 → disabled（现状默认，避免思考吃掉输出预算）；
+ * 其余档位 clamp 到 max_tokens-1，达不到 Anthropic 下限（1024）时退化为关闭。
+ */
+function thinkingParam(mode: ThinkingMode | undefined, maxTokens: number): Record<string, unknown> {
+  if (mode && mode !== "off") {
+    const budget = Math.min(THINKING_BUDGETS[mode], maxTokens - 1);
+    if (budget >= 1024) return { type: "enabled", budget_tokens: budget };
+  }
+  return { type: "disabled" };
+}
 
 interface ResolvedCredentials {
   apiKey: string;
@@ -114,10 +135,13 @@ export class AnthropicApiDriver implements AgentDriver {
       messages: [{ role: "user", content: req.user }],
     };
     if (req.system) params.system = req.system;
-    // DeepSeek (Anthropic 兼容端点): 避免 thinking 吃掉输出预算。该参数不在 SDK
+    // 思考强度由配置决定（默认关闭）：Kimi K3 等模型默认开启思考，
+    // 不声明时会吃掉输出预算；DeepSeek 兼容端点亦同。该参数不在 SDK
     // 的类型里，对象字面量直接写会触发多余属性检查，经松散类型开口设置。
-    // 对 Anthropic 原生模型 thinking 默认关闭，此参数无副作用。
-    (params as unknown as Record<string, unknown>).thinking = { type: "disabled" };
+    (params as unknown as Record<string, unknown>).thinking = thinkingParam(
+      this.config.thinking,
+      req.maxTokens,
+    );
 
     const response = await client.messages.create(params, { signal });
     return toAgentResult(response);

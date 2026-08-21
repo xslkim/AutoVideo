@@ -57,6 +57,9 @@ export interface BlocksResponse {
 
 export type AgentProviderName = 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli';
 
+/** 思考强度档位（仅 anthropic-api 驱动生效）；未设置等同 'off' */
+export type ThinkingMode = 'off' | 'low' | 'medium' | 'high';
+
 export interface AppConfig {
   version: 1;
   anthropic?: {
@@ -72,6 +75,8 @@ export interface AppConfig {
     cliPath?: string;
     /** Timeout for a single CLI invocation in ms */
     cliTimeoutMs?: number;
+    /** 思考强度（仅 anthropic-api 驱动生效） */
+    thinking?: ThinkingMode;
     /** 评审独立配置（可选；未设字段沿用生成配置）。生成模型无视觉能力时使用。 */
     review?: {
       provider?: AgentProviderName;
@@ -123,6 +128,7 @@ export interface AppConfigPublic {
     useCLI?: boolean;
     cliPath?: string;
     cliTimeoutMs?: number;
+    thinking?: ThinkingMode;
     review?: {
       provider?: AgentProviderName;
       model?: string;

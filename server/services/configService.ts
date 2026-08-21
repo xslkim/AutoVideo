@@ -119,6 +119,7 @@ export function resolveWebConfig(repoRoot: string): AppConfig {
       useCLI: stored.anthropic?.useCLI ?? undefined,
       cliPath: stored.anthropic?.cliPath || undefined,
       cliTimeoutMs: stored.anthropic?.cliTimeoutMs ?? undefined,
+      thinking: stored.anthropic?.thinking ?? undefined,
       review: stored.anthropic?.review ? { ...stored.anthropic.review } : undefined,
     },
     imageGen: {

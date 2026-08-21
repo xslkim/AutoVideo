@@ -119,6 +119,13 @@ describe('resolveTaskConfig', () => {
     expect(cfg.anthropic.maxRetries).toBeGreaterThan(0);
   });
 
+  it('passes the thinking mode through the overlay', () => {
+    saveStoredConfig(tmpRoot, { version: 1, anthropic: { thinking: 'medium' } });
+    const cfg = resolveTaskConfig(tmpRoot);
+    expect(cfg.anthropic.thinking).toBe('medium');
+    expect(resolveWebConfig(tmpRoot).anthropic?.thinking).toBe('medium');
+  });
+
   it('UI config beats env vars for voxcpm endpoint', () => {
     process.env.VOXCPM_ENDPOINT = 'http://env:8000';
     saveStoredConfig(tmpRoot, { version: 1, voxcpm: { endpoint: 'http://ui:8000' } });
