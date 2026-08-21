@@ -74,7 +74,7 @@ Markdown → compile → TTS → visuals → render → MP4
 |------|------|------|------|
 | **compile** | `project.json` + Markdown | `script.json` | 解析、校验、资产哈希复制 |
 | **tts** | `script.json`（旁白） | `public/audio/<BXX>.wav` | 调用 VoxCPM2 逐行合成，加 200ms 静音 |
-| **visuals** | `script.json`（视觉描述） | `src/blocks/<BXX>/Component.tsx` | 调用 Claude API 生成 React 组件，沙盒校验 |
+| **visuals** | `script.json`（视觉描述） | `src/blocks/<BXX>/Component.tsx` | 组装优先：Claude 从预制组件库（`remotion/library/`）选组件填 JSON spec，机械生成 wrapper；无合适组件才回退自由生成 TSX。沙盒校验 |
 | **render** | `script.json` + 组件 + 音频 | `output/final_normalized.mp4` | Remotion 渲染分块 → ffmpeg 拼接 → loudnorm |
 
 ### 中间表示 `script.json`
@@ -133,6 +133,7 @@ npx tsx bin/autovideo.ts doctor   # 一键检查环境
 
 - TypeScript 用 branded 类型在编译期保证阶段顺序：`CompiledScript` → `AudioReadyScript` → `VisualReadyScript` → `RenderInputScript` → `RenderedScript`
 - 视觉组件在子进程沙盒（PATH/HOME/LANG 白名单 + 可选 `prlimit` / `unshare -n`）中校验
+- `remotion/library/` 预制组件库由 `src/render/sync-runtime.ts` 在 visuals / render / preview 三阶段自动同步进 build 目录；生成组件经 `../../../remotion/library` 相对路径引用；partial 渲染缓存混入 `libraryHash`，库代码变更自动失效旧分块
 - Remotion 渲染分两种入口：`src/render/root-render.ts`（程序化渲染）与 `src/preview/root-preview.ts`（Studio 预览）
 - 仓库总体目录：`bin/`、`src/`、`remotion/`、`templates/`、`schemas/`、`tests/`
 - 历史开发任务跟踪见 `docs/archive/`（CLI / Web / Lipsync 的 PRD / TASKS / PROGRESS，均已完工）

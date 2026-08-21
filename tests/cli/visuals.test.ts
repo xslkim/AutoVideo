@@ -123,9 +123,31 @@ function createTestConfig(overrides?: Partial<AutoVideoConfig>): AutoVideoConfig
       minCoverage: 0.7,
       review: false,
       maxReviewRounds: 1,
+      // Keep the legacy free-generation-only path for the pre-existing
+      // tests; assembly tests opt in via createAssemblyConfig().
+      assembly: "off",
     },
     ...overrides,
   } as AutoVideoConfig;
+}
+
+/** Config with JSON assembly enabled ("first"), visualQuality off unless overridden */
+function createAssemblyConfig(
+  vqOverrides?: Record<string, unknown>
+): AutoVideoConfig {
+  return createTestConfig({
+    visualQuality: {
+      enabled: false,
+      minFontCoeff: 0.07,
+      minAnyFontCoeff: 0.028,
+      minElements: 4,
+      minCoverage: 0.7,
+      review: false,
+      maxReviewRounds: 1,
+      assembly: "first",
+      ...vqOverrides,
+    },
+  } as Partial<AutoVideoConfig>);
 }
 
 /** Valid TSX component that passes AST scan + tsc */
@@ -180,20 +202,77 @@ vi.mock("../../src/ai/component-gen.js", () => ({
   buildUserContent: vi.fn(() => "user prompt"),
 }));
 
+// Mock the JSON assembly channel (plan D)
+vi.mock("../../src/ai/assembly-gen.js", () => ({
+  generateAssembly: vi.fn(),
+  buildAssemblySystemPrompt: vi.fn(() => "assembly system prompt"),
+}));
+vi.mock("../../src/ai/assembly-wrapper.js", () => ({
+  buildAssemblyWrapper: vi.fn(),
+}));
+
 // Mock validateComponent to avoid real tsc + Remotion
 vi.mock("../../src/ai/validate.js", () => ({
   validateComponent: vi.fn(),
   generateTsconfigVisuals: vi.fn(() => "/tmp/tsconfig.json"),
   generateTypeShim: vi.fn(),
   astStaticScan: vi.fn(() => ({ pass: true, errors: [], imports: [] })),
+  renderComponentStill: vi.fn(),
+  cleanupStill: vi.fn(),
+  classifyRenderError: vi.fn(() => "environment"),
+}));
+
+// Mock the visual-quality gate pieces (only exercised when vq.enabled)
+vi.mock("../../src/ai/visual-metrics.js", () => ({
+  assessVisualMetrics: vi.fn(),
+  checkNarrationSyncContract: vi.fn(() => ({ pass: true, feedback: "" })),
+}));
+vi.mock("../../src/ai/visual-review.js", () => ({
+  reviewVisual: vi.fn(),
 }));
 
 // Import mocked functions
 import { generateComponent } from "../../src/ai/component-gen.js";
-import { validateComponent } from "../../src/ai/validate.js";
+import { generateAssembly } from "../../src/ai/assembly-gen.js";
+import { buildAssemblyWrapper } from "../../src/ai/assembly-wrapper.js";
+import { validateComponent, renderComponentStill } from "../../src/ai/validate.js";
+import {
+  assessVisualMetrics,
+  checkNarrationSyncContract,
+} from "../../src/ai/visual-metrics.js";
+import { reviewVisual } from "../../src/ai/visual-review.js";
 
 const mockGenerate = vi.mocked(generateComponent);
+const mockAssembly = vi.mocked(generateAssembly);
+const mockWrapper = vi.mocked(buildAssemblyWrapper);
 const mockValidate = vi.mocked(validateComponent);
+const mockRenderStill = vi.mocked(renderComponentStill);
+const mockAssess = vi.mocked(assessVisualMetrics);
+const mockCheckSync = vi.mocked(checkNarrationSyncContract);
+const mockReview = vi.mocked(reviewVisual);
+
+/** Registry-valid assembled result returned by the assembly mock */
+const ASSEMBLED_RESULT = {
+  kind: "assembled" as const,
+  component: "KeyPoints",
+  props: {
+    title: "核心要点",
+    points: [{ title: "一" }, { title: "二" }],
+  },
+  usage: { inputTokens: 10, outputTokens: 20 },
+};
+
+/** Machine-generated wrapper content returned by the wrapper mock */
+const WRAPPER_TSX = `// machine-generated wrapper
+export default function Component() { return null; }
+`;
+
+/** Single-block variant of the test script (simplifies call-count assertions) */
+function createSingleBlockScript(): Script {
+  const script = createTestScript();
+  script.blocks = [script.blocks[0]];
+  return script;
+}
 
 // ── Tests ─────────────────────────────────────────────────────────────
 
@@ -207,6 +286,15 @@ describe("visuals command", () => {
     validateCallCount = 0;
     shouldFailFirstAttempt = false;
     vi.clearAllMocks();
+    // Strip per-test implementations left over from previous tests, then
+    // re-establish the defaults the pipeline relies on.
+    mockAssembly.mockReset();
+    mockWrapper.mockReset();
+    mockRenderStill.mockReset();
+    mockAssess.mockReset();
+    mockReview.mockReset();
+    mockCheckSync.mockReset();
+    mockCheckSync.mockReturnValue({ pass: true, feedback: "" });
   });
 
   afterEach(() => {
@@ -553,6 +641,262 @@ describe("visuals command", () => {
     for (const call of mockGenerate.mock.calls) {
       expect(call[0].narrationContext).toBeUndefined();
     }
+  });
+
+  // ── JSON assembly mode (plan D) ───────────────────────────────────────
+
+  it("assembly-first: assembled wrapper is written and component-gen is never called", async () => {
+    setupTempDir(createSingleBlockScript());
+
+    mockAssembly.mockResolvedValue(ASSEMBLED_RESULT);
+    mockWrapper.mockReturnValue(WRAPPER_TSX);
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+
+    const result = await visuals({
+      scriptPath,
+      config: createAssemblyConfig(),
+      verbose: false,
+    });
+
+    // One assembly call with the real registry docs; wrapper built from the
+    // validated selection; free generation never invoked.
+    expect(mockAssembly).toHaveBeenCalledTimes(1);
+    const asmInput = mockAssembly.mock.calls[0][0];
+    expect(asmInput.visualDescription).toContain("Hello World");
+    expect(asmInput.registryDocs).toContain("### KeyPoints");
+    expect(asmInput.retryContext).toBeUndefined();
+    expect(mockWrapper).toHaveBeenCalledTimes(1);
+    expect(mockWrapper).toHaveBeenCalledWith(
+      "KeyPoints",
+      ASSEMBLED_RESULT.props
+    );
+    expect(mockGenerate).not.toHaveBeenCalled();
+    expect(result.apiCalls).toBe(1);
+
+    // The wrapper source is what lands on disk + in script.json
+    const componentFile = path.join(
+      tempDir, "src", "blocks", "B01", "Component.tsx"
+    );
+    expect(fs.readFileSync(componentFile, "utf-8")).toBe(WRAPPER_TSX);
+    const updated = JSON.parse(fs.readFileSync(scriptPath, "utf-8"));
+    expect(updated.blocks[0].visual.componentPath).toBe(
+      "src/blocks/B01/Component.tsx"
+    );
+  });
+
+  it("assembly-first: component:null falls back to free generation in the same loop", async () => {
+    setupTempDir(createSingleBlockScript());
+
+    mockAssembly.mockResolvedValue({
+      kind: "fallback",
+      reason: "需要自由排版的对比画面，注册组件都不合适",
+      usage: { inputTokens: 10, outputTokens: 20 },
+    });
+    mockGenerate.mockResolvedValue({
+      tsx: VALID_TSX,
+      usage: { inputTokens: 100, outputTokens: 50 },
+    });
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+
+    const result = await visuals({
+      scriptPath,
+      config: createAssemblyConfig(),
+      verbose: false,
+    });
+
+    expect(mockAssembly).toHaveBeenCalledTimes(1);
+    expect(mockGenerate).toHaveBeenCalledTimes(1);
+    expect(mockWrapper).not.toHaveBeenCalled();
+    expect(result.apiCalls).toBe(2);
+    // The fallback is not a failure: the first freegen call gets no
+    // retryContext (no error feedback, no empty previous source).
+    expect(mockGenerate.mock.calls[0][0].retryContext).toBeUndefined();
+
+    const componentFile = path.join(
+      tempDir, "src", "blocks", "B01", "Component.tsx"
+    );
+    expect(fs.readFileSync(componentFile, "utf-8")).toBe(VALID_TSX);
+    const updated = JSON.parse(fs.readFileSync(scriptPath, "utf-8"));
+    expect(updated.blocks[0].visual.componentPath).toBe(
+      "src/blocks/B01/Component.tsx"
+    );
+  });
+
+  it("assembly-first: two consecutive assembly failures switch to free generation", async () => {
+    setupTempDir(createSingleBlockScript());
+
+    mockAssembly.mockRejectedValue(
+      new Error(
+        "assembly JSON failed registry validation:\n- props.points: Array must contain at least 2 element(s)\n请修正 JSON"
+      )
+    );
+    mockGenerate.mockResolvedValue({
+      tsx: VALID_TSX,
+      usage: { inputTokens: 100, outputTokens: 50 },
+    });
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+
+    const result = await visuals({
+      scriptPath,
+      config: createAssemblyConfig(),
+      verbose: false,
+    });
+
+    // Exactly 2 assembly attempts, then the loop switched to freegen and
+    // succeeded — the block does NOT abort. (Failed generation calls are
+    // not counted in apiCalls, same as the freegen channel.)
+    expect(mockAssembly).toHaveBeenCalledTimes(2);
+    expect(mockGenerate).toHaveBeenCalledTimes(1);
+    expect(mockWrapper).not.toHaveBeenCalled();
+    expect(result.apiCalls).toBe(1);
+
+    const componentFile = path.join(
+      tempDir, "src", "blocks", "B01", "Component.tsx"
+    );
+    expect(fs.readFileSync(componentFile, "utf-8")).toBe(VALID_TSX);
+  });
+
+  it("assembly-first: JSON failure retry feeds back non-empty previousJson (never TSX)", async () => {
+    setupTempDir(createSingleBlockScript());
+
+    mockAssembly
+      .mockRejectedValueOnce(
+        new Error(
+          "assembly output is not valid JSON (first 200 chars): 我觉得应该…\n请在下一轮只输出一个 ```json 代码块"
+        )
+      )
+      .mockResolvedValueOnce(ASSEMBLED_RESULT);
+    mockWrapper.mockReturnValue(WRAPPER_TSX);
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+
+    await visuals({
+      scriptPath,
+      config: createAssemblyConfig(),
+      verbose: false,
+    });
+
+    expect(mockAssembly).toHaveBeenCalledTimes(2);
+    const retryContext = mockAssembly.mock.calls[1][0].retryContext;
+    expect(retryContext).toBeDefined();
+    // The model's first response was unparseable, so no artifact exists —
+    // the placeholder must be non-empty and must not be component source.
+    expect(retryContext!.previousJson.length).toBeGreaterThan(0);
+    expect(retryContext!.previousJson).not.toContain("import React");
+    expect(retryContext!.previousJson).not.toContain("export default");
+    expect(retryContext!.errorMessage).toContain("not valid JSON");
+    expect(mockGenerate).not.toHaveBeenCalled();
+  });
+
+  it("assembly-first: downstream validation failure feeds the assembled JSON back", async () => {
+    setupTempDir(createSingleBlockScript());
+
+    mockAssembly.mockResolvedValue(ASSEMBLED_RESULT);
+    mockWrapper.mockReturnValue(WRAPPER_TSX);
+    // First wrapper fails tsc, second passes.
+    mockValidate
+      .mockResolvedValueOnce({
+        pass: false,
+        errors: ["TypeScript type-check failed:", "error TS2322"],
+      })
+      .mockResolvedValueOnce({ pass: true, errors: [] });
+
+    const result = await visuals({
+      scriptPath,
+      config: createAssemblyConfig(),
+      verbose: false,
+    });
+
+    expect(mockAssembly).toHaveBeenCalledTimes(2);
+    const retryContext = mockAssembly.mock.calls[1][0].retryContext;
+    expect(retryContext).toBeDefined();
+    // The previous artifact IS available here: the validated selection,
+    // re-serialized as JSON — never the wrapper TSX.
+    const prev = JSON.parse(retryContext!.previousJson);
+    expect(prev.component).toBe("KeyPoints");
+    expect(prev.props).toEqual(ASSEMBLED_RESULT.props);
+    expect(retryContext!.previousJson).not.toContain("export default");
+    expect(retryContext!.errorMessage).toContain("Assembly attempt failed");
+    expect(retryContext!.errorMessage).toContain("TS2322");
+    expect(mockGenerate).not.toHaveBeenCalled();
+    expect(result.apiCalls).toBe(2);
+  });
+
+  it("assembly-first: visualQuality.enabled passes end-to-end (static metrics skipped, coverage + review still run)", async () => {
+    setupTempDir(createSingleBlockScript());
+
+    mockAssembly.mockResolvedValue(ASSEMBLED_RESULT);
+    mockWrapper.mockReturnValue(WRAPPER_TSX);
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+    mockRenderStill.mockResolvedValue({
+      ok: true,
+      pngPaths: ["/tmp/still-B01/frame0.png", "/tmp/still-B01/frame1.png"],
+      tempDir: "/tmp/still-B01",
+    });
+    mockAssess.mockResolvedValue({
+      pass: true,
+      feedback: "",
+      static: {
+        maxFontPx: 0,
+        minFontPx: 0,
+        usesRelativeFont: false,
+        hardcodedFontSizes: [],
+        elementCount: 0,
+        fontFullyMeasured: false,
+      },
+      image: {
+        coverage: 0.8,
+        emptyCorners: 0,
+        bandDensity: { top: 1, mid: 1, bottom: 1 },
+        edgeClip: { left: 0, right: 0 },
+      },
+    });
+    mockReview.mockResolvedValue({ pass: true, feedback: "", raw: "" });
+
+    const result = await visuals({
+      scriptPath,
+      config: createAssemblyConfig({
+        enabled: true,
+        review: true,
+        maxReviewRounds: 1,
+      }),
+      verbose: false,
+    });
+
+    expect(mockAssembly).toHaveBeenCalledTimes(1);
+    // renderStill smoke ran…
+    expect(mockRenderStill).toHaveBeenCalledTimes(1);
+    // …the PNG coverage gate ran, but source-level static metrics were
+    // skipped for the machine-generated wrapper…
+    expect(mockAssess).toHaveBeenCalledTimes(1);
+    expect(mockAssess.mock.calls[0][0].skipStaticMetrics).toBe(true);
+    // …the narration-sync contract still ran…
+    expect(mockCheckSync).toHaveBeenCalledTimes(1);
+    // …and the multimodal review still consumed its round.
+    expect(mockReview).toHaveBeenCalledTimes(1);
+    expect(mockGenerate).not.toHaveBeenCalled();
+    expect(result.apiCalls).toBe(1);
+  });
+
+  it("assembly off: behaves exactly like the legacy free-generation path", async () => {
+    setupTempDir();
+
+    mockGenerate.mockResolvedValue({
+      tsx: VALID_TSX,
+      usage: { inputTokens: 100, outputTokens: 50 },
+    });
+    mockValidate.mockResolvedValue({ pass: true, errors: [] });
+
+    const result = await visuals({
+      scriptPath,
+      config: createTestConfig(), // visualQuality.assembly === "off"
+      verbose: false,
+    });
+
+    expect(mockAssembly).not.toHaveBeenCalled();
+    expect(mockWrapper).not.toHaveBeenCalled();
+    expect(mockGenerate).toHaveBeenCalledTimes(2);
+    expect(result.apiCalls).toBe(2);
+    expect(result.cacheHits).toBe(0);
   });
 });
 

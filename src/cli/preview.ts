@@ -22,6 +22,7 @@ import { spawn } from "node:child_process";
 import { loadConfig } from "../config/load.js";
 import type { Script } from "../types/script.js";
 import { generatePreviewRoot } from "../preview/root-preview.js";
+import { syncRemotionRuntime } from "../render/sync-runtime.js";
 
 // ── Error class ───────────────────────────────────────────────────────
 
@@ -81,76 +82,16 @@ async function findAvailablePort(startPort: number): Promise<number> {
 }
 
 /**
- * Copy the Remotion engine files needed by the preview root into the build out dir.
- * These are imported by remotion-root-preview.tsx and must be available relative to cwd.
- *
- * The preview root imports from `../../remotion/VideoComposition` and related paths.
- * In the build out dir, we need to recreate the same relative structure.
+ * Copy the Remotion runtime (engine files + component library) needed by the
+ * preview root into the build out dir. The generated remotion-root-preview.tsx
+ * imports `./remotion/...`, so the same relative structure must be recreated
+ * inside the build out dir.
  */
-function copyRemotionFiles(outDir: string, verbose?: boolean): void {
+function copyRemotionFiles(outDir: string): void {
   // The preview root will be at `<outDir>/remotion-root-preview.tsx`
-  // and imports `../../remotion/VideoComposition` which means it looks for
-  // `<outDir>/../../remotion/VideoComposition` — that's the repo root's remotion/ dir.
-  //
-  // But when running from the build out dir, the relative path won't resolve correctly
-  // unless we either:
-  // (a) Copy the remotion/ dir into a location that makes `../../remotion/` resolve correctly, or
-  // (b) Change the import path in the generated preview root to be relative to the build out dir.
-  //
-  // The simplest approach: copy the remotion/ dir into the build out dir at the correct level.
-  // Preview root is at `<outDir>/remotion-root-preview.tsx`.
-  // It imports from `../../remotion/...` → that resolves to `<outDir>/../../remotion/...`
-  // which is wrong when outDir is e.g. `build/microgpt/`.
-  //
-  // Better approach: generate the preview root with correct import paths for the build out dir.
-  // This is handled in generatePreviewRootForBuild() below.
-
-  // For now, we copy the remotion/ dir into the build out dir so that
-  // the preview root can import from `./remotion/...`
-  const remotionDir = path.join(outDir, "remotion");
-  const engineDir = path.join(remotionDir, "engine");
-  const componentsDir = path.join(remotionDir, "components");
-
-  fs.mkdirSync(engineDir, { recursive: true });
-  fs.mkdirSync(componentsDir, { recursive: true });
-
-  // Resolve paths relative to the AutoVideo package (repo root)
-  const repoRoot = path.resolve(
-    path.dirname(new URL(import.meta.url).pathname),
-    "../..",
-  );
-
-  const filesToCopy = [
-    {
-      src: path.join(repoRoot, "remotion/VideoComposition.tsx"),
-      dest: path.join(remotionDir, "VideoComposition.tsx"),
-    },
-    {
-      src: path.join(repoRoot, "remotion/engine/block-frame.tsx"),
-      dest: path.join(engineDir, "block-frame.tsx"),
-    },
-    {
-      src: path.join(repoRoot, "remotion/engine/theme.ts"),
-      dest: path.join(engineDir, "theme.ts"),
-    },
-    {
-      src: path.join(repoRoot, "remotion/engine/types.ts"),
-      dest: path.join(engineDir, "types.ts"),
-    },
-    {
-      src: path.join(repoRoot, "remotion/components/SubtitleOverlay.tsx"),
-      dest: path.join(componentsDir, "SubtitleOverlay.tsx"),
-    },
-  ];
-
-  for (const { src, dest } of filesToCopy) {
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, dest);
-      if (verbose) console.log(`[preview] Copied ${src} → ${dest}`);
-    } else {
-      throw new PreviewError(`Required Remotion file not found: ${src}`);
-    }
-  }
+  // and imports `./remotion/...`, so the remotion runtime (engine files +
+  // component library) must be recreated inside the build out dir.
+  syncRemotionRuntime(outDir, { logPrefix: "[preview]" });
 }
 
 /**
@@ -304,7 +245,7 @@ export async function preview(options: PreviewOptions): Promise<PreviewResult> {
   if (verbose) console.log("[preview] Updated public/script.json");
 
   // Copy Remotion engine files into build out dir
-  copyRemotionFiles(outDir, verbose);
+  copyRemotionFiles(outDir);
 
   // Generate preview Root.tsx with local import paths
   const previewRootCode = generatePreviewRootForBuild(script, {

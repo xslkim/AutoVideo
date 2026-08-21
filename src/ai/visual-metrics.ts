@@ -526,6 +526,12 @@ export async function computeImageMetrics(
  * Run static + image metrics against the thresholds and build feedback text.
  * The PNG must already be rendered (so the same still can be reused by the
  * multimodal review step). When pngPath is omitted, only static metrics run.
+ *
+ * `skipStaticMetrics` is for assembly-mode wrappers (src/ai/assembly-wrapper.ts):
+ * those are machine-generated thin forwarders, so single-file source analysis
+ * (element count, font floors) always misfires on them. The rendered-PNG
+ * coverage/edge metrics still run — they measure the actual output, not the
+ * source. Free-generation callers never pass it and are unaffected.
  */
 export async function assessVisualMetrics(args: {
   tsxPath: string;
@@ -535,9 +541,20 @@ export async function assessVisualMetrics(args: {
   thresholds: VisualMetricsThresholds;
   /** Pixels reserved for subtitles; excluded from the coverage grid. */
   safeBottom?: number;
+  /** Skip all source-level static metrics (assembly-mode thin wrappers). */
+  skipStaticMetrics?: boolean;
 }): Promise<VisualMetricsResult> {
-  const { tsxPath, pngPath, width, height, thresholds, safeBottom } = args;
-  const staticM = computeStaticMetrics(tsxPath, { width, height });
+  const { tsxPath, pngPath, width, height, thresholds, safeBottom, skipStaticMetrics } = args;
+  const staticM: StaticMetrics = skipStaticMetrics
+    ? {
+        maxFontPx: 0,
+        minFontPx: 0,
+        usesRelativeFont: false,
+        hardcodedFontSizes: [],
+        elementCount: 0,
+        fontFullyMeasured: false,
+      }
+    : computeStaticMetrics(tsxPath, { width, height });
   const image = pngPath
     ? await computeImageMetrics(pngPath, { width, height, safeBottom })
     : undefined;
@@ -545,32 +562,34 @@ export async function assessVisualMetrics(args: {
   const issues: string[] = [];
   const targetFontPx = Math.round(height * thresholds.minFontCoeff);
 
-  // Only apply the font check when EVERY fontSize could be resolved. If any
-  // size uses an expression we can't evaluate (Math.min(w,h)*k, calls, …),
-  // maxFontPx is an underestimate → skip to avoid false negatives. Likewise
-  // maxFontPx===0 means nothing measurable (dynamic/canvas text), not "tiny".
-  if (staticM.fontFullyMeasured && staticM.maxFontPx > 0 && staticM.maxFontPx < targetFontPx) {
-    issues.push(
-      `最大字号约 ${Math.round(staticM.maxFontPx)}px，低于要求的 ${targetFontPx}px（height×${thresholds.minFontCoeff}）。请把主标题/核心元素显著放大。`,
-    );
-  }
-  // Smallest font matters as much as the largest: a 90px title next to 18px
-  // captions still reads as "unreadable on a phone".
-  const floorFontPx = Math.round(height * thresholds.minAnyFontCoeff);
-  if (staticM.fontFullyMeasured && staticM.minFontPx > 0 && staticM.minFontPx < floorFontPx) {
-    issues.push(
-      `最小字号约 ${Math.round(staticM.minFontPx)}px，低于可读下限 ${floorFontPx}px（height×${thresholds.minAnyFontCoeff}）。请提高所有说明文字/标注的字号，小字宁可删掉也不要缩小。`,
-    );
-  }
-  if (!staticM.usesRelativeFont && staticM.hardcodedFontSizes.length > 0) {
-    issues.push(
-      `字号全部硬编码（${staticM.hardcodedFontSizes.slice(0, 6).join("、")}px），请改用基于 height 的比例（如 fontSize: height*0.07），以适配画布。`,
-    );
-  }
-  if (staticM.elementCount < thresholds.minElements) {
-    issues.push(
-      `可见元素仅 ${staticM.elementCount} 个，过于单一。请补充结构：标题+副标题、多个卡片/分栏、配图、强调条或背景装饰。`,
-    );
+  if (!skipStaticMetrics) {
+    // Only apply the font check when EVERY fontSize could be resolved. If any
+    // size uses an expression we can't evaluate (Math.min(w,h)*k, calls, …),
+    // maxFontPx is an underestimate → skip to avoid false negatives. Likewise
+    // maxFontPx===0 means nothing measurable (dynamic/canvas text), not "tiny".
+    if (staticM.fontFullyMeasured && staticM.maxFontPx > 0 && staticM.maxFontPx < targetFontPx) {
+      issues.push(
+        `最大字号约 ${Math.round(staticM.maxFontPx)}px，低于要求的 ${targetFontPx}px（height×${thresholds.minFontCoeff}）。请把主标题/核心元素显著放大。`,
+      );
+    }
+    // Smallest font matters as much as the largest: a 90px title next to 18px
+    // captions still reads as "unreadable on a phone".
+    const floorFontPx = Math.round(height * thresholds.minAnyFontCoeff);
+    if (staticM.fontFullyMeasured && staticM.minFontPx > 0 && staticM.minFontPx < floorFontPx) {
+      issues.push(
+        `最小字号约 ${Math.round(staticM.minFontPx)}px，低于可读下限 ${floorFontPx}px（height×${thresholds.minAnyFontCoeff}）。请提高所有说明文字/标注的字号，小字宁可删掉也不要缩小。`,
+      );
+    }
+    if (!staticM.usesRelativeFont && staticM.hardcodedFontSizes.length > 0) {
+      issues.push(
+        `字号全部硬编码（${staticM.hardcodedFontSizes.slice(0, 6).join("、")}px），请改用基于 height 的比例（如 fontSize: height*0.07），以适配画布。`,
+      );
+    }
+    if (staticM.elementCount < thresholds.minElements) {
+      issues.push(
+        `可见元素仅 ${staticM.elementCount} 个，过于单一。请补充结构：标题+副标题、多个卡片/分栏、配图、强调条或背景装饰。`,
+      );
+    }
   }
 
   if (image) {

@@ -47,6 +47,9 @@ export interface TtsConfig {
 /** Agent backend. See src/ai/agent/types.ts (AgentProvider). */
 export type AgentProviderName = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli";
 
+/** 思考强度档位。See src/ai/agent/types.ts (ThinkingMode). */
+export type ThinkingMode = "off" | "low" | "medium" | "high";
+
 export interface AnthropicConfig {
   /**
    * Agent backend:
@@ -77,6 +80,13 @@ export interface AnthropicConfig {
   cliPath?: string;
   /** Timeout for a single CLI invocation in ms (default: 600000). */
   cliTimeoutMs?: number;
+  /**
+   * 思考强度（仅 anthropic-api 驱动生效）：
+   * "off" 关闭思考（thinking: disabled，现状默认）；
+   * "low"/"medium"/"high" 对应 thinking.budget_tokens 2048/8192/32768
+   * （clamp 到 max_tokens-1，低于 Anthropic 下限 1024 时退化为 "off"）。
+   */
+  thinking?: ThinkingMode;
   /**
    * 视觉评审的独立 agent 配置（可选，未设置的字段沿用上面的生成配置）。
    * 评审需要多模态：生成模型没有视觉能力时（如 deepseek-chat），
@@ -242,6 +252,14 @@ export interface VisualQualityConfig {
   review: boolean;
   /** Max number of review-driven regeneration rounds (separate from correctness retries) */
   maxReviewRounds: number;
+  /**
+   * Animation-block generation strategy: "first" asks the model for a JSON
+   * assembly of a prefab library component (src/ai/assembly-gen.ts) and falls
+   * back to free TSX generation inside the same retry loop when assembly keeps
+   * failing or no component fits; "off" keeps the legacy free-generation-only
+   * path. Defaults to "first".
+   */
+  assembly?: "first" | "off";
 }
 
 export interface AutoVideoConfig {
@@ -336,6 +354,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     maxCoverage: 0.92,
     review: true,
     maxReviewRounds: 1,
+    assembly: "first",
   },
   htmlRender: {
     enabled: true,

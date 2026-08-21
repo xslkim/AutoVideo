@@ -68,6 +68,12 @@ export interface PartialKey {
   enter: string;
   exit: string;
   remotionVersion: string;
+  /**
+   * md5 of the synced component library (buildDir/remotion/library).
+   * Partials bundle the library, so a library change must invalidate them
+   * even when the block's own Component.tsx is unchanged.
+   */
+  libraryHash: string;
   /** Serialized render.quality settings — partials encoded differently must not mix */
   qualityJson?: string;
 }

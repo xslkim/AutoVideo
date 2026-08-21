@@ -31,6 +31,7 @@ import {
 import { DEFAULT_QUALITY, type AutoVideoConfig } from "../config/defaults.js";
 import { generateRenderRoot } from "../render/root-render.js";
 import { renderBlocks, type RenderBlocksResult } from "../render/render-blocks.js";
+import { syncRemotionRuntime } from "../render/sync-runtime.js";
 import { concatPartials } from "../render/concat.js";
 import { applyLoudnorm, type LoudnormResult } from "../render/loudnorm.js";
 import { runQA, type QAResult } from "../render/qa.js";
@@ -271,33 +272,7 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
   // ── Step 4: Copy remotion files into build dir ─────────────────────
 
-  const buildRemotionDir = path.join(buildDir, "remotion");
-  const buildEngineDir = path.join(buildRemotionDir, "engine");
-  const buildComponentsDir = path.join(buildRemotionDir, "components");
-  fs.mkdirSync(buildEngineDir, { recursive: true });
-  fs.mkdirSync(buildComponentsDir, { recursive: true });
-
-  const repoRoot = path.resolve(
-    path.dirname(new URL(import.meta.url).pathname),
-    "../..",
-  );
-
-  const remotionFiles = [
-    { src: "remotion/VideoComposition.tsx", dest: "remotion/VideoComposition.tsx" },
-    { src: "remotion/engine/block-frame.tsx", dest: "remotion/engine/block-frame.tsx" },
-    { src: "remotion/engine/theme.ts", dest: "remotion/engine/theme.ts" },
-    { src: "remotion/engine/types.ts", dest: "remotion/engine/types.ts" },
-    { src: "remotion/components/SubtitleOverlay.tsx", dest: "remotion/components/SubtitleOverlay.tsx" },
-  ];
-
-  for (const { src, dest } of remotionFiles) {
-    const srcPath = path.join(repoRoot, src);
-    const destPath = path.join(buildDir, dest);
-    if (fs.existsSync(srcPath)) {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-  console.log(`[render] Copied remotion files to ${buildRemotionDir}`);
+  syncRemotionRuntime(buildDir, { logPrefix: "[render]" });
 
   // ── Step 5: Write remotion-root.tsx ────────────────────────────────
 

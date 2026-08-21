@@ -23,6 +23,13 @@ import {
   type ComponentGenInput,
   type ComponentGenResult,
 } from "../ai/component-gen.js";
+import {
+  generateAssembly,
+  buildAssemblySystemPrompt,
+  type AssemblyGenInput,
+} from "../ai/assembly-gen.js";
+import { buildAssemblyWrapper } from "../ai/assembly-wrapper.js";
+import { buildRegistryDocs } from "../ai/visual-registry.js";
 import { generateImage, generateLocalImage } from "../ai/image-gen.js";
 import {
   validateComponent,
@@ -33,6 +40,7 @@ import {
 } from "../ai/validate.js";
 import { assessVisualMetrics, checkNarrationSyncContract } from "../ai/visual-metrics.js";
 import { reviewVisual } from "../ai/visual-review.js";
+import { syncRemotionRuntime } from "../render/sync-runtime.js";
 import { enumeratesNarration } from "../compile/sync-lint.js";
 import { DEFAULT_VISUAL_QUALITY } from "../config/defaults.js";
 import {
@@ -87,6 +95,8 @@ export interface VisualsResult {
 // ── Helpers ───────────────────────────────────────────────────────────
 
 const MAX_RETRIES = 5;
+/** Consecutive assembly failures before the loop switches to free generation. */
+const MAX_ASSEMBLY_FAILURES = 2;
 const RETRY_BASE_DELAY_MS = 60_000; // 60s base, doubles each attempt (60s / 120s / 240s / 480s / 960s …)
 const POST_REQUEST_DELAY_MS = 0; // disabled — was 20s for Claude Code OAuth rate limit
 
@@ -102,14 +112,18 @@ function is429(err: unknown): boolean {
 }
 
 /**
- * Cache-key component derived from the system prompt.
+ * Cache-key component derived from the prompts we actually send.
  *
  * Hash the prompt we actually send. An earlier version hashed a prompt file
  * that was never shipped, so the fallback constant made every prompt edit a
  * no-op for cached blocks.
+ *
+ * The hashed material covers BOTH generation channels plus the registry docs
+ * they share, so any edit to the free-generation prompt, the assembly prompt,
+ * or the component registry invalidates the component cache.
  */
-function computePromptVersion(systemPrompt: string): string {
-  return crypto.createHash("md5").update(systemPrompt).digest("hex").slice(0, 8);
+function computePromptVersion(promptMaterial: string): string {
+  return crypto.createHash("md5").update(promptMaterial).digest("hex").slice(0, 8);
 }
 
 /**
@@ -260,10 +274,14 @@ export function pickReviewFrameTimes(
 }
 
 /**
- * Build a default system prompt for component generation.
- * In production this would come from src/ai/prompts/component.md.
+ * Build the default system prompt for free-form component generation.
+ *
+ * Structure: prefab component library docs (single source: the registry) →
+ * design-token summary (mirrors remotion/library/tokens.ts) → one complete
+ * gold few-shot example → the hard rules. The library now owns most layout
+ * detail, so only the still-applicable core constraints remain.
  */
-function buildDefaultSystemPrompt(): string {
+function buildDefaultSystemPrompt(registryDocs: string): string {
   return `You are a React component generator for educational video slides shown FULLSCREEN to viewers.
 
 Generate a single React component that renders a full-screen visual based on the user's description.
@@ -272,7 +290,7 @@ Generate a single React component that renders a full-screen visual based on the
 
 - Export a default function component
 - Accept AnimationProps: { frame, durationInFrames, width, height, subtitleSafeBottom, theme, fps, lineTimings }
-- Only import from "react" and "remotion"
+- Import ONLY from "react", "remotion", and the prefab library "../../../remotion/library"
 - Do NOT import fs, path, child_process, http, https, or any Node built-in
 - Do NOT use eval, Function constructor, or require()
 - Define \`AnimationProps\` interface inline in the file, then use \`React.FC<AnimationProps>\` or \`(props: AnimationProps)\` — NEVER destructure untyped props like \`({ frame })\` without a type
@@ -284,154 +302,123 @@ Generate a single React component that renders a full-screen visual based on the
   IMPORTANT: Use theme.colors.bg (NOT background), theme.colors.fg (NOT text), theme.colors.accent, theme.colors.muted (NOT secondary).
 - Return ONLY the component source as TSX code, no markdown fences
 
-## Layout rules (CRITICAL — viewers complain when slides feel empty OR cluttered)
+## Prefab component library
 
-The available canvas is \`width × (height - subtitleSafeBottom)\`. **Fill the area generously but NEVER at the cost of readability.**
+The pipeline ships a prefab component library, importable from "../../../remotion/library". PREFER composing these components over hand-rolling layouts they already cover — they are tuned for this pipeline (typography, spacing, staggered entrances, narration sync). Each one takes every AnimationProps field BY NAME (frame={props.frame}, …, lineTimings={props.lineTimings}) plus a \`spec\` object of pure JSON data. Combine them freely, and add your own custom elements for anything the description needs beyond them.
 
-### FIDELITY TO DESCRIPTION (HIGHEST PRIORITY)
+${registryDocs}
 
-- **Render ONLY the elements explicitly described in the user's visual description.** Do NOT invent, add, or hallucinate UI chrome that is not mentioned: NO breadcrumbs, NO navigation rails, NO side panels, NO footer strips, NO step indicators, NO corner brackets, NO decorative chips/labels that duplicate card titles, and NO data visualizations (charts, graphs, attention heatmaps, probability bars) unless explicitly requested.
-- If the description mentions specific text content (titles, labels, numbers), use THAT text verbatim. Do NOT substitute example content from other blocks or made-up examples.
-- "Scale up to fill the canvas" means ENLARGE the described elements (bigger titles, bigger cards, bigger fonts) — it does NOT mean adding new unrequested elements. If you need to fill space, make described elements larger; do not add decorations.
-- Subtle background treatments (solid/dark background, very faint grid or glow that does NOT compete with content) are allowed as long as they don't add visible UI elements.
+## Design tokens (remotion/library/tokens.ts)
 
-### Padding & content area
+The library's sizing system — import \`typeSize\`, \`space\`, \`LAYOUT\`, \`DUR\`, \`frames\` from "../../../remotion/library" instead of reinventing constants:
 
-- Outer padding around the content cluster: AT MOST \`min(width, height) * 0.06\` (≈ 65 px on 1080p). NEVER use larger margins like 100 px or 10 % of the canvas — that produces dead space.
-- The bounding box of all visible elements (titles, cards, code blocks, etc.) MUST cover at least **60 % of the available canvas area**. Sparse single-element layouts that float in the middle of a huge empty canvas are BANNED.
-- Achieve 60% coverage by SCALING UP described elements, not by adding new ones. Make titles bigger, cards wider/taller, fonts larger. Do NOT overscale past the explicit sizes given in the description (e.g. a stated 36px title stays 36px) — when the description specifies concrete sizes/anchors, follow them verbatim; coverage follows from the description, not the other way around.
+- Type scale (coefficient × height; 1080p px in parentheses): display 0.104 (≈112) · title 0.058 (≈63) · subtitle 0.036 (≈39) · body 0.027 (≈29) · code 0.023 (≈25) · caption 0.02 (≈22) · label 0.017 (≈18). Use \`typeSize(height, "title")\` etc.
+- Spacing: 8 px grid at 1080p — \`space(height, units)\` = units × (height / 135). Use for all gaps, paddings, offsets.
+- Layout: side margins = width × 0.0625 (\`LAYOUT.marginXPct\`); content column top ≈ 14 % of available height; long-text measure ≤ 72 % of width.
+- Motion durations (seconds; convert with \`frames(sec, fps)\`): entrance 0.6, hero 0.9, stagger step 0.12 (dense 0.05), exit tail 0.5. \`EASE.enter\`/\`EASE.exit\`, \`SPRINGS\` presets and helpers (\`staggeredSpring\`, \`enterProgress\`, \`breathe\`, \`exitProgress\`, \`resolveBeatSchedule\`, \`activeIndexAt\`) are exported from the library.
 
-### Font sizes (assume 1080p; scale proportionally if width/height differ)
+## Gold example
 
-These are HARD FLOORS. **No visible text may be smaller than \`height * 0.028\` (≈ 30 px on 1080p)** — the video is watched on phones, where anything below that is illegible.
-
-| Element | Min font-size | Suggested |
-|---|---|---|
-| Hero / main title | \`height * 0.07\` (≈ 76 px) | \`height * 0.09\` (≈ 96 px) |
-| Section title | \`height * 0.045\` (≈ 50 px) | \`height * 0.055\` (≈ 60 px) |
-| Body text / list item | \`height * 0.030\` (≈ 32 px) | \`height * 0.036\` (≈ 39 px) |
-| Caption / label | \`height * 0.028\` (≈ 30 px) | \`height * 0.032\` (≈ 35 px) |
-| Code block (mono) | \`height * 0.028\` (≈ 30 px) | \`height * 0.032\` (≈ 35 px) |
-
-The floors WIN over the description. If the description names a specific pixel size (\`18px\`, \`24px\`, "small caption"), treat it as a relative hint about hierarchy, not an absolute value: keep the ordering it implies but raise every size until the smallest one clears the floor. Never emit a smaller size just because the description asked for it.
-
-If enforcing the floors makes the content overflow, **remove content** — drop secondary annotations, shorten labels, split into fewer items. Do not shrink text to fit.
-
-Compute all font sizes from \`width\` / \`height\` props (e.g. \`fontSize: height * 0.07\`) so they scale across aspect ratios. Do NOT hardcode pixel values.
-
-### Composition rules
-
-- Center primary content both horizontally and vertically within the available area, OR use a clear grid (2-col, 3-col, header+body) that spans nearly the full width.
-- When showing multiple items (lists, cards, steps): lay them out as a row or grid that occupies ≥ 80 % of the canvas width with generous internal spacing between items, instead of stacking them in a narrow column in the middle.
-- For code/terminal blocks: the block container should occupy at least 70 % of the canvas width and 50 % of the available height.
-- Reserve the bottom \`subtitleSafeBottom\` pixels — subtitles are drawn there and will cover anything you put underneath. Nothing visible may extend below \`height - subtitleSafeBottom\`. **The root container MUST be full \`height\`** with \`backgroundColor: theme.colors.bg\` filling the entire canvas — do NOT set the container height to \`height - subtitleSafeBottom\` or you will create an ugly black bar at the bottom. Instead, constrain only the *content elements* (titles, cards, code blocks, etc.) to the \`height - subtitleSafeBottom\` area by computing their positions from \`availableHeight = height - subtitleSafeBottom\`. Background fills, decorations, and gradients should span the full \`height\`.
-- **REQUIRED safe-bottom pattern (statically validated):** declare \`const availH = height - subtitleSafeBottom;\` once, then compute EVERY vertical position, height, and stacked-gap in the content cluster from \`availH\` (or from \`width\`) — NEVER from raw \`height\`. Declaring \`availH\` (or any equivalent like \`availableHeight\`) without actually using it in the layout math is a HARD validation failure, even if the component compiles.
-- **Vertical budget accounting (MANDATORY when stacking 3+ zones or using flex flow):** before writing JSX, sum every zone: title + zone1 + zone2 + … + last-zone-height + gaps, then verify \`lastZoneTop + lastZoneHeight + margins ≤ availH\`. Flex/flow children STILL consume vertical space — a child with \`top: cardClusterY\` followed by note text + cards row + margins can easily end at \`cardClusterY + noteH + cardH + margins\`, well past \`availH\`. If the sum overflows, SHRINK zone heights/gaps or drop content; never let the stack drift below \`availH\`. When the description gives explicit zone anchors (e.g. "卡片行 y=710 高 180"), use them verbatim instead of deriving your own chain.
-- **Top title band protection:** when the description places a persistent title at the top, the strip from the top edge down to \`titleBottom + 0.03 \* height\` is RESERVED — no other element may enter, cover, or slide into it at any frame. When a later phase shrinks/relocates an earlier cluster ("缩小上移"), anchor its new top edge explicitly below the title band; never implement an unspecified "move up" as "move to the top of the canvas". The band is a LAYOUT CONSTRAINT only — do NOT render any overlay, mask, gradient strip, or background block to "implement" it; such a block would cover the title itself.
-- **interpolate() inputRange must be CONSTANT frame values** (literals or values derived once from \`props.lineTimings\`/\`fps\`). NEVER place a runtime progress variable — a value returned by another interpolate() — inside an inputRange: at some frames the range collapses to [x, x] and Remotion throws "inputRange must be strictly monotonically increasing" (statically validated, hard failure). Express the animation in outputRange/easing instead, and guard any computed range with Math.max(start + 1, end).
-- **NO OVERLAPPING TEXT (CRITICAL):** Calculate vertical positions so that no two text elements overlap. When stacking elements vertically (title → card1 → card2 → card3), compute each element's y position based on the PREVIOUS element's bottom edge PLUS a gap. Do NOT position elements independently with hardcoded fractions that may collide. Example pattern:
-  \`\`\`tsx
-  const titleH = titleSize * 1.2; // lineHeight accounted for
-  const titleY = pad;
-  const gap = height * 0.02;
-  const card1Y = titleY + titleH + gap;
-  const card1H = height * 0.15;
-  const card2Y = card1Y + card1H + gap;
-  // ... etc
-  \`\`\`
-- **BREATHING ROOM (CRITICAL):** The gap between any two adjacent elements MUST be at least \`height * 0.02\` (≈ 22px on 1080p). Do NOT pack elements edge-to-edge — viewers need visual rest between items. If the described elements cannot all fit with this minimum gap AND the font-size floors, REMOVE the least important elements. A slide with 3 well-spaced items is better than 6 cramped ones.
-- If elements don't all fit with the font-size floors, REMOVE the least important elements or reduce their count. Do NOT shrink fonts below the floors, and do NOT cram overlapping elements.
-- After laying out, verify that the bottom of the lowest element is at or above \`height - subtitleSafeBottom\`. If it overflows, remove content or reduce spacing.
-- **HORIZONTAL BOUNDS (CRITICAL):** Every visible element MUST stay within \`[0, width]\`. When using \`transform: translate(-50%, ...)\` to center an element on a position \`x\`, the element's left edge is \`x - elementWidth / 2\` and right edge is \`x + elementWidth / 2\` — both MUST be within \`[0, width]\`. This is especially important for:
-  - Cards/labels centered on timeline nodes at the extreme ends: if the first node is near \`x = pad\`, the card centered on it will overflow left; if the last node is near \`x = width - pad\`, the card will overflow right.
-  - Fix by either: (a) insetting the first/last node positions so \`nodeX(0) - cardW/2 >= 0\` and \`nodeX(last) + cardW/2 <= width\`, or (b) reducing card width, or (c) shifting edge cards inward while keeping their connector lines to the original node position.
-  - Decorative glows/blurs that intentionally extend beyond the canvas are fine (they have no readable content and are clipped by the viewport), but text-bearing elements (cards, labels, badges, titles) MUST be fully on-screen.
-- **SINGLE-LINE LABEL FIT (pills, badges, tabs, tag rows):** text inside a fixed-width container must NEVER wrap to a second line. Before choosing font-size, estimate the LONGEST label's width: CJK char ≈ 1em, ASCII letter/digit ≈ 0.55em, space ≈ 0.3em. Then set \`fontSize ≤ containerInnerWidth / longestLabelEm\` (keep ~10% slack for border/padding) and add \`whiteSpace: "nowrap"\` to the label style. A row of equal-width pills sharing one font size MUST be sized from the LONGEST label in the row — e.g. six pills with labels "01 环境 … 06 配置与发布" are sized from "06 配置与发布" (≈ 6.4em), not from the short ones.
-
-## Motion design (CRITICAL — this is reviewed separately from layout)
-
-A slide with great layout but flat motion still reads as cheap. \`frame\`, \`durationInFrames\`, and \`fps\` are given precisely so you choreograph the whole timeline, not just an entrance fade.
-
-### The three failure modes to avoid
-
-1. **Lockstep entrance** — every element fades/slides in with the exact same start frame and duration. It reads as one flat cut, not a composition. BANNED.
-2. **Dead hold** — everything finishes animating by frame ~20 and then nothing moves for the remaining 3-4 seconds. The slide looks like a static screenshot with a video file's runtime. BANNED.
-3. **Abrupt exit** — elements just disappear on the last frame instead of leaving with intent.
-
-### Required pattern: staggered entrance
-
-Give each visual group its own delay so they arrive in a deliberate sequence (title → supporting elements → decoration), each with its own short easing curve:
+A complete Component.tsx showing the standard assembly style — a library component does the heavy lifting, custom elements add what only this description needs. Note the named prop forwarding and the inline typed spec:
 
 \`\`\`tsx
-const frame = useCurrentFrame();
+import React from "react";
+import { AbsoluteFill } from "remotion";
+import {
+  KeyPoints,
+  breathe,
+  clamp01,
+  space,
+  staggeredSpring,
+  typeSize,
+} from "../../../remotion/library";
+import type { KeyPointsSpec } from "../../../remotion/library";
 
-// delayFrames: when this element starts; durationFrames: how long its own
-// entrance takes. Stagger delayFrames across groups — do NOT reuse the same
-// value for everything.
-const enterProgress = (delayFrames: number, durationFrames = 14) =>
-  interpolate(frame - delayFrames, [0, durationFrames], [0, 1], {
-    extrapolateLeft: "clamp",
-    extrapolateRight: "clamp",
-    easing: Easing.out(Easing.cubic),
-  });
-
-const titleP = enterProgress(0);         // arrives first
-const subtitleP = enterProgress(8);      // 8 frames later
-const card1P = enterProgress(16);
-const card2P = enterProgress(22);        // cards themselves stagger too
-\`\`\`
-
-Use \`spring({ frame: frame - delayFrames, fps, config: { damping: 200 } })\` instead of \`interpolate\` for elements that should feel like they settle into place (cards, badges, the hero title) rather than just fade.
-
-### Required pattern: keep something alive during the hold
-
-After the entrance finishes, at least one element must keep animating for the rest of the block — a slow pulse on an accent, a subtly drifting background gradient, a blinking cursor, a counter ticking up, a progress bar filling, a line being drawn. Base it on \`frame\` directly (not gated by the entrance), e.g. \`Math.sin(frame / 20) * 4\` for a gentle breathing offset. Keep it subtle enough not to compete with body text for attention.
-
-### Exit
-
-Reverse the stagger for the exit (last-in-first-out, or fade the whole group together over the final \`durationInFrames * 0.15\` frames) rather than letting elements vanish on the final frame. Use \`Easing.in(Easing.cubic)\` — accelerating away reads as intentional, linear reads as a glitch.
-
-### Syncing to narration (lineTimings)
-
-\`lineTimings\` is \`{ startSec: number; endSec: number }[]\` — one entry per narration line, in **block-relative seconds** (the enter animation is already accounted for, so compare directly against \`frame / fps\`). Whenever the description implies the visual should follow the voiceover — step-by-step walkthroughs, "第一…第二…第三…", items introduced one by one — drive the progression from \`lineTimings\`:
-
-\`\`\`tsx
-const t = frame / fps;
-// Last line whose start has passed. There are ~0.2s silence gaps BETWEEN
-// lines — a findIndex(t >= start && t < end) lookup returns -1 inside every
-// gap and the highlight visibly blinks off between items. Anchoring on the
-// last started line keeps the previous item highlighted through each gap.
-let activeLine = -1;
-for (let i = 0; i < lineTimings.length; i++) {
-  if (t >= lineTimings[i].startSec) activeLine = i;
-  else break;
+interface AnimationProps {
+  frame: number; durationInFrames: number; width: number; height: number;
+  subtitleSafeBottom: number; theme: any; fps: number;
+  lineTimings: { startSec: number; endSec: number }[];
 }
-// e.g. highlight item (activeLine - 1) when line 0 is the intro
+
+const SPEC: KeyPointsSpec = {
+  title: "核心要点",
+  points: [
+    { title: "查询与键做点积", detail: "得到每个位置的注意力分数" },
+    { title: "softmax 归一化" },
+    { title: "加权求和值向量", detail: "输出是值的凸组合" },
+  ],
+};
+
+const Component: React.FC<AnimationProps> = (props) => {
+  const { frame, fps, width, height, theme } = props;
+  // Custom accent the library does not provide: a breathing marker bar that
+  // settles in just before the list, keeping motion alive during the hold.
+  const barP = clamp01(staggeredSpring(frame, fps, 0, { preset: "gentle" }));
+  const glow = breathe(frame, fps, { min: 0.55, max: 1 });
+  return (
+    <AbsoluteFill style={{ backgroundColor: theme.colors.bg }}>
+      <div
+        style={{
+          position: "absolute",
+          top: space(height, 3),
+          left: width * 0.0625,
+          width: typeSize(height, "label") * 8,
+          height: Math.max(3, space(height, 0.75)),
+          borderRadius: 2,
+          backgroundColor: theme.colors.accent,
+          opacity: barP * glow,
+        }}
+      />
+      <KeyPoints
+        frame={props.frame}
+        durationInFrames={props.durationInFrames}
+        width={props.width}
+        height={props.height}
+        subtitleSafeBottom={props.subtitleSafeBottom}
+        theme={props.theme}
+        fps={props.fps}
+        lineTimings={props.lineTimings}
+        spec={SPEC}
+      />
+    </AbsoluteFill>
+  );
+};
+
+export default Component;
 \`\`\`
 
-Beats driven by \`lineTimings\` stay in sync even when the voiceover is re-synthesized with different pacing. Absolute timestamps copied from the description ("highlight at 4.5s") silently drift out of sync the moment the TTS duration changes — use them only for purely visual beats (entrance staggers, ambient loops), never for something the narrator says.
+## Hard rules (statically validated or design-critical)
 
-### Self-check before returning
+FIDELITY TO DESCRIPTION (HIGHEST PRIORITY):
+- Render ONLY the elements explicitly described. NO invented chrome: breadcrumbs, navigation rails, side panels, footer strips, step indicators, corner brackets, decorative chips that duplicate titles, or data visualizations that were not requested.
+- If the description names text content, use it VERBATIM — never substitute made-up examples or content from elsewhere.
+- Filling the canvas means ENLARGING the described elements, never adding unrequested ones. Subtle background treatments (faint grid/glow that does not compete with content) are allowed.
 
-Before emitting code, mentally verify:
-1. **FIDELITY**: Does every visible element correspond to something in the user's description? If I added breadcrumbs, side rails, extra panels, or data viz not mentioned, DELETE THEM.
-2. **TEXT FIDELITY**: Are all labels/titles/numbers exactly as described? No invented example text, no content from other blocks.
-3. Is the largest font size ≥ \`height * 0.07\`? If not, increase it.
-4. Is the SMALLEST font size ≥ \`height * 0.028\`? If not, raise it — or delete that text.
-5. Does the content cluster cover ≥ 70 % of the canvas area? If not, ENLARGE described elements (bigger titles, bigger cards) — do NOT add new elements.
-6. **NO OVERLAP**: Do any two text elements overlap vertically? If title bottom + gap < next element top, fix positions. Stack elements sequentially: each element's y = previous element's bottom + gap.
-7. **BREATHING ROOM**: Is the gap between every pair of adjacent elements at least \`height * 0.02\`? If not, increase spacing or remove elements. The slide should feel spacious, not crammed.
-8. Are outer margins ≤ 6 % of the smaller canvas dimension? If not, reduce them.
-9. Does every visible element end above \`height - subtitleSafeBottom\`? If not, remove less important content.
-10. **HORIZONTAL BOUNDS**: For every text-bearing element with \`translate(-50%, ...)\` or centered positioning, verify \`left edge >= 0\` and \`right edge <= width\`. Pay special attention to cards/labels centered on the first or last item of a horizontal sequence — they are the most common overflow source. If they overflow, inset the node positions or shrink the card width.
-11. Did I compute sizes from \`width\` / \`height\` props rather than hardcoding pixel values? If not, refactor.
-12. Do at least 3 elements/groups start their entrance at DIFFERENT frame offsets? If everything shares one delay, restagger.
-13. Is something still visibly animating past frame ~40 (well after entrance completes)? If the frame is static during the hold, add subtle ambient motion to existing elements (pulse, glow) — do NOT add new elements.
-14. Does anything just vanish on the last frame instead of exiting with its own animation? If so, add a staggered/eased exit.
-15. If the description walks through items verbally (第一/第二/第三…, step 1/2/3…), does the highlight/progression follow \`lineTimings\` rather than a hardcoded timestamp? If not, rewire it.
-16. Is \`availH = height - subtitleSafeBottom\` declared AND used in every vertical computation (y positions, heights, gaps)? A declared-but-unused \`availH\` fails validation. Verify the lowest element's bottom edge ≤ \`availH\`.
-17. If the description has a persistent top title, does every other element stay strictly below it at EVERY frame — including during phase transitions where an earlier cluster shrinks or relocates? If anything enters the title band, re-anchor it below \`titleBottom\` + gap.
-18. Is every interpolate() inputRange made of CONSTANT frame values (lineTimings/fps or literals), with no runtime progress variable inside? Are computed ranges guarded with Math.max(start + 1, end)?`;
+LAYOUT (applies to everything you draw yourself; library components already obey these):
+- The available canvas is \`width × (height - subtitleSafeBottom)\`. Reserve the bottom \`subtitleSafeBottom\` pixels for subtitles: the ROOT container MUST be full \`height\` with \`backgroundColor: theme.colors.bg\` (no black bar), but every content element must end above \`height - subtitleSafeBottom\`.
+- REQUIRED safe-bottom pattern (statically validated): declare \`const availH = height - subtitleSafeBottom;\` once, then compute EVERY vertical position, height, and stacked gap of the content cluster from \`availH\` (or \`width\`) — NEVER from raw \`height\`. Declaring \`availH\` without using it in the layout math is a HARD validation failure.
+- Coverage: the bounding box of all visible elements must cover ≥ 60 % of the available area, achieved by scaling up described elements (respecting explicit sizes in the description). Outer padding ≤ min(width, height) × 0.06.
+- Font floors (HARD): no visible text smaller than height × 0.028 (≈ 30 px @1080p); main title ≥ height × 0.07. The floors WIN over the description — drop secondary content rather than shrink below them. Derive every size from the width/height props; never hardcode pixel values.
+- NO OVERLAPPING TEXT: stack elements sequentially — each element's y = previous element's bottom + gap ≥ height × 0.02. Sum the vertical budget (title + zones + gaps) before writing JSX; the lowest element's bottom edge must stay ≤ availH.
+- HORIZONTAL BOUNDS: every text-bearing element stays fully inside [0, width]. A card centered on \`x\` spans \`x ± cardWidth/2\` — inset the first/last nodes of a horizontal row or shrink edge cards. Decorative glows may bleed off-canvas; text may not.
+- Top title band: when the description pins a persistent title at the top, the strip down to titleBottom + 0.03 × height is RESERVED at every frame — relocate shrinking clusters below it explicitly. The band is a constraint only; do NOT render any overlay to "implement" it.
+- Single-line labels (pills, badges, tabs) must never wrap: size the font from the LONGEST label (CJK ≈ 1em, ASCII ≈ 0.55em per char) and set whiteSpace: "nowrap".
+- \`interpolate()\` inputRange must be CONSTANT frame values (literals, or values derived once from lineTimings/fps) — never a runtime progress variable, which collapses the range and throws. Guard computed ranges with Math.max(start + 1, end).
+
+MOTION:
+- Avoid the three failure modes: lockstep entrance (≥ 3 groups MUST start at different delays), dead hold (keep one subtle ambient animation alive after the entrance — a breathing accent, drifting gradient, blinking cursor), and vanishing on the last frame (stagger or ease the exit over the final ~15 % of frames).
+- Use spring() for elements that should settle into place; stagger siblings (see DUR.staggerSec).
+- Narration sync: \`lineTimings\` is \`{ startSec, endSec }[]\` in block-relative seconds — compare directly against \`frame / fps\`. Whenever the description implies following the voiceover (step-by-step walkthroughs, 第一/第二/第三…), drive progression from lineTimings: anchor on the LAST line whose startSec ≤ t so the highlight survives the silence gaps between lines. Never hardcode narration timestamps — they drift when the voiceover is re-synthesized. Library components already implement this; hand-rolled beats must too.
+
+## Self-check before returning
+1. FIDELITY: every visible element corresponds to the description? All text verbatim? Nothing invented?
+2. Largest font ≥ height × 0.07? Smallest ≥ height × 0.028? All sizes derived from width/height props?
+3. Content coverage ≥ 60 % of the available area? Margins ≤ 6 %? No overlaps, gaps ≥ height × 0.02?
+4. Every element ends above availH and inside [0, width]? Persistent top title's band respected at every frame?
+5. \`availH\` declared AND used in every vertical computation? Vertical budget summed and within availH?
+6. ≥ 3 groups entering at DIFFERENT delays? Something still animating during the hold? An intentional exit?
+7. Narration-following beats driven by props.lineTimings (last started line), not hardcoded seconds?
+8. Every interpolate() inputRange constant and guarded with Math.max(start + 1, end)?`;
 }
 
 // ── Main visuals function ─────────────────────────────────────────────
@@ -477,9 +464,14 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
   const blocksDir = path.join(buildOutDir, "src", "blocks");
   fs.mkdirSync(blocksDir, { recursive: true });
 
-  // Compute promptVersion and model
-  const systemPrompt = buildDefaultSystemPrompt();
-  const promptVersion = computePromptVersion(systemPrompt);
+  // Compute promptVersion and model. The hash covers BOTH generation channels
+  // (free-form TSX prompt + JSON assembly prompt) and the shared registry
+  // docs, so any prompt or registry edit invalidates the component cache.
+  const registryDocs = buildRegistryDocs();
+  const systemPrompt = buildDefaultSystemPrompt(registryDocs);
+  const promptVersion = computePromptVersion(
+    systemPrompt + buildAssemblySystemPrompt(registryDocs) + registryDocs
+  );
   const claudeModel = config.anthropic.model;
 
   // Setup cache
@@ -499,6 +491,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
     useCLI: config.anthropic.useCLI,
     cliPath: config.anthropic.cliPath,
     cliTimeoutMs: config.anthropic.cliTimeoutMs,
+    thinking: config.anthropic.thinking,
   };
 
   // Visual review may use a different agent (e.g. generation on deepseek-chat,
@@ -535,6 +528,10 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
   const failedBlocks: { id: string; error: string }[] = [];
   let cacheHits = 0;
   let apiCalls = 0;
+
+  // Sync the Remotion runtime (engine files + component library) into the
+  // build dir so validation-time renderStill can resolve ../../../remotion/library.
+  syncRemotionRuntime(buildOutDir, { logPrefix: "[visuals]" });
 
   const concurrency = Math.max(config.anthropic.concurrency, config.imageGen.concurrency);
   const limit = pLimit(concurrency);
@@ -656,45 +653,138 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
       if (!cacheHit) {
         // Cache miss → generate with Claude
         let componentSource = "";
-        let previousSource: string | null = null;
         let previousError: string | null = null;
         let succeeded = false;
         // Visual-quality feedback loop (plan A: metrics; plan B: review)
         const vq = config.visualQuality ?? DEFAULT_VISUAL_QUALITY;
         let reviewRounds = 0;
 
+        // ── Generation channel state machine ─────────────────────────────
+        // assembly:"first" starts in assemble mode (LLM emits a JSON spec →
+        // mechanical wrapper); a `component: null` fallback or
+        // MAX_ASSEMBLY_FAILURES consecutive assembly failures switch to
+        // freegen (free TSX) inside the SAME retry loop — the terminal
+        // abort branch is untouched. The switch is one-way.
+        let mode: "assemble" | "freegen" =
+          (vq.assembly ?? "first") === "off" ? "freegen" : "assemble";
+        let assembleFailures = 0;
+        // Previous artifacts are tracked per channel: the orchestrator gets
+        // its JSON back, the free generator gets its TSX back. Keeping them
+        // separate guarantees an empty componentSource (zod/JSON parse
+        // failure) is never fed into a retryContext.
+        let previousJson: string | null = null;
+        let previousTsx: string | null = null;
+
+        // Failure feedback is phrased per channel: the metrics/review copy
+        // is written for free generation ("rewrite the component"), which
+        // contradicts the orchestrator's JSON-only output channel — assembly
+        // failures are rephrased as "adjust the spec / pick another
+        // component". Freegen messages stay byte-identical to before.
+        const failAttempt = (msg: string): never => {
+          throw new VisualsError(
+            mode === "assemble"
+              ? [
+                  "Assembly attempt failed — the generated wrapper (library component + your JSON spec) did not pass validation:",
+                  msg,
+                  `You cannot edit code. Fix this by adjusting the JSON spec (reword or shorten text, change item counts/values) or pick a different registered component. If no component can satisfy this description, return {"component": null, "reason": "…"}.`,
+                ].join("\n")
+              : msg
+          );
+        };
+
         for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
           if (hasFailed || abortController.signal.aborted) return;
 
           try {
+            // Reset per-attempt source so a throwing generation call can
+            // never leak a stale artifact into the retry bookkeeping below.
+            componentSource = "";
+
             if (verbose) {
               console.log(
-                `  Block ${blockLabel}: generating component (attempt ${attempt + 1})...`
+                mode === "assemble"
+                  ? `  Block ${blockLabel}: assembling from component library (attempt ${attempt + 1})...`
+                  : `  Block ${blockLabel}: generating component (attempt ${attempt + 1})...`
               );
             }
 
-            // Build input for generation
-            const input: ComponentGenInput = {
-              visualDescription: block.visual.description,
-              systemPrompt,
-              narrationContext: buildNarrationContext(block, narrationLineSecs),
-            };
+            const narrationContext = buildNarrationContext(block, narrationLineSecs);
 
-            // On retry, feed back previous source + error
-            if (attempt > 0 && previousSource !== null) {
-              input.retryContext = {
-                previousTsx: previousSource,
-                errorMessage: previousError ?? "",
+            if (mode === "assemble") {
+              // Channel ①: JSON assembly — the model picks a prefab
+              // component and fills its spec; the wrapper is mechanical.
+              const assemblyInput: AssemblyGenInput = {
+                visualDescription: block.visual.description,
+                narrationContext,
+                registryDocs,
               };
+              if (previousError !== null) {
+                assemblyInput.retryContext = {
+                  // When the previous attempt never produced parseable JSON
+                  // (generateAssembly threw), there is no artifact to show —
+                  // say so instead of feeding back an empty string or TSX.
+                  previousJson:
+                    previousJson ??
+                    "(previous response was not valid assembly JSON — see the error)",
+                  errorMessage: previousError,
+                };
+              }
+
+              const assembly = await generateAssembly(
+                assemblyInput,
+                anthropicConfig,
+                abortController.signal
+              );
+              apiCalls++;
+
+              if (assembly.kind === "fallback") {
+                // The model declared no library component fits — switch to
+                // free generation immediately, inside this same attempt.
+                // Not a failure: no error feedback, no failure count.
+                if (verbose) {
+                  console.log(
+                    `  Block ${blockLabel}: no library component fits (${assembly.reason}) — falling back to free generation`
+                  );
+                }
+                mode = "freegen";
+              } else {
+                previousJson = JSON.stringify({
+                  component: assembly.component,
+                  props: assembly.props,
+                });
+                componentSource = buildAssemblyWrapper(
+                  assembly.component,
+                  assembly.props
+                );
+              }
             }
 
-            const result: ComponentGenResult = await generateComponent(
-              input,
-              anthropicConfig,
-              abortController.signal
-            );
-            componentSource = result.tsx;
-            apiCalls++;
+            if (mode === "freegen") {
+              // Channel ②: free TSX generation (also the fallback channel).
+              const input: ComponentGenInput = {
+                visualDescription: block.visual.description,
+                systemPrompt,
+                narrationContext,
+              };
+
+              // On retry, feed back previous source + error. previousTsx is
+              // only set by a failed freegen attempt that actually produced
+              // source, so an empty string never reaches the retryContext.
+              if (previousTsx !== null) {
+                input.retryContext = {
+                  previousTsx,
+                  errorMessage: previousError ?? "",
+                };
+              }
+
+              const result: ComponentGenResult = await generateComponent(
+                input,
+                anthropicConfig,
+                abortController.signal
+              );
+              componentSource = result.tsx;
+              apiCalls++;
+            }
 
             // Write component to disk for validation
             fs.mkdirSync(componentDir, { recursive: true });
@@ -716,7 +806,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
             );
 
             if (!validation.pass) {
-              throw new VisualsError(
+              failAttempt(
                 `Validation failed: ${validation.errors.filter((e) => e.trim()).join(" | ")}`
               );
             }
@@ -737,7 +827,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                 componentSource
               );
               if (!syncCheck.pass) {
-                throw new VisualsError(syncCheck.feedback);
+                failAttempt(syncCheck.feedback);
               }
 
               // Frames sampled at narration-line midpoints (plus entrance and
@@ -768,7 +858,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
               // try/finally below, so without this the temp dir would leak.
               if (!still.ok && classifyRenderError(still.error ?? "") === "component") {
                 cleanupStill(still.tempDir);
-                throw new VisualsError(
+                failAttempt(
                   `渲染首帧失败（组件代码错误）：${still.error ?? "unknown"}。` +
                     `常见原因：误读 lineTimings 的 .start/.end（应为 .startSec/.endSec，` +
                     `会导致 interpolate(NaN)）、除零、对 undefined 做算术——请检查 frame 相关算式。`,
@@ -785,6 +875,10 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                 // Static metrics (font sizes, element count) do not need the
                 // still, so they run even when the render failed — a broken
                 // headless Chrome must not silently disable the whole gate.
+                // Assembly mode skips them: the machine-generated wrapper is
+                // a thin forwarder that single-file source analysis always
+                // misfires on (elementCount etc.); the rendered-PNG coverage
+                // metrics and the review below still run.
                 const metrics = await assessVisualMetrics({
                   tsxPath: componentFile,
                   pngPath,
@@ -798,18 +892,23 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                     maxCoverage: vq.maxCoverage,
                   },
                   safeBottom: script.meta.subtitleSafeBottom,
+                  skipStaticMetrics: mode === "assemble",
                 });
                 if (!metrics.pass) {
                   if (verbose) {
                     console.log(
                       `  Block ${blockLabel}: visual metrics below threshold (coverage ${
                         metrics.image ? Math.round(metrics.image.coverage * 100) : "n/a"
-                      }, font ${Math.round(metrics.static.minFontPx)}–${Math.round(
-                        metrics.static.maxFontPx
-                      )}px, elements ${metrics.static.elementCount}) — regenerating`
+                      }${
+                        mode === "assemble"
+                          ? ""
+                          : `, font ${Math.round(metrics.static.minFontPx)}–${Math.round(
+                              metrics.static.maxFontPx
+                            )}px, elements ${metrics.static.elementCount}`
+                      }) — regenerating`
                     );
                   }
-                  throw new VisualsError(metrics.feedback);
+                  failAttempt(metrics.feedback);
                 }
 
                 // Plan B: multimodal review (only after metrics pass, capped
@@ -833,7 +932,7 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                         `  Block ${blockLabel}: visual review requested changes (round ${reviewRounds}/${vq.maxReviewRounds}) — regenerating`
                       );
                     }
-                    throw new VisualsError(review.feedback);
+                    failAttempt(review.feedback);
                   }
                 }
               } finally {
@@ -858,7 +957,28 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
             break;
           } catch (err: any) {
             const errMsg = err?.message ?? String(err);
-            previousSource = componentSource;
+            if (mode === "assemble") {
+              // Assembly failure — thrown by generateAssembly itself (bad
+              // JSON / registry validation) or by a downstream gate
+              // (AST/tsc, render smoke, metrics, review). Both count the
+              // same: the wrapper is machine-generated, so a downstream
+              // failure signals registry/schema drift or a bad spec, and
+              // the orchestrator gets another shot at the JSON. After
+              // MAX_ASSEMBLY_FAILURES consecutive failures switch to free
+              // generation; the loop itself continues unchanged.
+              assembleFailures++;
+              if (assembleFailures >= MAX_ASSEMBLY_FAILURES) {
+                mode = "freegen";
+                console.log(
+                  `  Block ${blockLabel}: assembly failed ${assembleFailures}× in a row — falling back to free generation`
+                );
+              }
+            } else if (componentSource) {
+              // Freegen channel: keep the TSX that just failed for the next
+              // retryContext. Guarded — an empty source (generation threw
+              // before producing TSX) must never be fed back.
+              previousTsx = componentSource;
+            }
             previousError = errMsg;
 
             if (verbose) {

@@ -20,6 +20,7 @@ import type { Script, Block } from '../types/script.js';
 import { DEFAULT_QUALITY, type AutoVideoConfig } from '../config/defaults.js';
 import { CacheStore, type PartialKey } from '../cache/store.js';
 import { captureHtmlScreenshot, HTML_RENDERER_VERSION } from './html-render.js';
+import { computeLibraryHash } from './sync-runtime.js';
 import { getTheme } from '../../remotion/engine/theme.js';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -261,6 +262,10 @@ export async function renderBlocks(
         remotionVersion: isHtml
           ? `${remotionVersion}+${HTML_RENDERER_VERSION}`
           : remotionVersion,
+        // Partials bundle the prebuilt component library, so its contents
+        // are part of the partial's identity — recomputed here from the
+        // build dir (the exact files that get bundled) on every render.
+        libraryHash: computeLibraryHash(buildDir),
         // Encoding settings are part of the identity of a partial: mixing
         // partials produced under different settings would splice visibly
         // different quality (and possibly different pix_fmt) into one video.
