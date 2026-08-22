@@ -223,6 +223,7 @@ export function applyDraftOverlay(
   }
   if (draft.imageGen) applyDefined(next.imageGen, omitBlank(draft.imageGen as Record<string, unknown>));
   if (draft.voxcpm) applyDefined(next.voxcpm, omitBlank(draft.voxcpm as Record<string, unknown>));
+  if (draft.cosyvoice) applyDefined(next.cosyvoice, omitBlank(draft.cosyvoice as Record<string, unknown>));
   if (typeof draft.musetalk?.url === 'string' && draft.musetalk.url.trim()) {
     next.musetalk = { ...next.musetalk, url: draft.musetalk.url.trim() };
   }

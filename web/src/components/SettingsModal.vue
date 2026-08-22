@@ -819,7 +819,7 @@ async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyv
   }
 }
 
-function buildTestDraft(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'musetalk') {
+function buildTestDraft(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyvoice' | 'musetalk') {
   if (service === 'anthropic') {
     return {
       anthropic: {
@@ -846,6 +846,13 @@ function buildTestDraft(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'musetalk
     return {
       voxcpm: {
         ...(form.voxcpm.endpoint ? { endpoint: form.voxcpm.endpoint } : {}),
+      },
+    }
+  }
+  if (service === 'cosyvoice') {
+    return {
+      cosyvoice: {
+        ...(form.cosyvoice.endpoint ? { endpoint: form.cosyvoice.endpoint } : {}),
       },
     }
   }

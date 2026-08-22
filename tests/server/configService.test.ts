@@ -170,6 +170,16 @@ describe('applyDraftOverlay', () => {
     expect(drafted.anthropic.apiKey).toBe('saved-key');
     expect(drafted.anthropic.model).toBe('glm-4.6');
   });
+
+  it('applies a cosyvoice draft endpoint (unsaved form value is testable)', () => {
+    const cfg = resolveTaskConfig(tmpRoot);
+    const drafted = applyDraftOverlay(cfg, {
+      cosyvoice: { endpoint: 'http://127.0.0.1:9002' },
+    });
+    expect(drafted.cosyvoice.endpoint).toBe('http://127.0.0.1:9002');
+    // original is unchanged
+    expect(cfg.cosyvoice.endpoint).not.toBe('http://127.0.0.1:9002');
+  });
 });
 
 describe('saveStoredConfig', () => {
