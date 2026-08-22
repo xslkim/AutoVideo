@@ -105,7 +105,7 @@ function syncAvatarMetaToScript(projectDir: string, outDir: string): void {
  * meta.md so voiceRef points to ./voice/{filename}.  This makes the snapshot
  * self-contained regardless of where the source voiceRef points.
  */
-function snapshotSourceFiles(projectDir: string, outDir: string): void {
+export function snapshotSourceFiles(projectDir: string, outDir: string): void {
   const snapshotDir = path.join(outDir, '_snapshot');
   fs.mkdirSync(snapshotDir, { recursive: true });
 
@@ -203,6 +203,16 @@ function snapshotSourceFiles(projectDir: string, outDir: string): void {
   const voiceDest = path.join(voiceSnapDir, voiceFile);
   if (!fs.existsSync(voiceDest)) {
     fs.copyFileSync(resolvedVoice, voiceDest);
+  }
+
+  // CosyVoice zero-shot cloning needs the reference transcript: carry the
+  // same-named .txt sidecar into the snapshot alongside the wav. Refreshed
+  // every run (the text may be corrected between builds), and copied even
+  // when the wav itself was already snapshotted by an older version.
+  const txtFile = voiceFile.replace(/\.[^.]+$/, '.txt');
+  const voiceTxtSrc = resolvedVoice.replace(/\.[^.]+$/, '.txt');
+  if (fs.existsSync(voiceTxtSrc)) {
+    fs.copyFileSync(voiceTxtSrc, path.join(voiceSnapDir, txtFile));
   }
 
   // Rewrite snapshot meta.md so voiceRef points to the local copy
