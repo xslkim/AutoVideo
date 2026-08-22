@@ -18,6 +18,7 @@ import {
   mergeStoredConfig,
   resolveWebConfig,
   resolveTaskConfig,
+  applyDraftOverlay,
 } from '../services/configService.js';
 
 // ---------------------------------------------------------------------------
@@ -141,16 +142,17 @@ export function createSystemRoutes(repoRoot: string): Hono {
   });
 
   // POST /api/config/test — connectivity test (uses effective task config,
-  // so the result reflects what a real task would use)
+  // so the result reflects what a real task would use). Optional `draft` is
+  // the unsaved settings form: overlay it so "填写后立刻点测试" works.
   router.post('/api/config/test', async (c) => {
-    const body = await c.req.json() as { service: string };
+    const body = await c.req.json() as { service: string; draft?: AppConfig };
     const service = body.service;
 
     if (!['anthropic', 'imageGen', 'voxcpm', 'cosyvoice', 'musetalk'].includes(service)) {
       return c.json({ error: { code: 'ERR_BAD_REQUEST', message: `Unknown service: ${service}` } }, 400);
     }
 
-    const cfg = resolveTaskConfig(repoRoot);
+    const cfg = applyDraftOverlay(resolveTaskConfig(repoRoot), body.draft);
 
     switch (service) {
       case 'anthropic': {
@@ -161,9 +163,14 @@ export function createSystemRoutes(repoRoot: string): Hono {
           return c.json(result);
         }
 
-        const key = cfg.anthropic.apiKey;
-        const baseURL = cfg.anthropic.baseURL || 'https://api.anthropic.com';
-        if (!key) return c.json({ ok: false, message: '未配置 API Key' });
+        const key = cfg.anthropic.apiKey?.trim();
+        const baseURL = (cfg.anthropic.baseURL || 'https://api.anthropic.com').replace(/\/+$/, '');
+        if (!key) {
+          return c.json({
+            ok: false,
+            message: '未配置 API Key。请填写后点「测试连通性」（当前输入即可测），通过后再点右下角保存。',
+          });
+        }
         const start = Date.now();
         try {
           const resp = await fetch(`${baseURL}/v1/messages`, {
@@ -175,7 +182,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
             },
             body: JSON.stringify({
               model: cfg.anthropic.model || 'claude-sonnet-4-6',
-              max_tokens: 1,
+              max_tokens: 16,
               messages: [{ role: 'user', content: 'ping' }],
             }),
             signal: AbortSignal.timeout(15000),

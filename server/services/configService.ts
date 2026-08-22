@@ -12,8 +12,7 @@
  *     供设置面板 GET 展示用 — 未配置的字段保持 undefined。
  *   - resolveTaskConfig(repoRoot): AutoVideoConfig
  *     完整生效配置（默认值 + autovideo.config.json + 覆盖层），
- *     taskRunner 传给 CLI 模块，doctor / 连通性测试也用它，
- *     保证「检查看到的」与「任务实际用的」一致。
+ *     taskRunner / doctor 用它；连通性测试在此之上再叠 applyDraftOverlay。
  *
  * 此前 routes/system.ts 与 services/taskRunner.ts 各自维护一份合并逻辑，
  * 已出现漂移（useCLI 支持、env 优先级不一致）。收敛于此。
@@ -73,7 +72,13 @@ function mergeFields(target: Record<string, unknown>, patch: Record<string, unkn
       mergeFields(nested, v as Record<string, unknown>);
       target[k] = nested;
     } else if (v !== '') {
-      target[k] = v;
+      if (k === 'apiKey' && typeof v === 'string') {
+        const trimmed = v.trim();
+        if (trimmed === '') continue;
+        target[k] = trimmed;
+      } else {
+        target[k] = v;
+      }
     }
     // v === "" means "unchanged" → skip
   }
@@ -169,6 +174,60 @@ function applyDefined(target: object, source: object): void {
   for (const [k, v] of Object.entries(source)) {
     if (v !== undefined) (target as Record<string, unknown>)[k] = v;
   }
+}
+
+/**
+ * Drop null / undefined / blank strings so an unsaved settings form can overlay
+ * a task config without wiping already-persisted values.
+ */
+function omitBlank(obj: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'string') {
+      const trimmed = v.trim();
+      if (trimmed === '') continue;
+      out[k] = trimmed;
+      continue;
+    }
+    if (typeof v === 'object' && !Array.isArray(v)) {
+      const nested = omitBlank(v as Record<string, unknown>);
+      if (Object.keys(nested).length > 0) out[k] = nested;
+      continue;
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Overlay an unsaved settings-form draft onto an already-resolved task config.
+ * Empty / whitespace fields are ignored (keep the saved value). Does not persist.
+ */
+export function applyDraftOverlay(
+  cfg: AutoVideoConfig,
+  draft?: Partial<AppConfig>,
+): AutoVideoConfig {
+  if (!draft) return cfg;
+  const next = structuredClone(cfg);
+
+  if (draft.anthropic) {
+    const { review, ...rest } = draft.anthropic;
+    applyDefined(next.anthropic, omitBlank(rest as Record<string, unknown>));
+    if (review) {
+      next.anthropic.review = {
+        ...(next.anthropic.review || {}),
+        ...omitBlank(review as Record<string, unknown>),
+      };
+    }
+  }
+  if (draft.imageGen) applyDefined(next.imageGen, omitBlank(draft.imageGen as Record<string, unknown>));
+  if (draft.voxcpm) applyDefined(next.voxcpm, omitBlank(draft.voxcpm as Record<string, unknown>));
+  if (typeof draft.musetalk?.url === 'string' && draft.musetalk.url.trim()) {
+    next.musetalk = { ...next.musetalk, url: draft.musetalk.url.trim() };
+  }
+
+  return next;
 }
 
 /**

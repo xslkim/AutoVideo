@@ -301,7 +301,10 @@ onMounted(() => {
 })
 
 watch(showSettings, (open) => {
-  if (!open) loadVisualConcurrency()
+  if (!open) {
+    loadVisualConcurrency()
+    refreshDoctor()
+  }
 })
 
 // Clear preview error when modal opens or closes

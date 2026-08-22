@@ -26,8 +26,9 @@
                 v-model:value="form.anthropic.apiKey"
                 type="password"
                 show-password-on="click"
-                placeholder="sk-ant-... / sk-...（DeepSeek）/ GLM key / Kimi key"
+                :placeholder="anthropicApiKeyPlaceholder"
                 clearable
+                autocomplete="off"
               />
             </n-form-item>
             <n-form-item label="Base URL">
@@ -105,8 +106,9 @@
                   v-model:value="form.anthropic.apiKey"
                   type="password"
                   show-password-on="click"
-                  placeholder="配了 Base URL 时填写（DeepSeek / OpenRouter key）"
+                  :placeholder="anthropicApiKeyPlaceholder"
                   clearable
+                  autocomplete="off"
                 />
               </n-form-item>
             </template>
@@ -177,8 +179,9 @@
                 v-model:value="form.anthropic.review.apiKey"
                 type="password"
                 show-password-on="click"
-                placeholder="留空沿用生成配置的 Key"
+                :placeholder="reviewApiKeyPlaceholder"
                 clearable
+                autocomplete="off"
               />
             </n-form-item>
           </template>
@@ -193,6 +196,9 @@
               </span>
               <span v-else style="color: #d03050">{{ testResult.anthropic.message }}</span>
             </span>
+            <div style="margin-top: 6px; font-size: 12px; color: #999">
+              测试使用当前输入，不必先保存；构建任务仍需点右下角「保存」。
+            </div>
           </n-form-item>
         </n-form>
       </n-tab-pane>
@@ -219,8 +225,9 @@
               v-model:value="form.imageGen.apiKey"
               type="password"
               show-password-on="click"
-              placeholder="sk-..."
+              :placeholder="imageGenApiKeyPlaceholder"
               clearable
+              autocomplete="off"
             />
           </n-form-item>
           <n-form-item v-if="form.imageGen.provider === 'openai'" label="Model">
@@ -504,6 +511,35 @@ const anthropicConcurrencyOptions = [2, 3, 4, 5, 6, 7, 8].map((v) => ({
   value: v,
 }))
 
+const savedKeys = reactive({
+  anthropicLast4: '' as string,
+  imageGenLast4: '' as string,
+  reviewLast4: '' as string,
+})
+
+const anthropicApiKeyPlaceholder = computed(() => {
+  if (form.anthropic.provider === 'codex-cli') {
+    return savedKeys.anthropicLast4
+      ? `已保存（末四位 ${savedKeys.anthropicLast4}），留空保持不变`
+      : '配了 Base URL 时填写（DeepSeek / OpenRouter / GLM key）'
+  }
+  return savedKeys.anthropicLast4
+    ? `已保存（末四位 ${savedKeys.anthropicLast4}），留空保持不变`
+    : 'sk-ant-... / sk-...（DeepSeek）/ GLM key / Kimi key'
+})
+
+const reviewApiKeyPlaceholder = computed(() => {
+  return savedKeys.reviewLast4
+    ? `已保存（末四位 ${savedKeys.reviewLast4}），留空保持不变`
+    : '留空沿用生成配置的 Key'
+})
+
+const imageGenApiKeyPlaceholder = computed(() => {
+  return savedKeys.imageGenLast4
+    ? `已保存（末四位 ${savedKeys.imageGenLast4}），留空保持不变`
+    : 'sk-...'
+})
+
 function clampAnthropicConcurrency(value: number | null | undefined): number {
   const n = value ?? 4
   return Math.min(8, Math.max(2, n))
@@ -651,9 +687,9 @@ async function loadConfig() {
   form.visualQuality.review = c.visualQuality?.review ?? true
   form.visualQuality.maxReviewRounds = c.visualQuality?.maxReviewRounds ?? 1
 
-  // Preserve key "set" status — if set, show placeholder text
-  if (!c.anthropic.apiKey.set) form.anthropic.apiKey = ''
-  if (!c.imageGen.apiKey.set) form.imageGen.apiKey = ''
+  savedKeys.anthropicLast4 = c.anthropic.apiKey.set ? (c.anthropic.apiKey.last4 ?? '') : ''
+  savedKeys.imageGenLast4 = c.imageGen.apiKey.set ? (c.imageGen.apiKey.last4 ?? '') : ''
+  savedKeys.reviewLast4 = c.anthropic.review?.apiKey.set ? (c.anthropic.review.apiKey.last4 ?? '') : ''
 }
 
 // ── Save ────────────────────────────────────────────────────────────────
@@ -667,7 +703,8 @@ async function onSave() {
     // AI Agent
     const aPatch: Record<string, unknown> = {}
     aPatch.provider = form.anthropic.provider
-    if (form.anthropic.apiKey) aPatch.apiKey = form.anthropic.apiKey
+    const anthropicKey = form.anthropic.apiKey.trim()
+    if (anthropicKey) aPatch.apiKey = anthropicKey
     aPatch.baseURL = form.anthropic.baseURL || null
     aPatch.model = form.anthropic.model || null
     aPatch.cliPath = form.anthropic.cliPath || null
@@ -680,7 +717,7 @@ async function onSave() {
         model: form.anthropic.review.model || null,
         baseURL: form.anthropic.review.baseURL || null,
         // 留空 = 沿用已保存的 review key（如有）
-        ...(form.anthropic.review.apiKey ? { apiKey: form.anthropic.review.apiKey } : {}),
+        ...(form.anthropic.review.apiKey.trim() ? { apiKey: form.anthropic.review.apiKey.trim() } : {}),
       }
     } else {
       aPatch.review = null
@@ -689,7 +726,8 @@ async function onSave() {
 
     // ImageGen
     const igPatch: Record<string, unknown> = {}
-    if (form.imageGen.apiKey) igPatch.apiKey = form.imageGen.apiKey
+    const imageGenKey = form.imageGen.apiKey.trim()
+    if (imageGenKey) igPatch.apiKey = imageGenKey
     igPatch.provider = form.imageGen.provider
     igPatch.baseURL = form.imageGen.baseURL || null
     igPatch.model = form.imageGen.model || null
@@ -763,10 +801,14 @@ async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyv
   try {
     const res = await apiPost<{ ok: boolean; latencyMs?: number; message?: string }>(
       '/api/config/test',
-      { service }
+      { service, draft: buildTestDraft(service) },
     )
     if (res.ok) {
-      testResult[service] = res.data
+      const data = res.data
+      const typedUnsavedKey = service === 'anthropic' && !!form.anthropic.apiKey.trim() && !savedKeys.anthropicLast4
+      testResult[service] = data.ok && typedUnsavedKey
+        ? { ...data, message: data.message || '请点右下角保存后才会用于构建' }
+        : data
     } else {
       testResult[service] = { ok: false, message: res.error?.message ?? '请求失败' }
     }
@@ -774,6 +816,43 @@ async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyv
     testResult[service] = { ok: false, message: '请求失败' }
   } finally {
     testing[service] = false
+  }
+}
+
+function buildTestDraft(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'musetalk') {
+  if (service === 'anthropic') {
+    return {
+      anthropic: {
+        provider: form.anthropic.provider,
+        ...(form.anthropic.apiKey.trim() ? { apiKey: form.anthropic.apiKey.trim() } : {}),
+        ...(form.anthropic.baseURL ? { baseURL: form.anthropic.baseURL } : {}),
+        ...(form.anthropic.model ? { model: form.anthropic.model } : {}),
+        ...(form.anthropic.cliPath ? { cliPath: form.anthropic.cliPath } : {}),
+        ...(form.anthropic.cliTimeoutMs ? { cliTimeoutMs: form.anthropic.cliTimeoutMs } : {}),
+      },
+    }
+  }
+  if (service === 'imageGen') {
+    return {
+      imageGen: {
+        provider: form.imageGen.provider,
+        ...(form.imageGen.apiKey.trim() ? { apiKey: form.imageGen.apiKey.trim() } : {}),
+        ...(form.imageGen.baseURL ? { baseURL: form.imageGen.baseURL } : {}),
+        ...(form.imageGen.model ? { model: form.imageGen.model } : {}),
+      },
+    }
+  }
+  if (service === 'voxcpm') {
+    return {
+      voxcpm: {
+        ...(form.voxcpm.endpoint ? { endpoint: form.voxcpm.endpoint } : {}),
+      },
+    }
+  }
+  return {
+    musetalk: {
+      ...(form.musetalk.url ? { url: form.musetalk.url } : {}),
+    },
   }
 }
 

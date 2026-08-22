@@ -18,6 +18,7 @@ import {
   loadStoredConfig,
   resolveWebConfig,
   resolveTaskConfig,
+  applyDraftOverlay,
 } from '../../server/services/configService';
 import type { AppConfig } from '../../server/types/api';
 
@@ -70,6 +71,14 @@ describe('mergeStoredConfig', () => {
     });
     expect(merged.anthropic?.review?.apiKey).toBe('review-key');
     expect(merged.anthropic?.review?.model).toBe('glm-4.6');
+  });
+
+  it('trims apiKey on write and ignores whitespace-only keys', () => {
+    const stored: AppConfig = { version: 1, anthropic: { apiKey: 'old-key' } };
+    expect(mergeStoredConfig(stored, { anthropic: { apiKey: '  new-key  ' } }).anthropic?.apiKey)
+      .toBe('new-key');
+    expect(mergeStoredConfig(stored, { anthropic: { apiKey: '   ' } }).anthropic?.apiKey)
+      .toBe('old-key');
   });
 
   it('clears the whole review object with null', () => {
@@ -130,6 +139,36 @@ describe('resolveTaskConfig', () => {
     process.env.VOXCPM_ENDPOINT = 'http://env:8000';
     saveStoredConfig(tmpRoot, { version: 1, voxcpm: { endpoint: 'http://ui:8000' } });
     expect(resolveTaskConfig(tmpRoot).voxcpm.endpoint).toBe('http://ui:8000');
+  });
+});
+
+describe('applyDraftOverlay', () => {
+  it('lets an unsaved form apiKey override the resolved task config', () => {
+    saveStoredConfig(tmpRoot, { version: 1, anthropic: { model: 'glm-4.6' } });
+    const cfg = resolveTaskConfig(tmpRoot);
+    expect(cfg.anthropic.apiKey).toBeUndefined();
+
+    const drafted = applyDraftOverlay(cfg, {
+      anthropic: {
+        provider: 'anthropic-api',
+        apiKey: '  glm-draft-key  ',
+        baseURL: 'https://open.bigmodel.cn/api/anthropic',
+      },
+    });
+    expect(drafted.anthropic.apiKey).toBe('glm-draft-key');
+    expect(drafted.anthropic.baseURL).toBe('https://open.bigmodel.cn/api/anthropic');
+    expect(drafted.anthropic.model).toBe('glm-4.6');
+    // original is unchanged
+    expect(cfg.anthropic.apiKey).toBeUndefined();
+  });
+
+  it('ignores blank draft apiKey so a previously saved key is kept', () => {
+    saveStoredConfig(tmpRoot, { version: 1, anthropic: { apiKey: 'saved-key' } });
+    const drafted = applyDraftOverlay(resolveTaskConfig(tmpRoot), {
+      anthropic: { apiKey: '   ', model: 'glm-4.6' },
+    });
+    expect(drafted.anthropic.apiKey).toBe('saved-key');
+    expect(drafted.anthropic.model).toBe('glm-4.6');
   });
 });
 
