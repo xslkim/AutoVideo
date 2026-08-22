@@ -86,6 +86,7 @@ function publicConfig(overlay: AppConfig): AppConfigPublic {
       concurrency: overlay.cosyvoice?.concurrency,
       referenceText: overlay.cosyvoice?.referenceText,
       normalize: overlay.cosyvoice?.normalize,
+      speed: overlay.cosyvoice?.speed,
       seedSalt: overlay.cosyvoice?.seedSalt,
     },
     musetalk: {

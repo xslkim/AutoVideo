@@ -265,6 +265,7 @@ export class CosyVoiceProvider implements TtsProvider {
         text,
         voiceId,
         normalize: this.cfg.normalize,
+        speed: this.cfg.speed ?? 1.0,
         seedSalt: options?.salt ?? this.cfg.seedSalt ?? "",
       },
       options?.signal,
@@ -275,6 +276,9 @@ export class CosyVoiceProvider implements TtsProvider {
     return {
       normalize: this.cfg.normalize,
       modelVersion: this.modelVersion,
+      // Speed changes the produced audio — fold it in only when non-default
+      // so existing 1.0 cache entries stay byte-identical.
+      ...((this.cfg.speed ?? 1.0) !== 1.0 ? { speed: this.cfg.speed! } : {}),
       // Post-processing pipeline version (server clip-guard + client-side
       // per-line gain alignment): bumping it invalidates old audio once.
       pipeline: TTS_PIPELINE_VERSION,

@@ -53,6 +53,13 @@ export interface CosyVoiceConfig {
    */
   normalize: boolean;
   /**
+   * Speaking-rate multiplier passed to the engine (>1 = faster, 0.5–2.0).
+   * Zero-shot cloning inherits the reference recording's pace, so a slow
+   * reference calls for e.g. 1.2. When set (!= 1.0), it joins the audio
+   * cache key — changing it re-synthesizes everything.
+   */
+  speed?: number;
+  /**
    * Salt folded into the server-side deterministic seed (empty = stable
    * default). Change to any string to re-roll all takes. When set, it joins
    * the audio cache key — a new salt therefore re-synthesizes everything.
@@ -352,6 +359,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     endpoint: "http://127.0.0.1:8002",
     modelDir: "/path/to/Fun-CosyVoice3-0.5B",
     normalize: true,
+    speed: 1.0,
     seedSalt: "",
     concurrency: 1,
   },

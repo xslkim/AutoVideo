@@ -156,7 +156,13 @@ describe("CosyVoiceClient", () => {
       voice_id: "cosy_voice_1",
       seed_salt: "salt-1",
       normalize: true,
+      speed: 1.0,
     });
+  });
+
+  it("speak forwards a non-default speed to the server", async () => {
+    await client.speak({ text: "hi", voiceId: "v", normalize: false, speed: 1.2 });
+    expect(mock.speechBodies.value[0].speed).toBe(1.2);
   });
 
   it("speak defaults seed_salt to empty string", async () => {

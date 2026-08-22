@@ -121,6 +121,8 @@ export interface AppConfig {
     /** 参考音频文本（CosyVoice zero-shot 必需）；不设则回退 voiceRef 同名 .txt */
     referenceText?: string;
     normalize?: boolean;
+    /** 语速倍率（>1 更快，0.5–2.0）；非 1.0 时进音频缓存 key */
+    speed?: number;
     /** 服务器端确定性 seed 的盐（换值 = 全量重 roll）；非空时进音频缓存 key */
     seedSalt?: string;
   };
@@ -189,6 +191,7 @@ export interface AppConfigPublic {
     concurrency?: number;
     referenceText?: string;
     normalize?: boolean;
+    speed?: number;
     seedSalt?: string;
   };
   musetalk: {

@@ -313,6 +313,9 @@
             <n-form-item label="文本规范化">
               <n-switch v-model:value="form.cosyvoice.normalize" />
             </n-form-item>
+            <n-form-item label="语速倍率">
+              <n-input-number v-model:value="form.cosyvoice.speed" :min="0.5" :max="2" :step="0.05" style="width: 100%" />
+            </n-form-item>
             <n-form-item label="Concurrency">
               <n-input-number v-model:value="form.cosyvoice.concurrency" :min="1" :max="8" style="width: 100%" />
             </n-form-item>
@@ -594,6 +597,7 @@ const form = reactive({
     concurrency: 1 as number | null,
     referenceText: '' as string,
     normalize: true as boolean,
+    speed: 1.0 as number | null,
   },
   musetalk: {
     url: '' as string,
@@ -676,6 +680,7 @@ async function loadConfig() {
   form.cosyvoice.concurrency = c.cosyvoice?.concurrency ?? 1
   form.cosyvoice.referenceText = c.cosyvoice?.referenceText ?? ''
   form.cosyvoice.normalize = c.cosyvoice?.normalize ?? true
+  form.cosyvoice.speed = c.cosyvoice?.speed ?? 1.0
 
   form.musetalk.url = c.musetalk?.url ?? ''
 
@@ -761,6 +766,7 @@ async function onSave() {
       concurrency: form.cosyvoice.concurrency,
       referenceText: form.cosyvoice.referenceText || null,
       normalize: form.cosyvoice.normalize,
+      speed: form.cosyvoice.speed,
     }
 
     // MuseTalk

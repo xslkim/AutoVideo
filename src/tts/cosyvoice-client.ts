@@ -28,6 +28,8 @@ export interface CosyVoiceSpeakOptions {
    * applies CJK↔ASCII boundary spacing regardless of this flag.
    */
   normalize: boolean;
+  /** Speaking-rate multiplier passed to the engine (>1 = faster). Default 1.0. */
+  speed?: number;
   /** Folded into the server-side deterministic seed; change to re-roll takes. */
   seedSalt?: string;
 }
@@ -106,6 +108,7 @@ export class CosyVoiceClient {
         voice_id: opts.voiceId,
         seed_salt: opts.seedSalt ?? "",
         normalize: opts.normalize,
+        speed: opts.speed ?? 1.0,
       }),
       // The stage always passes its own signal, so `signal ?? timeout` would
       // disable the timeout entirely — a hung GPU server would stall the

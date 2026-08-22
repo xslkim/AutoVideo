@@ -128,6 +128,82 @@ def _voice_paths(voice_id: str) -> tuple[Path, Path]:
     return VOICE_DIR / f"{voice_id}.wav", VOICE_DIR / f"{voice_id}.txt"
 
 
+def _find_pause_cut(data: np.ndarray, sr: int, est_sec: float, window_sec: float = 2.0) -> float:
+    """Snapping an audio trim point to the quietest frame near `est_sec`.
+
+    Speaking rate is not uniform, so a purely text-proportional cut can land
+    mid-word. Speakers pause at clause boundaries, so the lowest-RMS frame in
+    a small window is almost always the pause right after a clause — cutting
+    there leaves no dangling speech beyond the transcript.
+    """
+    mono = data if data.ndim == 1 else data.mean(axis=1)
+    frame = max(1, int(0.025 * sr))
+    hop = max(1, int(0.010 * sr))
+    n = (len(mono) - frame) // hop
+    if n <= 0:
+        return est_sec
+    frames = np.lib.stride_tricks.as_strided(
+        mono, shape=(n, frame), strides=(mono.strides[0] * hop, mono.strides[0])
+    )
+    rms = np.sqrt((frames**2).mean(axis=1))
+    times = (np.arange(n) * hop + frame / 2) / sr
+    total = len(mono) / sr
+    mask = (times >= max(0.0, est_sec - window_sec)) & (times <= min(total, est_sec + window_sec))
+    if not mask.any():
+        return est_sec
+    idx = int(np.argmin(np.where(mask, rms, np.inf)))
+    return float(times[idx])
+
+
+# Whisper is a CosyVoice dependency (log-mel/tokenizer), so it is always
+# importable here; the ASR weights download once to ~/.cache/whisper.
+# Used ONLY to align overlong reference trims — see _whisper_aligned_trim.
+_whisper_model = None
+
+
+def _whisper_aligned_trim(
+    data: np.ndarray, sr: int, duration: float, language_hint: str | None
+) -> tuple[float, str] | None:
+    """ASR-align the reference trim: transcribe the head of the wav, keep the
+    segments ending near REF_TRIM_SEC, and return (cut_sec, their transcript).
+
+    The returned text comes from the ASR, so it matches the audio BY
+    CONSTRUCTION — a user transcript cut at a proportional character count
+    can never guarantee that (speaking rate is not uniform), and any
+    mismatch leaks into every synthesized line. Returns None when alignment
+    is unavailable (caller falls back to the pause/character heuristic).
+    """
+    global _whisper_model
+    try:
+        import whisper
+    except Exception as e:
+        logger.warning(f"whisper unavailable, falling back to heuristic trim: {e}")
+        return None
+    try:
+        if _whisper_model is None:
+            name = os.environ.get("COSYVOICE_ALIGN_WHISPER_MODEL", "base")
+            logger.info(f"Loading whisper '{name}' for reference alignment ...")
+            _whisper_model = whisper.load_model(name)
+        mono = data if data.ndim == 1 else data.mean(axis=1)
+        t = torch.from_numpy(mono.astype(np.float32))
+        if sr != 16000:
+            t = torchaudio.functional.resample(t, sr, 16000)
+        result = _whisper_model.transcribe(t.numpy(), language=language_hint)
+        # Keep whole segments whose END stays within the trim budget (plus a
+        # small grace so a segment straddling REF_TRIM_SEC still counts).
+        segs = [
+            s for s in result.get("segments", [])
+            if s["end"] <= REF_TRIM_SEC + 1.0 and s["text"].strip()
+        ]
+        if not segs:
+            return None
+        text = "".join(s["text"].strip() for s in segs)
+        return float(segs[-1]["end"]), text
+    except Exception as e:
+        logger.warning(f"whisper alignment failed, falling back to heuristic trim: {e}")
+        return None
+
+
 def _read_prompt_text(voice_id: str) -> str | None:
     _, txt_path = _voice_paths(voice_id)
     if not txt_path.exists():
@@ -160,7 +236,9 @@ def wav_response(speech: torch.Tensor, sample_rate: int) -> Response:
     )
 
 
-def run_generate(text: str, voice_id: str, seed_salt: str, normalize: bool) -> Response:
+def run_generate(
+    text: str, voice_id: str, seed_salt: str, normalize: bool, speed: float
+) -> Response:
     if model is None:
         detail = (
             f"model failed to load: {model_error}" if model_error else "model is still loading"
@@ -189,7 +267,9 @@ def run_generate(text: str, voice_id: str, seed_salt: str, normalize: bool) -> R
         prompt_text = INSTRUCT_PREFIX + prompt_text
 
     seed = _seed_from(voice_id, seed_salt, text)
-    logger.info(f"TTS [zero-shot]: voice={voice_id}, seed={seed}, text={text!r}")
+    logger.info(
+        f"TTS [zero-shot]: voice={voice_id}, seed={seed}, speed={speed}, text={text!r}"
+    )
 
     with _gen_lock:
         _set_seed(seed)
@@ -201,6 +281,7 @@ def run_generate(text: str, voice_id: str, seed_salt: str, normalize: bool) -> R
                     prompt_text,
                     str(wav_path),
                     stream=False,
+                    speed=speed,
                     text_frontend=normalize,
                 )
             ]
@@ -238,6 +319,12 @@ class SpeechRequest(BaseModel):
         description="Run the engine's text normalization (handles numbers, symbols). "
                     "CJK-ASCII boundary spacing is always applied regardless of this flag.",
     )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speaking-rate multiplier passed to the engine (>1 = faster).",
+    )
 
 
 @app.get("/health")
@@ -265,10 +352,20 @@ def register_voice(req: VoiceRequest):
         req.prompt_text.strip() if req.prompt_text and req.prompt_text.strip() else None
     )
 
-    # Auto-trim overlong references: the transcript is sequential over the
-    # audio, so a proportional character prefix stays aligned with the
-    # trimmed head. voice_id fingerprints the ORIGINAL bytes — registering
-    # the same source wav stays idempotent regardless of trimming.
+    # Auto-trim overlong references. voice_id fingerprints the ORIGINAL
+    # bytes — registering the same source wav stays idempotent regardless of
+    # trimming.
+    #
+    # Alignment matters: any reference speech NOT covered by prompt_text
+    # leaks into every synthesized line (e.g. a prompt transcript cut
+    # mid-sentence at "在" makes every line start with "在"), and covered
+    # text without matching audio is just as bad. Speaking rate is not
+    # uniform, so a proportional character cut can never guarantee
+    # alignment. Preferred path: ASR-align the trim with whisper and use the
+    # ASR transcript of the kept segments (matches the audio by
+    # construction). Fallback: snap the audio cut to the lowest-energy frame
+    # (a clause-ending pause) near REF_TRIM_SEC and keep the transcript
+    # prefix up to the last clause boundary before it.
     try:
         data, sr = sf.read(io.BytesIO(wav_bytes), dtype="float32")
         duration = len(data) / sr
@@ -276,23 +373,46 @@ def register_voice(req: VoiceRequest):
         raise HTTPException(status_code=400, detail=f"cannot decode wav: {e}") from e
     stored_bytes = wav_bytes
     if duration > MAX_REF_SEC:
-        data = data[: int(REF_TRIM_SEC * sr)]
+        aligned = None
+        if prompt_text:
+            lang = "zh" if re.search(r"[一-鿿]", prompt_text) else None
+            aligned = _whisper_aligned_trim(data, sr, duration, lang)
+        if aligned:
+            trim_sec, prompt_text = aligned
+            how = f"whisper-aligned ({len(prompt_text)} chars)"
+        else:
+            trim_sec = (
+                _find_pause_cut(data, sr, REF_TRIM_SEC) if prompt_text else REF_TRIM_SEC
+            )
+            if prompt_text:
+                total_chars = len(prompt_text)
+                keep = max(1, int(total_chars * trim_sec / duration))
+                # Snap back to the last sentence/clause boundary so the prompt
+                # never ends mid-phrase.
+                boundary = max(prompt_text.rfind(p, 0, keep) for p in "。！？；，、.!?;,")
+                if boundary > 0:
+                    keep = boundary + 1
+                prompt_text = prompt_text[:keep]
+                how = f"pause+clause heuristic ({keep} chars)"
+            else:
+                how = "audio-only trim"
+        data = data[: int(trim_sec * sr)]
         buf = io.BytesIO()
         sf.write(buf, data, sr, format="WAV", subtype="PCM_16")
         stored_bytes = buf.getvalue()
-        if prompt_text:
-            keep = max(1, int(len(prompt_text) * REF_TRIM_SEC / duration))
-            prompt_text = prompt_text[:keep]
         logger.warning(
             f"reference wav {duration:.1f}s > {MAX_REF_SEC}s — auto-trimmed to first "
-            f"{REF_TRIM_SEC}s, prompt_text truncated to {len(prompt_text) if prompt_text else 0} chars"
+            f"{trim_sec:.1f}s, prompt_text: {how}"
         )
 
     # voice_id is the content fingerprint: re-registering the same wav is a
     # no-op (idempotent), and a later call may attach/replace prompt_text.
     voice_id = hashlib.md5(wav_bytes).hexdigest()[:16]
     wav_path, txt_path = _voice_paths(voice_id)
-    if not wav_path.exists():
+    # Always (re)write the stored wav: identical bytes for a repeat
+    # registration, but picks up a new trimming result when the trim logic
+    # or REF_TRIM_SEC changed since the voice was first stored.
+    if not wav_path.exists() or wav_path.read_bytes() != stored_bytes:
         wav_path.write_bytes(stored_bytes)
 
     if prompt_text:
@@ -318,4 +438,5 @@ def synthesize(req: SpeechRequest):
         voice_id=req.voice_id,
         seed_salt=req.seed_salt,
         normalize=req.normalize,
+        speed=req.speed,
     )

@@ -15,7 +15,8 @@
     "endpoint": "http://127.0.0.1:8002",
     "modelDir": "third_servers/cosyvoice-tts/models/Fun-CosyVoice3-0.5B",
     "concurrency": 1,
-    "normalize": true
+    "normalize": true,
+    "speed": 1.0
   },
   "anthropic": {
     "provider": "anthropic-api",

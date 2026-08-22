@@ -16,9 +16,13 @@ AutoVideo 的可切换 TTS 底座(与 VoxCPM2 并存,框架通过 `tts.provider`
   - `prompt_text` 是参考音频的文本转写,CosyVoice zero-shot **必需**;注册时缺失
     不报错(音色标记为"待补文本"),可之后对同一 wav 再 POST 一次补上
   - 引用无 `prompt_text` 的音色调 `/v1/speech` 会返回 400 并给出补传指引
-  - 参考 wav 时长需 ≤ 30 秒(引擎 speech token 提取上限)
+  - 参考 wav 时长需 ≤ 30 秒(引擎 speech token 提取上限);超长自动截断:
+    音频在 `COSYVOICE_REF_TRIM_SEC` 附近吸附到能量最低的停顿点(说话人
+    在句读处停顿),文本再保留到该位置之前的最近句/读边界(。！？；，、等),
+    保证文本与音频两端都落在从句结尾——不对齐的参考音(如文本在"在"字处
+    被截断)会让每句合成开头泄漏该字
 - 语音合成:`POST /v1/speech` → 48kHz WAV bytes
-  - 请求体:`{ "text", "voice_id", "seed_salt?"(默认 ""), "normalize?"(默认 false) }`
+  - 请求体:`{ "text", "voice_id", "seed_salt?"(默认 ""), "normalize?"(默认 false), "speed?"(默认 1.0,0.5–2.0,>1 更快) }`
   - **不收** voxcpm 专有参数(cfg_value / timesteps / denoise / retry_badcase / prev_*)
   - 文本预处理:`insert_zh_en_space`(中英边界加空格)→ 引擎自带 normalize
     (`normalize=true` 时;引擎优先 ttsfrd,未装则 wetext)
