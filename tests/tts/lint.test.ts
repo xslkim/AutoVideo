@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 
-import { lintPronunciation, suggestReading, formatPronunciationLint } from "../../src/tts/lint.js";
+import {
+  lintPronunciation,
+  suggestReading,
+  formatPronunciationLint,
+  lintDictReplacements,
+  formatDictLint,
+} from "../../src/tts/lint.js";
 import { parsePronunciationDict } from "../../src/tts/pronounce.js";
 import type { Block } from "../../src/types/script.js";
 
@@ -81,5 +87,63 @@ describe("lintPronunciation", () => {
 
   it("formatPronunciationLint renders null for empty findings", () => {
     expect(formatPronunciationLint([])).toBeNull();
+  });
+});
+
+describe("lintDictReplacements", () => {
+  it("flags an RHS containing digits", () => {
+    const rules = parsePronunciationDict("FP16 => F P 16\n");
+    const findings = lintDictReplacements(rules);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].pattern).toBe("FP16");
+    expect(findings[0].replacement).toBe("F P 16");
+    expect(findings[0].line).toBe(1);
+  });
+
+  it("flags an RHS containing ':' or '.'", () => {
+    const rules = parsePronunciationDict("宽高比 => 16 比 9\n阈值 => 0.1\n");
+    const findings = lintDictReplacements(rules);
+    // "16 比 9" is flagged for its digits, "0.1" for digits and the dot
+    expect(findings.map((f) => f.pattern)).toEqual(["宽高比", "阈值"]);
+  });
+
+  it("flags a ':' in the RHS", () => {
+    const rules = parsePronunciationDict("画幅 => 十六:九\n");
+    expect(lintDictReplacements(rules).map((f) => f.pattern)).toEqual(["画幅"]);
+  });
+
+  it("ignores $1-style backreferences in regex replacements", () => {
+    const rules = parsePronunciationDict(
+      "/(\\d+)\\s?fps/gi => $1 帧每秒\n/([A-Z])(\\d)_([A-Z])\\b/g => $1 $2 $3\n",
+    );
+    expect(lintDictReplacements(rules)).toEqual([]);
+  });
+
+  it("still flags a regex RHS with literal digits beyond backreferences", () => {
+    const rules = parsePronunciationDict("/(\\d+)\\s?fps/gi => $1 帧每秒 2 倍\n");
+    expect(lintDictReplacements(rules)).toHaveLength(1);
+  });
+
+  it("accepts pure-text replacements", () => {
+    const rules = parsePronunciationDict("GPU => G P U\nFP16 => F P 十六\n画幅 => 十六比九\n");
+    expect(lintDictReplacements(rules)).toEqual([]);
+  });
+
+  it("accepts an empty rule set", () => {
+    expect(lintDictReplacements([])).toEqual([]);
+  });
+
+  it("formatDictLint renders null for empty findings", () => {
+    expect(formatDictLint([])).toBeNull();
+  });
+
+  it("formatDictLint explains the server-side normalize risk and the fix", () => {
+    const rules = parsePronunciationDict("FP16 => F P 16\n");
+    const report = formatDictLint(lintDictReplacements(rules));
+    expect(report).not.toBeNull();
+    expect(report).toContain("FP16 => F P 16");
+    expect(report).toContain("normalize");
+    expect(report).toContain("纯文字读法");
+    expect(report).toContain("十六比九");
   });
 });

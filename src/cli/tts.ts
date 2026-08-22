@@ -8,11 +8,12 @@
  *   2. Start VoxCPM service (autoStart fallback)
  *   3. Register voiceRef → get voiceId
  *   4. Compute voiceRefHash / voxcpmModelVersion
- *   5. p-limit(voxcpm.concurrency) across blocks; lines within a block run
+ *   5. p-limit(provider concurrency) across blocks; lines within a block run
  *      sequentially as a continuation chain (prev line's audio = next line's
  *      prompt) to keep the cloned voice stable
  *   6. Per line: cache lookup (key includes predecessor's audio hash) →
- *      miss → client.speak() → put cache
+ *      miss → client.speak() → QA gate (ffmpeg analysis, salted re-roll) →
+ *      put cache
  *   7. Block concatenation: concat all line WAVs + punctuation-aware silence → public/audio/B**.wav
  *   8. Compute lineTimings and write back to script.json.blocks[].audio
  *   9. Failure: 3 retries (5s interval), then AbortController cancel
@@ -28,6 +29,7 @@ import { CacheStore, type AudioKey } from "../cache/store.js";
 import { computeLineTimings, type LineTiming } from "../tts/timings.js";
 import { computeGapsMs } from "../tts/gaps.js";
 import { createTtsProvider, TtsProviderError } from "../tts/provider.js";
+import { analyzeLineAudio, type LineAudioReport } from "../tts/qa.js";
 import {
   concatenateWavsWithGaps,
   getWavDurationSec,
@@ -107,6 +109,16 @@ function writeTempWav(prefix: string, buffer: Buffer): string {
 }
 
 /**
+ * Remove a temp WAV written by writeTempWav, together with its mkdtemp dir.
+ */
+function removeTempWav(wavPath: string): void {
+  try {
+    fs.unlinkSync(wavPath);
+    fs.rmdirSync(path.dirname(wavPath));
+  } catch { /* ignore */ }
+}
+
+/**
  * Sleep for the given number of milliseconds.
  */
 function sleep(ms: number): Promise<void> {
@@ -122,7 +134,16 @@ function sleep(ms: number): Promise<void> {
  */
 export async function tts(opts: TtsOptions): Promise<TtsResult> {
   const { config, verbose = false, dryRun = false, force = false, onProgress, signal } = opts;
-  const { voxcpm: voxcpmCfg, cache: cacheCfg } = config;
+  const { cache: cacheCfg } = config;
+  // Engine-specific settings follow the selected provider: the concurrency
+  // used to be read from the voxcpm section even under cosyvoice (whose
+  // server serializes GPU generation, so it defaults to 1).
+  const providerCfg = config.tts?.provider === "cosyvoice" ? config.cosyvoice : config.voxcpm;
+
+  // Synthesis QA gate (src/tts/qa.ts): analyze each take, re-roll flagged
+  // ones with a per-call salt. tts.qa.enabled === false skips it entirely.
+  const qaEnabled = config.tts?.qa?.enabled !== false;
+  const qaMaxRetries = config.tts?.qa?.maxRetries ?? 2;
 
   const emit = (percent: number, step: string, blockId?: string) => {
     onProgress?.({ percent, step, stage: "tts", blockId });
@@ -173,8 +194,8 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
     }
     console.log(
       `Would process ${blocks.length} block(s), ${totalLines} line(s) total\n` +
-        `  Concurrency: ${voxcpmCfg.concurrency}\n` +
-        `  Endpoint: ${voxcpmCfg.endpoint}\n` +
+        `  Concurrency: ${providerCfg.concurrency}\n` +
+        `  Endpoint: ${providerCfg.endpoint}\n` +
         `  Force: ${force}`
     );
     return { script, cacheHits: 0, apiCalls: 0 };
@@ -296,9 +317,11 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
         voiceRefHash,
         provider: provider.name,
         providerParamsJson,
-        // First line of a block has no predecessor → key stays compatible
-        // with pre-chaining cache entries.
-        ...(prevHash ? { chainPrevHash: prevHash } : {}),
+        // chainPrevHash is always present: the block's first line pins the
+        // "null" sentinel, later lines carry the predecessor's audio md5, and
+        // providers that ignore the chain (usesChain=false) pin "null" for
+        // every line.
+        chainPrevHash: provider.usesChain ? (prevHash ?? "null") : "null",
       };
 
       // ── Cache lookup ────────────────────────────────────────────
@@ -325,38 +348,20 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
       // ── TTS API call with retry ─────────────────────────────────
       if (!wavPath) {
         let lastError: Error | null = null;
+        let tmpWav: string | null = null;
         for (let attempt = 1; attempt <= RETRY_COUNT; attempt++) {
           if (abortController.signal.aborted) return;
 
           try {
-            const wavBuffer = await provider.speak(
-              spoken,
-              voiceId,
-              { prevWav, prevText },
-              abortController.signal
-            );
+            const wavBuffer = await provider.speak(spoken, voiceId, {
+              chain: { prevWav, prevText },
+              signal: abortController.signal,
+            });
 
             apiCalls++;
 
-            // Write to temp file to get duration
-            const tmpWav = writeTempWav(`${block.id}_L${li}`, wavBuffer);
-
-            // Store in cache
-            const cachedPath = await cacheStore.put("audio", cacheKey, tmpWav, cacheKey);
-
-            // Clean up temp file
-            try {
-              fs.unlinkSync(tmpWav);
-              fs.rmdirSync(path.dirname(tmpWav));
-            } catch { /* ignore */ }
-
-            wavPath = cachedPath;
-
-            if (verbose) {
-              console.log(
-                `[tts] API call: ${block.id} line ${li} (${getWavDurationSec(cachedPath).toFixed(2)}s)`
-              );
-            }
+            // Write to a temp file; QA analysis and caching work on the file.
+            tmpWav = writeTempWav(`${block.id}_L${li}`, wavBuffer);
             break; // Success
           } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
@@ -371,7 +376,7 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
           }
         }
 
-        if (!wavPath) {
+        if (!tmpWav) {
           // All retries exhausted — abort everything
           const errorMsg = lastError?.message ?? "unknown error";
           failedBlocks.push({ blockId: block.id, error: errorMsg });
@@ -382,6 +387,87 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
           throw new TtsError(
             `TTS failed for ${block.id} line ${li}: ${errorMsg}`,
             "ERR_TTS_LINE_FAILED"
+          );
+        }
+
+        // ── QA gate: analyze the take, re-roll flagged ones with salt ──
+        // Runs after a successful synthesis, BEFORE the take enters the
+        // cache (cache hits were already QA'd on their way in). Re-rolls
+        // reuse the same cacheKey — the salt is a per-call override, not
+        // part of the key — so the final put below overwrites any earlier
+        // take. Independent of the HTTP retry loop: own counter, no sleep.
+        let accepted = tmpWav;
+        if (qaEnabled) {
+          let bestPath = tmpWav;
+          let bestReport: LineAudioReport = await analyzeLineAudio(tmpWav, spoken);
+          for (let n = 1; !bestReport.pass && n <= qaMaxRetries; n++) {
+            if (abortController.signal.aborted) return;
+            const salt = `${providerCfg.seedSalt ?? ""}:qa:${n}`;
+            try {
+              const wavBuffer = await provider.speak(spoken, voiceId, {
+                chain: { prevWav, prevText },
+                salt,
+                signal: abortController.signal,
+              });
+              apiCalls++;
+              const rePath = writeTempWav(`${block.id}_L${li}_qa${n}`, wavBuffer);
+              const report = await analyzeLineAudio(rePath, spoken);
+              // A passing take scores 100, above any flagged take, so this
+              // also prefers the first pass over a higher-scoring failure.
+              if (report.score > bestReport.score) {
+                removeTempWav(bestPath);
+                bestPath = rePath;
+                bestReport = report;
+              } else {
+                removeTempWav(rePath);
+              }
+            } catch (err) {
+              // A re-roll that fails at HTTP level just burns its attempt;
+              // the previous best take stays alive.
+              if (verbose) {
+                console.warn(
+                  `[tts] QA re-roll ${n}/${qaMaxRetries} failed for ${block.id} line ${li}: ${err instanceof Error ? err.message : err}`
+                );
+              }
+            }
+          }
+          if (bestReport.issues[0]?.startsWith("probe_error")) {
+            // Every take (initial + re-rolls) is unreadable by ffprobe.
+            // Caching it would brick the line permanently: the next run
+            // cache-hits the same broken file and dies in getWavDurationSec
+            // below. Never put — fail the line through the standard
+            // failedBlocks path (same as exhausted HTTP retries).
+            removeTempWav(bestPath);
+            const errorMsg = `all takes unreadable: ${bestReport.issues.join(", ")}`;
+            failedBlocks.push({ blockId: block.id, error: errorMsg });
+            console.error(`[tts] FAILED: ${block.id} line ${li}: ${errorMsg}`);
+            abortController.abort();
+            throw new TtsError(
+              `TTS failed for ${block.id} line ${li}: ${errorMsg}`,
+              "ERR_TTS_LINE_FAILED"
+            );
+          }
+          if (!bestReport.pass) {
+            // Never abort on QA: accept the best-scoring take and warn.
+            console.warn(
+              `[tts] QA gate: ${block.id} line ${li} still flagged after ${qaMaxRetries} re-roll(s); ` +
+                `accepting best take (score ${bestReport.score}): ${bestReport.issues.join(", ")}`
+            );
+          }
+          accepted = bestPath;
+        }
+
+        // Store in cache
+        const cachedPath = await cacheStore.put("audio", cacheKey, accepted, cacheKey);
+
+        // Clean up temp file
+        removeTempWav(accepted);
+
+        wavPath = cachedPath;
+
+        if (verbose) {
+          console.log(
+            `[tts] API call: ${block.id} line ${li} (${getWavDurationSec(cachedPath).toFixed(2)}s)`
           );
         }
       }
@@ -397,7 +483,7 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
   }
 
   // Blocks run in parallel; lines within a block are sequential (chained).
-  const limit = pLimit(voxcpmCfg.concurrency);
+  const limit = pLimit(providerCfg.concurrency);
   const promises = blocks.map((block) => limit(() => processBlock(block)));
 
   try {

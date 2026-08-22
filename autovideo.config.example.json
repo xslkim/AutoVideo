@@ -1,4 +1,8 @@
 {
+  "tts": {
+    "provider": "voxcpm",
+    "qa": { "enabled": true, "maxRetries": 2 }
+  },
   "voxcpm": {
     "endpoint": "http://127.0.0.1:8000",
     "modelDir": "third_servers/voxcpm-tts/models/VoxCPM2",
@@ -6,6 +10,12 @@
     "inferenceTimesteps": 10,
     "denoise": false,
     "concurrency": 4
+  },
+  "cosyvoice": {
+    "endpoint": "http://127.0.0.1:8002",
+    "modelDir": "third_servers/cosyvoice-tts/models/Fun-CosyVoice3-0.5B",
+    "concurrency": 1,
+    "normalize": true
   },
   "anthropic": {
     "provider": "anthropic-api",

@@ -189,6 +189,11 @@ function expandConfigPaths(config: AutoVideoConfig): AutoVideoConfig {
     result.voxcpm.modelDir = expandPath(result.voxcpm.modelDir);
   }
 
+  // cosyvoice.modelDir supports ~
+  if (typeof result.cosyvoice.modelDir === "string") {
+    result.cosyvoice.modelDir = expandPath(result.cosyvoice.modelDir);
+  }
+
   return result;
 }
 

@@ -83,7 +83,7 @@ function mergeFields(target: Record<string, unknown>, patch: Record<string, unkn
 export function mergeStoredConfig(stored: AppConfig, patch: Partial<AppConfig>): AppConfig {
   const merged: AppConfig = { ...stored, version: 1 };
 
-  for (const svc of ['anthropic', 'imageGen', 'voxcpm', 'musetalk', 'visualQuality'] as const) {
+  for (const svc of ['anthropic', 'imageGen', 'voxcpm', 'cosyvoice', 'tts', 'musetalk', 'visualQuality'] as const) {
     const patchSvc = patch[svc];
     if (!patchSvc) continue;
     const target: Record<string, unknown> = { ...(stored[svc] || {}) };
@@ -139,6 +139,19 @@ export function resolveWebConfig(repoRoot: string): AppConfig {
       endpoint: stored.voxcpm?.endpoint || process.env.VOXCPM_ENDPOINT || undefined,
       modelDir: stored.voxcpm?.modelDir || process.env.VOXCPM_MODEL_DIR || undefined,
       concurrency: stored.voxcpm?.concurrency ?? undefined,
+      seedSalt: stored.voxcpm?.seedSalt || undefined,
+    },
+    tts: {
+      provider: stored.tts?.provider ?? undefined,
+      qa: stored.tts?.qa ? { ...stored.tts.qa } : undefined,
+    },
+    cosyvoice: {
+      endpoint: stored.cosyvoice?.endpoint || process.env.COSYVOICE_ENDPOINT || undefined,
+      modelDir: stored.cosyvoice?.modelDir || process.env.COSYVOICE_MODEL_DIR || undefined,
+      concurrency: stored.cosyvoice?.concurrency ?? undefined,
+      referenceText: stored.cosyvoice?.referenceText || undefined,
+      normalize: stored.cosyvoice?.normalize ?? undefined,
+      seedSalt: stored.cosyvoice?.seedSalt || undefined,
     },
     musetalk: {
       url: stored.musetalk?.url || process.env.MUSETALK_URL || undefined,
@@ -168,6 +181,8 @@ export function resolveTaskConfig(repoRoot: string): AutoVideoConfig {
 
   if (overlay.anthropic) applyDefined(cfg.anthropic, overlay.anthropic);
   if (overlay.voxcpm) applyDefined(cfg.voxcpm, overlay.voxcpm);
+  if (overlay.cosyvoice) applyDefined(cfg.cosyvoice, overlay.cosyvoice);
+  if (overlay.tts) applyDefined(cfg.tts, overlay.tts);
   if (overlay.imageGen) applyDefined(cfg.imageGen, overlay.imageGen);
   if (overlay.musetalk?.url) {
     cfg.musetalk = { ...cfg.musetalk, url: overlay.musetalk.url };

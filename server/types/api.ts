@@ -102,6 +102,27 @@ export interface AppConfig {
     endpoint?: string;
     modelDir?: string;
     concurrency?: number;
+    /** 服务器端确定性 seed 的盐（换值 = 全量重 roll）；非空时进音频缓存 key */
+    seedSalt?: string;
+  };
+  /** TTS engine selector（仅文件配置场景下也由 PUT 透传，避免被白名单丢弃） */
+  tts?: {
+    provider?: 'voxcpm' | 'cosyvoice';
+    /** 合成 QA 门（src/tts/qa.ts）；省略字段走默认值 */
+    qa?: {
+      enabled?: boolean;
+      maxRetries?: number;
+    };
+  };
+  cosyvoice?: {
+    endpoint?: string;
+    modelDir?: string;
+    concurrency?: number;
+    /** 参考音频文本（CosyVoice zero-shot 必需）；不设则回退 voiceRef 同名 .txt */
+    referenceText?: string;
+    normalize?: boolean;
+    /** 服务器端确定性 seed 的盐（换值 = 全量重 roll）；非空时进音频缓存 key */
+    seedSalt?: string;
   };
   musetalk?: {
     url?: string;
@@ -153,6 +174,22 @@ export interface AppConfigPublic {
     endpoint?: string;
     modelDir?: string;
     concurrency?: number;
+    seedSalt?: string;
+  };
+  tts: {
+    provider?: 'voxcpm' | 'cosyvoice';
+    qa?: {
+      enabled?: boolean;
+      maxRetries?: number;
+    };
+  };
+  cosyvoice: {
+    endpoint?: string;
+    modelDir?: string;
+    concurrency?: number;
+    referenceText?: string;
+    normalize?: boolean;
+    seedSalt?: string;
   };
   musetalk: {
     url?: string;
@@ -178,6 +215,7 @@ export interface ApiError {
 
 export interface DoctorReport {
   voxcpm: { status: 'ok' | 'fail'; message?: string };
+  cosyvoice: { status: 'ok' | 'fail'; message?: string };
   anthropic: { status: 'ok' | 'missing'; message?: string };
   imageGen: { status: 'ok' | 'missing' | 'fail'; message?: string };
   ffmpeg: { status: 'ok' | 'missing'; version?: string };

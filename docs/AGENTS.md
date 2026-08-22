@@ -3,7 +3,7 @@
 > **本文档面向所有 AI Agent**：先在这里搞清楚自己负责哪一步，然后跳转到对应的子文档。
 
 AutoVideo 把 Markdown 教学脚本编译成 MP4 视频，全流程由 AI 驱动：
-**Claude AI** 生成视觉组件、**VoxCPM2** 生成旁白音频、**Remotion** 渲染视频。
+**Claude AI** 生成视觉组件、**VoxCPM2 / Fun-CosyVoice3**（`tts.provider` 可切换）生成旁白音频、**Remotion** 渲染视频。
 
 ---
 
@@ -73,7 +73,7 @@ Markdown → compile → TTS → visuals → render → MP4
 | 阶段 | 输入 | 输出 | 说明 |
 |------|------|------|------|
 | **compile** | `project.json` + Markdown | `script.json` | 解析、校验、资产哈希复制 |
-| **tts** | `script.json`（旁白） | `public/audio/<BXX>.wav` | 调用 VoxCPM2 逐行合成，加 200ms 静音 |
+| **tts** | `script.json`（旁白） | `public/audio/<BXX>.wav` | 逐行合成（voxcpm 走行级延续链 / cosyvoice 固定参考音 zero-shot），QA 门检测爆音/静音/时长异常并自动换 seed 重 roll；逐行响度对齐 + 标点分级静音 |
 | **visuals** | `script.json`（视觉描述） | `src/blocks/<BXX>/Component.tsx` | 组装优先：Claude 从预制组件库（`remotion/library/`）选组件填 JSON spec，机械生成 wrapper；无合适组件才回退自由生成 TSX。沙盒校验 |
 | **render** | `script.json` + 组件 + 音频 | `output/final_normalized.mp4` | Remotion 渲染分块 → ffmpeg 拼接 → loudnorm |
 
@@ -119,7 +119,7 @@ interface Block {
 ## 前置依赖与诊断
 
 - **Node.js 20+**
-- **Python 3.10+** + **VoxCPM2**（TTS 服务）
+- **Python 3.10+** + **VoxCPM2** 或 **Fun-CosyVoice3**（TTS 服务，`tts.provider` 选择，见 `third_servers/README.md`）
 - **ffmpeg 5.0+**
 - **Claude API key**：`ANTHROPIC_API_KEY` 环境变量，或 `~/.claude/settings.json`
 

@@ -11,6 +11,12 @@
  * synthesis. Terms the heuristics cannot guess a reading for (person names,
  * brands with irregular readings) are marked `needsLLM` for
  * `autovideo dict suggest`.
+ *
+ * A second check scans the dictionary itself: a replacement (RHS) containing
+ * digits, `:` or `.` is re-normalized by the TTS server after the rewrite
+ * (insert_zh_en_space → wetext), so the final reading is no longer pinned by
+ * the dictionary. Such rules are reported with a hint to rewrite the RHS as
+ * pure text. Also advisory only — never blocks the build.
  */
 
 import type { Block } from "../types/script.js";
@@ -135,6 +141,61 @@ export function suggestReading(term: string): string | undefined {
 /** Person-name-like: two or more capitalized words — leave to the LLM. */
 export function looksLikeProperNoun(term: string): boolean {
   return /^[A-Z][a-z]+$/.test(term);
+}
+
+// ---------------------------------------------------------------------------
+// Dictionary RHS stability
+// ---------------------------------------------------------------------------
+
+export interface DictFinding {
+  /** Literal term or regex source, as written in the dictionary */
+  pattern: string;
+  /** Replacement text containing digits or symbols */
+  replacement: string;
+  /** 1-based line number in the dictionary file the rule was loaded from */
+  line: number;
+}
+
+/**
+ * Digits, `:` and `.` in a replacement are re-normalized by the TTS server
+ * (insert_zh_en_space → wetext), so the synthesized reading escapes the
+ * author's control: `F P 16` may come out as "F P 十六" or "F P 一六"
+ * depending on the normalizer. A pure-text RHS passes through untouched.
+ */
+const UNSTABLE_RHS_CHAR = /[0-9:.]/;
+
+/** `$1`-style backreferences are substituted before synthesis — they are safe. */
+const BACKREFERENCE = /\$\d+/g;
+
+/**
+ * Scan dictionary rules for replacements whose reading the server-side
+ * normalizer can still mutate. Like the narration lint this is advisory:
+ * findings are printed as a warning, the build is never blocked.
+ */
+export function lintDictReplacements(rules: PronunciationRule[]): DictFinding[] {
+  const findings: DictFinding[] = [];
+  for (const rule of rules) {
+    const rhs = rule.isRegex ? rule.replacement.replace(BACKREFERENCE, "") : rule.replacement;
+    if (UNSTABLE_RHS_CHAR.test(rhs)) {
+      findings.push({ pattern: rule.pattern, replacement: rule.replacement, line: rule.line });
+    }
+  }
+  return findings;
+}
+
+/**
+ * Render RHS findings as a human-readable report, or null when the
+ * dictionary is clean.
+ */
+export function formatDictLint(findings: DictFinding[]): string | null {
+  if (findings.length === 0) return null;
+
+  const lines = [
+    `[pronounce] ${findings.length} 条词典 RHS 含数字/符号，会被服务端 normalize 二次处理，读法不可控:`,
+    ...findings.map((f) => `  ${f.pattern} => ${f.replacement}  (词典第 ${f.line} 行)`),
+    `建议把 RHS 改写为纯文字读法（如 16:9 => 十六比九），让词典固定最终发音。`,
+  ];
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

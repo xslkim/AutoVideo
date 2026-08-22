@@ -7,19 +7,20 @@
  * - Cache hit test: run twice, second time has 0 API calls
  * - Failure handling: retries work, abort controller cancels in-flight
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
 import http from "node:http";
-import { tts, type TtsOptions } from "../../src/cli/tts.js";
+import { tts, TtsError, type TtsOptions } from "../../src/cli/tts.js";
 import { gapAfterMs } from "../../src/tts/gaps.js";
 import type { AutoVideoConfig } from "../../src/config/defaults.js";
 import type { Script } from "../../src/types/script.js";
 
 // ── Generate a valid minimal WAV buffer (48kHz, mono, 16-bit PCM) ──────
 
-function generateWavBuffer(durationSec: number = 0.3, freqHz: number = 440): Buffer {
+function generateWavBuffer(durationSec: number = 0.3, freqHz: number = 440, amplitude: number = 8000): Buffer {
   const sampleRate = 48000;
   const numChannels = 1;
   const bitsPerSample = 16;
@@ -53,7 +54,7 @@ function generateWavBuffer(durationSec: number = 0.3, freqHz: number = 440): Buf
   // Fill with a simple sine wave
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
-    const val = Math.floor(Math.sin(2 * Math.PI * freqHz * t) * 8000);
+    const val = Math.floor(Math.sin(2 * Math.PI * freqHz * t) * amplitude);
     buf.writeInt16LE(val, 44 + i * 2);
   }
 
@@ -65,12 +66,17 @@ function generateWavBuffer(durationSec: number = 0.3, freqHz: number = 440): Buf
  * AND the continuation prompt, mirroring the real engine where line N's
  * waveform is a function of line N-1's audio. This makes chain-invalidation
  * behavior testable.
+ *
+ * Duration tracks the text length (≈ the QA gate's expected narration rate,
+ * QA_THRESHOLDS.charsPerSec) so mock takes pass the QA duration check.
  */
 function wavForRequest(parsed: Record<string, unknown>): Buffer {
   const basis = `${parsed.text ?? ""}|${parsed.prev_wav_base64 ?? ""}`;
   let h = 0;
   for (let i = 0; i < basis.length; i++) h = (h * 31 + basis.charCodeAt(i)) >>> 0;
-  return generateWavBuffer(0.3, 220 + (h % 440));
+  const text = String(parsed.text ?? "");
+  const chars = [...text].filter((c) => !/\s/.test(c)).length;
+  return generateWavBuffer(Math.max(0.3, chars / 4.5), 220 + (h % 440));
 }
 
 // ── Mock VoxCPM server ──────────────────────────────────────────────────
@@ -83,11 +89,15 @@ function createMockServer(): Promise<{
   voiceCallCount: { value: number };
   speechBodies: { value: Record<string, unknown>[] };
   setFailNextSpeech: (n: number) => void;
+  setAudioHook: (fn: ((parsed: Record<string, unknown>) => Buffer | null) | null) => void;
 }> {
   const speechCallCount = { value: 0 };
   const voiceCallCount = { value: 0 };
   const speechBodies: { value: Record<string, unknown>[] } = { value: [] };
   let failNextSpeech = 0;
+  // Per-test override for the synthesized audio (QA gate tests); return null
+  // to fall back to wavForRequest.
+  let audioHook: ((parsed: Record<string, unknown>) => Buffer | null) | null = null;
 
   const server = http.createServer((req, res) => {
     let body = "";
@@ -118,7 +128,7 @@ function createMockServer(): Promise<{
           return;
         }
         res.writeHead(200, { "Content-Type": "audio/wav" });
-        res.end(wavForRequest(parsed));
+        res.end(audioHook?.(parsed) ?? wavForRequest(parsed));
         return;
       }
 
@@ -139,6 +149,7 @@ function createMockServer(): Promise<{
           voiceCallCount,
           speechBodies,
           setFailNextSpeech: (n: number) => { failNextSpeech = n; },
+          setAudioHook: (fn) => { audioHook = fn; },
         });
       } else {
         reject(new Error("Failed to start mock server"));
@@ -151,6 +162,9 @@ function createMockServer(): Promise<{
 
 function makeConfig(mockUrl: string, cacheDir: string): AutoVideoConfig {
   return {
+    tts: {
+      provider: "voxcpm",
+    },
     voxcpm: {
       endpoint: mockUrl,
       modelDir: "/nonexistent/model",
@@ -160,6 +174,14 @@ function makeConfig(mockUrl: string, cacheDir: string): AutoVideoConfig {
       denoise: false,
       retryBadcase: true,
       concurrency: 4,
+    },
+    cosyvoice: {
+      endpoint: mockUrl,
+      modelDir: "/nonexistent/model",
+      referenceText: "参考文本。",
+      normalize: true,
+      seedSalt: "",
+      concurrency: 1,
     },
     anthropic: {
       apiKeyEnv: "ANTHROPIC_API_KEY",
@@ -274,6 +296,7 @@ describe("TTS command", () => {
     mock.voiceCallCount.value = 0;
     mock.speechBodies.value = [];
     mock.setFailNextSpeech(0);
+    mock.setAudioHook(null);
   });
 
   afterEach(() => {
@@ -486,8 +509,8 @@ describe("TTS command", () => {
     mock.speechBodies.value = [];
 
     // Run 2 with a script where B01 line 0 text changed — line 0 gets a new
-    // (unchained) key → miss; every later B01 line's chainPrevHash changes →
-    // miss. B02 is untouched → all hits.
+    // key (new ttsText, chainPrevHash pinned to "null") → miss; every later
+    // B01 line's chainPrevHash changes → miss. B02 is untouched → all hits.
     const script2 = makeTestScript(voiceRefPath);
     script2.blocks[0].narration.lines[0].ttsText = "改动后的第一行，";
     const scriptPath2 = writeScript(script2);
@@ -496,6 +519,37 @@ describe("TTS command", () => {
     // B01: all 5 lines re-synthesized (chain busted); B02: 5 cache hits
     expect(result.apiCalls).toBe(5);
     expect(result.cacheHits).toBe(5);
+  });
+
+  // ── Cache key shape test ────────────────────────────────────────────
+
+  it('cache keys: first line pins chainPrevHash "null", later lines carry the predecessor md5', async () => {
+    const scriptPath = writeScript(makeTestScript(voiceRefPath));
+    await tts(makeOpts(scriptPath));
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(cacheDir, "manifest.json"), "utf-8")
+    ) as Record<string, { key: Record<string, unknown> }>;
+    const audioKeys = Object.values(manifest)
+      .map((e) => e.key)
+      .filter((k) => typeof k.ttsText === "string");
+    expect(audioKeys).toHaveLength(10);
+
+    const byText = new Map(audioKeys.map((k) => [k.ttsText as string, k]));
+
+    // First line of each block pins the "null" sentinel.
+    expect(byText.get("第一行内容，")!.chainPrevHash).toBe("null");
+    expect(byText.get("第二块第一行")!.chainPrevHash).toBe("null");
+
+    // Later lines carry a 32-char md5 of the predecessor's audio.
+    for (const text of ["第二行内容。", "第三行内容：", "第二块第五行"]) {
+      expect(byText.get(text)!.chainPrevHash).toMatch(/^[0-9a-f]{32}$/);
+    }
+
+    // Every audio key carries the field — never absent.
+    for (const k of audioKeys) {
+      expect(typeof k.chainPrevHash).toBe("string");
+    }
   });
 
   // ── Retry test ────────────────────────────────────────────────────
@@ -514,4 +568,250 @@ describe("TTS command", () => {
     expect(result.script.blocks[1].audio).toBeDefined();
     expect(fs.existsSync(path.resolve(tempDir, "public/audio/B01.wav"))).toBe(true);
   }, 30_000); // longer timeout for retries (5s delay each)
+});
+// ── QA gate tests ─────────────────────────────────────────────────────
+
+/**
+ * Deterministic "good take": speech-level sine whose duration matches the
+ * text at the QA gate's expected narration rate — the same shape regardless
+ * of salt, so tests can regenerate the exact bytes the stage accepted.
+ */
+function goodWavFor(text: string): Buffer {
+  const chars = [...text].filter((c) => !/\s/.test(c)).length;
+  return generateWavBuffer(Math.max(0.3, chars / 4.5), 440);
+}
+
+/** Clipped take: full-scale amplitude → peak 0 dBFS → QA flags "hit_guard". */
+function clippedWavFor(text: string): Buffer {
+  const chars = [...text].filter((c) => !/\s/.test(c)).length;
+  return generateWavBuffer(Math.max(0.3, chars / 4.5), 440, 32767);
+}
+
+function makeQaScript(voiceRefPath: string, lines: string[]): Script {
+  return {
+    meta: {
+      schemaVersion: "1.0",
+      title: "QA Test",
+      voiceRef: voiceRefPath,
+      aspect: "16:9" as const,
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      theme: "dark-code",
+      subtitleSafeBottom: 162,
+    },
+    blocks: [
+      {
+        id: "B01",
+        title: "QA Block",
+        enter: "fade" as const,
+        exit: "fade" as const,
+        visual: { description: "QA visual" },
+        narration: {
+          lines: lines.map((t) => ({ text: t, ttsText: t, highlights: [] })),
+        },
+      },
+    ],
+    assets: {},
+    artifacts: { compiledAt: "2026-01-01T00:00:00Z" },
+  };
+}
+
+function audioKeysByText(cacheDir: string): Map<string, Record<string, unknown>> {
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(cacheDir, "manifest.json"), "utf-8")
+  ) as Record<string, { key: Record<string, unknown> }>;
+  const entries = Object.values(manifest)
+    .map((e) => e.key)
+    .filter((k) => typeof k.ttsText === "string");
+  return new Map(entries.map((k) => [k.ttsText as string, k]));
+}
+
+describe("TTS QA gate", () => {
+  let mock: Awaited<ReturnType<typeof createMockServer>>;
+  let tempDir: string;
+  let voiceRefPath: string;
+  let cacheDir: string;
+
+  beforeAll(async () => {
+    mock = await createMockServer();
+  });
+
+  afterAll(() => {
+    mock.server.close();
+  });
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "autovideo-tts-qa-test-"));
+    cacheDir = path.join(tempDir, "cache");
+    voiceRefPath = path.join(tempDir, "B00.wav");
+    fs.writeFileSync(voiceRefPath, generateWavBuffer(1.0));
+    mock.speechCallCount.value = 0;
+    mock.voiceCallCount.value = 0;
+    mock.speechBodies.value = [];
+    mock.setFailNextSpeech(0);
+    mock.setAudioHook(null);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  function writeScript(script: Script): string {
+    const scriptPath = path.join(tempDir, "script.json");
+    fs.writeFileSync(scriptPath, JSON.stringify(script, null, 2), "utf-8");
+    fs.mkdirSync(path.join(tempDir, "public"), { recursive: true });
+    return scriptPath;
+  }
+
+  it("flagged take is re-rolled with a ':qa:' salt under the same cache key", async () => {
+    const text = "质量门测试第一行。";
+    mock.setAudioHook((parsed) => {
+      const salt = String(parsed.seed_salt ?? "");
+      if (salt.includes(":qa:")) return goodWavFor(String(parsed.text));
+      return clippedWavFor(String(parsed.text)); // first take: clipped
+    });
+
+    const scriptPath = writeScript(makeQaScript(voiceRefPath, [text]));
+    const result = await tts({ scriptPath, config: makeConfig(mock.url, cacheDir) });
+
+    // Initial take + exactly one QA re-roll (the re-roll passes).
+    expect(result.apiCalls).toBe(2);
+    const bodies = mock.speechBodies.value;
+    expect(bodies).toHaveLength(2);
+    expect(String(bodies[0].seed_salt ?? "")).not.toContain(":qa:");
+    expect(String(bodies[1].seed_salt)).toContain(":qa:1");
+
+    // The salt is per-call: both takes share one cache key, last put wins.
+    const keys = audioKeysByText(cacheDir);
+    expect(keys.has(text)).toBe(true);
+    expect(keys.size).toBe(1);
+
+    // The stage completed normally.
+    expect(result.script.blocks[0].audio).toBeDefined();
+  });
+
+  it("the chain advances from the final accepted take, not the flagged one", async () => {
+    const line0 = "质量门链测第一行。";
+    const line1 = "质量门链测第二行。";
+    mock.setAudioHook((parsed) => {
+      const text = String(parsed.text);
+      const salt = String(parsed.seed_salt ?? "");
+      if (text === line0 && !salt.includes(":qa:")) return clippedWavFor(text);
+      return goodWavFor(text);
+    });
+
+    const scriptPath = writeScript(makeQaScript(voiceRefPath, [line0, line1]));
+    await tts({ scriptPath, config: makeConfig(mock.url, cacheDir) });
+
+    // Line 1's continuation prompt must be line 0's ACCEPTED (re-rolled) wav.
+    const l1 = mock.speechBodies.value.find((b) => b.text === line1);
+    expect(l1).toBeDefined();
+    const prevWav = Buffer.from(String(l1!.prev_wav_base64), "base64");
+    expect(prevWav.equals(goodWavFor(line0))).toBe(true);
+
+    // And line 1's cache key folds in that take's md5.
+    const prevMd5 = crypto.createHash("md5").update(prevWav).digest("hex");
+    expect(audioKeysByText(cacheDir).get(line1)!.chainPrevHash).toBe(prevMd5);
+  });
+
+  it("persistent failures accept the best take with a warning, never abort", async () => {
+    const text = "质量门兜底测试行。";
+    mock.setAudioHook(() => clippedWavFor(text)); // every take clipped
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const scriptPath = writeScript(makeQaScript(voiceRefPath, [text]));
+      const result = await tts({ scriptPath, config: makeConfig(mock.url, cacheDir) });
+
+      // Initial take + qa.maxRetries (2) re-rolls, then accepted anyway.
+      expect(result.apiCalls).toBe(3);
+      expect(result.script.blocks[0].audio).toBeDefined();
+
+      const qaWarns = warnSpy.mock.calls.filter((c) => String(c[0]).includes("QA gate"));
+      expect(qaWarns).toHaveLength(1);
+      expect(String(qaWarns[0][0])).toContain("accepting best take");
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("all takes unreadable (probe_error): line fails WITHOUT caching the bad take", async () => {
+    const text = "探针全挂测试行。";
+    mock.setAudioHook(() => Buffer.from("not a wav")); // ffprobe can't read it
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const scriptPath = writeScript(makeQaScript(voiceRefPath, [text]));
+      let caught: unknown;
+      try {
+        await tts({ scriptPath, config: makeConfig(mock.url, cacheDir) });
+      } catch (err) {
+        caught = err;
+      }
+
+      // Standard failedBlocks path: aggregated TtsError, resume hint included.
+      expect(caught).toBeInstanceOf(TtsError);
+      expect((caught as TtsError).code).toBe("ERR_TTS_LINE_FAILED");
+      expect((caught as TtsError).message).toContain("all takes unreadable");
+      expect((caught as TtsError).message).toContain("probe_error");
+
+      // 1 initial take + qa.maxRetries (2) re-rolls, all analyzed, none kept.
+      expect(mock.speechCallCount.value).toBe(3);
+
+      // The broken take never entered the cache — a rerun re-synthesizes
+      // instead of cache-hitting the bad file and dying in getWavDurationSec.
+      const manifestPath = path.join(cacheDir, "manifest.json");
+      const manifest = fs.existsSync(manifestPath)
+        ? (JSON.parse(fs.readFileSync(manifestPath, "utf-8")) as Record<string, { key: Record<string, unknown> }>)
+        : {};
+      const audioKeys = Object.values(manifest)
+        .map((e) => e.key)
+        .filter((k) => typeof k.ttsText === "string");
+      expect(audioKeys).toHaveLength(0);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("qa.enabled=false skips detection entirely (old behavior)", async () => {
+    const text = "质量门关闭测试行。";
+    mock.setAudioHook(() => clippedWavFor(text)); // would fail QA if it ran
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const config = makeConfig(mock.url, cacheDir);
+      config.tts.qa = { enabled: false };
+      const scriptPath = writeScript(makeQaScript(voiceRefPath, [text]));
+      const result = await tts({ scriptPath, config });
+
+      expect(result.apiCalls).toBe(1); // no re-rolls
+      expect(result.script.blocks[0].audio).toBeDefined();
+      expect(
+        warnSpy.mock.calls.some((c) => String(c[0]).includes("QA gate"))
+      ).toBe(false);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("cosyvoice provider (usesChain=false): every line pins chainPrevHash 'null'", async () => {
+    const lines = ["第一行文本。", "第二行文本。", "第三行文本。"];
+    const config = makeConfig(mock.url, cacheDir);
+    config.tts.provider = "cosyvoice";
+    const scriptPath = writeScript(makeQaScript(voiceRefPath, lines));
+    const result = await tts({ scriptPath, config });
+
+    expect(result.apiCalls).toBe(3);
+
+    // CosyVoice speak() never sends continuation fields.
+    for (const b of mock.speechBodies.value) {
+      expect(b.prev_wav_base64).toBeUndefined();
+      expect(b.prev_text).toBeUndefined();
+    }
+
+    // Every audio cache key pins the "null" sentinel — no chain folding.
+    const keys = audioKeysByText(cacheDir);
+    expect(keys.size).toBe(3);
+    for (const k of keys.values()) {
+      expect(k.chainPrevHash).toBe("null");
+    }
+  });
 });

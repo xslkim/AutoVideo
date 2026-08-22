@@ -142,3 +142,107 @@ describe('saveStoredConfig', () => {
     expect(loadStoredConfig(tmpRoot).anthropic?.apiKey).toBe('secret');
   });
 });
+
+// ── tts / cosyvoice sections (B2: provider 切换的 web 防丢字段接缝) ─────
+
+describe('tts/cosyvoice config passthrough', () => {
+  it('mergeStoredConfig keeps tts and cosyvoice sections from a PUT patch', () => {
+    const merged = mergeStoredConfig({ version: 1 }, {
+      tts: { provider: 'cosyvoice' },
+      cosyvoice: { endpoint: 'http://127.0.0.1:8002', referenceText: '参考文本', normalize: false },
+    });
+    expect(merged.tts?.provider).toBe('cosyvoice');
+    expect(merged.cosyvoice?.endpoint).toBe('http://127.0.0.1:8002');
+    expect(merged.cosyvoice?.referenceText).toBe('参考文本');
+    expect(merged.cosyvoice?.normalize).toBe(false);
+  });
+
+  it('mergeStoredConfig merges cosyvoice field-wise into the stored config', () => {
+    const stored: AppConfig = {
+      version: 1,
+      cosyvoice: { endpoint: 'http://old:8002', modelDir: '/models/cosy' },
+    };
+    const merged = mergeStoredConfig(stored, { cosyvoice: { endpoint: 'http://new:8002' } });
+    expect(merged.cosyvoice?.endpoint).toBe('http://new:8002');
+    expect(merged.cosyvoice?.modelDir).toBe('/models/cosy');
+  });
+
+  it('resolveWebConfig surfaces stored tts/cosyvoice values', () => {
+    saveStoredConfig(tmpRoot, {
+      version: 1,
+      tts: { provider: 'cosyvoice' },
+      cosyvoice: { endpoint: 'http://cosy:8002', referenceText: '参考文本' },
+    });
+    const overlay = resolveWebConfig(tmpRoot);
+    expect(overlay.tts?.provider).toBe('cosyvoice');
+    expect(overlay.cosyvoice?.endpoint).toBe('http://cosy:8002');
+    expect(overlay.cosyvoice?.referenceText).toBe('参考文本');
+  });
+
+  it('resolveWebConfig falls back to COSYVOICE_ENDPOINT when nothing is stored', () => {
+    const saved = process.env.COSYVOICE_ENDPOINT;
+    process.env.COSYVOICE_ENDPOINT = 'http://env-cosy:8002';
+    try {
+      expect(resolveWebConfig(tmpRoot).cosyvoice?.endpoint).toBe('http://env-cosy:8002');
+    } finally {
+      if (saved === undefined) delete process.env.COSYVOICE_ENDPOINT;
+      else process.env.COSYVOICE_ENDPOINT = saved;
+    }
+  });
+
+  it('resolveTaskConfig applies the tts/cosyvoice overlay onto CLI defaults', () => {
+    saveStoredConfig(tmpRoot, {
+      version: 1,
+      tts: { provider: 'cosyvoice' },
+      cosyvoice: { endpoint: 'http://cosy:8002', normalize: false },
+    });
+    const cfg = resolveTaskConfig(tmpRoot);
+    expect(cfg.tts.provider).toBe('cosyvoice');
+    expect(cfg.cosyvoice.endpoint).toBe('http://cosy:8002');
+    expect(cfg.cosyvoice.normalize).toBe(false);
+    // untouched defaults survive
+    expect(cfg.cosyvoice.concurrency).toBeGreaterThan(0);
+    expect(cfg.voxcpm.endpoint).toBeTruthy();
+  });
+
+  it('resolveTaskConfig keeps the voxcpm default when no overlay is stored', () => {
+    const cfg = resolveTaskConfig(tmpRoot);
+    expect(cfg.tts.provider).toBe('voxcpm');
+  });
+
+  it('mergeStoredConfig merges tts.qa field-wise into the stored config', () => {
+    const stored: AppConfig = {
+      version: 1,
+      tts: { provider: 'cosyvoice', qa: { enabled: true, maxRetries: 2 } },
+    };
+    const merged = mergeStoredConfig(stored, { tts: { qa: { enabled: false } } });
+    expect(merged.tts?.provider).toBe('cosyvoice');
+    expect(merged.tts?.qa?.enabled).toBe(false);
+    expect(merged.tts?.qa?.maxRetries).toBe(2);
+  });
+
+  it('resolveWebConfig surfaces tts.qa and both seedSalt fields', () => {
+    saveStoredConfig(tmpRoot, {
+      version: 1,
+      tts: { provider: 'cosyvoice', qa: { enabled: false, maxRetries: 5 } },
+      voxcpm: { seedSalt: 'vx-salt' },
+      cosyvoice: { seedSalt: 'cv-salt' },
+    });
+    const overlay = resolveWebConfig(tmpRoot);
+    expect(overlay.tts?.qa).toEqual({ enabled: false, maxRetries: 5 });
+    expect(overlay.voxcpm?.seedSalt).toBe('vx-salt');
+    expect(overlay.cosyvoice?.seedSalt).toBe('cv-salt');
+  });
+
+  it('resolveTaskConfig applies tts.qa and seedSalt overlays onto CLI defaults', () => {
+    saveStoredConfig(tmpRoot, {
+      version: 1,
+      tts: { qa: { enabled: false, maxRetries: 5 } },
+      cosyvoice: { seedSalt: 'cv-salt' },
+    });
+    const cfg = resolveTaskConfig(tmpRoot);
+    expect(cfg.tts.qa?.enabled).toBe(false);
+    expect(cfg.tts.qa?.maxRetries).toBe(5);
+    expect(cfg.cosyvoice.seedSalt).toBe('cv-salt');
+  });
+});

@@ -141,11 +141,14 @@ def build_styled_text(text: str, style: str | None) -> str:
 def wav_response(audio: np.ndarray) -> Response:
     if audio.dtype != np.int16:
         if audio.dtype in (np.float32, np.float64):
-            peak = np.max(np.abs(audio))
-            if peak > 0:
-                audio = (audio / peak * 32767).astype(np.int16)
-            else:
-                audio = audio.astype(np.int16)
+            # Clip-guard instead of per-line full-scale peak normalization:
+            # only tame takes that would actually clip, so quiet lines keep
+            # their natural level and line-to-line loudness stays comparable
+            # (client-side gain alignment handles the residual drift).
+            peak = float(np.max(np.abs(audio)))
+            if peak > 0.99:
+                audio = audio * (0.99 / peak)
+            audio = (audio * 32767).astype(np.int16)
 
     buf = io.BytesIO()
     sf.write(buf, audio, 48000, subtype="PCM_16", format="WAV")
@@ -297,8 +300,10 @@ async def health():
     return {"status": "ok", "model": "VoxCPM2", "styled_speech": True}
 
 
+# NOTE: `def` (not `async def`) so FastAPI runs this in the threadpool —
+# the base64 decode below is CPU work that would otherwise block the event loop.
 @app.post("/v1/voices", response_model=VoiceResponse)
-async def register_voice(req: VoiceRequest):
+def register_voice(req: VoiceRequest):
     voice_id = f"v_{uuid.uuid4().hex[:12]}"
     wav_bytes = base64.b64decode(req.wav_base64)
 
@@ -314,8 +319,11 @@ async def register_voice(req: VoiceRequest):
     return VoiceResponse(voice_id=voice_id)
 
 
+# NOTE: `def` (not `async def`) so FastAPI runs this in the threadpool —
+# generation holds the GPU for seconds and an async handler would block the
+# event loop, leaving /health unanswered for the whole synthesis.
 @app.post("/v1/speech")
-async def synthesize(req: SpeechRequest):
+def synthesize(req: SpeechRequest):
     prev_wav_bytes = (
         base64.b64decode(req.prev_wav_base64) if req.prev_wav_base64 else None
     )
@@ -335,8 +343,9 @@ async def synthesize(req: SpeechRequest):
     return wav_response(audio)
 
 
+# Same threadpool reasoning as /v1/speech: run_generate is GPU-bound.
 @app.post("/v1/speech/styled")
-async def synthesize_styled(req: StyledSpeechRequest):
+def synthesize_styled(req: StyledSpeechRequest):
     """Synthesize speech with explicit style / voice-effect control.
 
     - voice_id set  → Style Control (clone timbre + style prompt)

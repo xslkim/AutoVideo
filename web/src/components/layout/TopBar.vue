@@ -58,8 +58,8 @@
           </template>
           <div class="health-tooltip">
             <div class="health-row">
-              <span class="health-label">VoxCPM</span>
-              <span :class="doctorStatus.voxcpm">{{ doctorStatus.voxcpm === 'ok' ? '正常' : '异常' }}</span>
+              <span class="health-label">{{ ttsLabel }}</span>
+              <span :class="ttsStatus">{{ ttsStatus === 'ok' ? '正常' : '异常' }}</span>
             </div>
             <div class="health-row">
               <span class="health-label">Anthropic</span>
@@ -193,6 +193,7 @@ async function loadVisualConcurrency() {
   const res = await apiGet<AppConfigPublic>('/api/config', { silent: true })
   if (res.ok) {
     visualConcurrency.value = clampVisualConcurrency(res.data.anthropic?.concurrency)
+    ttsProvider.value = res.data.tts?.provider === 'cosyvoice' ? 'cosyvoice' : 'voxcpm'
   }
 }
 
@@ -217,16 +218,25 @@ const showDoctor = ref(false)
 const doctorReport = ref<DoctorReport | null>(null)
 const doctorLoading = ref(false)
 
+const ttsProvider = ref<'voxcpm' | 'cosyvoice'>('voxcpm')
+
 const doctorStatus = reactive({
   voxcpm: 'fail' as string,
+  cosyvoice: 'fail' as string,
   anthropic: 'missing' as string,
   imageGen: 'missing' as string,
   ffmpeg: 'missing' as string,
   remotion: 'ok' as string,
 })
 
+// The TTS health row follows the active engine (tts.provider), not a fixed one.
+const ttsLabel = computed(() => (ttsProvider.value === 'cosyvoice' ? 'CosyVoice' : 'VoxCPM'))
+const ttsStatus = computed(() =>
+  ttsProvider.value === 'cosyvoice' ? doctorStatus.cosyvoice : doctorStatus.voxcpm,
+)
+
 const healthOk = computed(() =>
-  doctorStatus.voxcpm === 'ok' &&
+  ttsStatus.value === 'ok' &&
   doctorStatus.anthropic === 'ok' &&
   doctorStatus.imageGen === 'ok' &&
   doctorStatus.ffmpeg === 'ok' &&
@@ -236,11 +246,12 @@ const healthOk = computed(() =>
 const doctorItems = computed(() => {
   if (!doctorReport.value) return []
   const r = doctorReport.value
+  const tts = (ttsProvider.value === 'cosyvoice' ? r.cosyvoice : r.voxcpm) ?? r.voxcpm
   return [
     {
-      label: 'VoxCPM 语音服务',
-      ok: r.voxcpm.status === 'ok',
-      detail: r.voxcpm.status !== 'ok' && r.voxcpm.message ? r.voxcpm.message : (r.voxcpm.status === 'ok' ? '服务正常' : ''),
+      label: `${ttsLabel.value} 语音服务`,
+      ok: tts.status === 'ok',
+      detail: tts.status !== 'ok' && tts.message ? tts.message : (tts.status === 'ok' ? '服务正常' : ''),
     },
     {
       label: 'Anthropic API',
@@ -272,6 +283,7 @@ async function refreshDoctor() {
     const data = await resp.json() as DoctorReport
     doctorReport.value = data
     doctorStatus.voxcpm = data.voxcpm.status
+    doctorStatus.cosyvoice = data.cosyvoice?.status ?? 'fail'
     doctorStatus.anthropic = data.anthropic.status
     doctorStatus.imageGen = data.imageGen.status
     doctorStatus.ffmpeg = data.ffmpeg.status

@@ -36,13 +36,63 @@ export interface VoxcpmConfig {
   concurrency: number;
 }
 
+export interface CosyVoiceConfig {
+  /** cosyvoice-tts service endpoint */
+  endpoint: string;
+  /** Fun-CosyVoice3 model weights directory (used for cache-key versioning) */
+  modelDir: string;
+  /**
+   * Transcript of the voiceRef reference wav. CosyVoice zero-shot cloning
+   * requires the reference transcript; when unset, the provider falls back to
+   * a same-named `.txt` file next to the voiceRef wav (e.g. B00.wav → B00.txt).
+   */
+  referenceText?: string;
+  /**
+   * Run the engine's text normalization (numbers, symbols) before synthesis.
+   * CJK↔ASCII boundary spacing is always applied server-side regardless.
+   */
+  normalize: boolean;
+  /**
+   * Salt folded into the server-side deterministic seed (empty = stable
+   * default). Change to any string to re-roll all takes. When set, it joins
+   * the audio cache key — a new salt therefore re-synthesizes everything.
+   */
+  seedSalt?: string;
+  /** Max concurrent TTS lines (the server serializes GPU generation; keep 1) */
+  concurrency: number;
+}
+
+export interface TtsQaConfig {
+  /**
+   * Per-line synthesis QA gate: analyze each take with ffmpeg (duration vs
+   * text length, silence ratio, guard-level peaks, RMS) and re-roll flagged takes
+   * with a per-call salt. Default on; false restores the old behavior.
+   */
+  enabled?: boolean;
+  /**
+   * Max QA re-rolls per line (default 2). When every take stays flagged the
+   * best-scoring one is accepted with a warning — the stage never aborts.
+   */
+  maxRetries?: number;
+}
+
 export interface TtsConfig {
   /**
    * Which speech engine the TTS stage uses. Engine-specific settings live in
-   * that engine's own section (e.g. `voxcpm`).
+   * that engine's own section (e.g. `voxcpm`, `cosyvoice`).
    */
-  provider: "voxcpm";
+  provider: "voxcpm" | "cosyvoice";
+  /** Synthesis QA gate (see src/tts/qa.ts); omitted fields use the defaults. */
+  qa?: TtsQaConfig;
 }
+
+/**
+ * Audio post-processing pipeline version, folded into every TTS provider's
+ * cacheDescriptor. Bump when client/server post-processing changes (e.g.
+ * server clip-guard, per-line gain alignment) so previously cached audio
+ * invalidates once instead of silently mixing old and new levels.
+ */
+export const TTS_PIPELINE_VERSION = "2";
 
 /** Agent backend. See src/ai/agent/types.ts (AgentProvider). */
 export type AgentProviderName = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli";
@@ -265,6 +315,7 @@ export interface VisualQualityConfig {
 export interface AutoVideoConfig {
   tts: TtsConfig;
   voxcpm: VoxcpmConfig;
+  cosyvoice: CosyVoiceConfig;
   anthropic: AnthropicConfig;
   imageGen: ImageGenConfig;
   render: RenderConfig;
@@ -284,6 +335,7 @@ export interface AutoVideoConfig {
 export const DEFAULT_CONFIG: AutoVideoConfig = {
   tts: {
     provider: "voxcpm",
+    qa: { enabled: true, maxRetries: 2 },
   },
   voxcpm: {
     endpoint: "http://127.0.0.1:8000",
@@ -295,6 +347,13 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     normalize: true,
     seedSalt: "",
     concurrency: 4,
+  },
+  cosyvoice: {
+    endpoint: "http://127.0.0.1:8002",
+    modelDir: "/path/to/Fun-CosyVoice3-0.5B",
+    normalize: true,
+    seedSalt: "",
+    concurrency: 1,
   },
   anthropic: {
     model: "claude-sonnet-4-6",

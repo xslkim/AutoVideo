@@ -261,25 +261,70 @@
         </n-form>
       </n-tab-pane>
 
-      <!-- VoxCPM -->
-      <n-tab-pane name="voxcpm" tab="VoxCPM">
+      <!-- 语音合成（TTS 底座切换） -->
+      <n-tab-pane name="voxcpm" tab="语音合成">
         <n-form label-placement="left" label-width="90" :style="{ paddingTop: '12px' }">
-          <n-form-item label="Endpoint">
-            <n-input v-model:value="form.voxcpm.endpoint" placeholder="http://127.0.0.1:8000" clearable />
+          <n-form-item label="TTS 底座">
+            <n-select
+              v-model:value="form.tts.provider"
+              :options="ttsProviderOptions"
+              style="width: 100%"
+            />
           </n-form-item>
-          <n-form-item label="Model Dir">
-            <n-input v-model:value="form.voxcpm.modelDir" placeholder="/path/to/VoxCPM2" clearable />
+          <n-alert type="info" :bordered="false" style="margin-bottom: 12px; font-size: 12px">
+            切换底座后需启动对应服务，见 third_servers/README.md
+          </n-alert>
+
+          <!-- VoxCPM2：行级延续链 -->
+          <template v-if="form.tts.provider === 'voxcpm'">
+            <n-form-item label="Endpoint">
+              <n-input v-model:value="form.voxcpm.endpoint" placeholder="http://127.0.0.1:8000" clearable />
+            </n-form-item>
+            <n-form-item label="Model Dir">
+              <n-input v-model:value="form.voxcpm.modelDir" placeholder="/path/to/VoxCPM2" clearable />
+            </n-form-item>
+            <n-form-item label="Concurrency">
+              <n-input-number v-model:value="form.voxcpm.concurrency" :min="1" :max="8" style="width: 100%" />
+            </n-form-item>
+          </template>
+
+          <!-- Fun-CosyVoice3：固定参考音 -->
+          <template v-else>
+            <n-form-item label="Endpoint">
+              <n-input v-model:value="form.cosyvoice.endpoint" placeholder="http://127.0.0.1:8002" clearable />
+            </n-form-item>
+            <n-form-item label="Model Dir">
+              <n-input v-model:value="form.cosyvoice.modelDir" placeholder="/path/to/Fun-CosyVoice3-0.5B" clearable />
+            </n-form-item>
+            <n-form-item label="参考文本">
+              <n-input
+                v-model:value="form.cosyvoice.referenceText"
+                placeholder="参考音频逐字稿（zero-shot 必需；留空回退 voiceRef 同名 .txt）"
+                clearable
+              />
+            </n-form-item>
+            <n-form-item label="文本规范化">
+              <n-switch v-model:value="form.cosyvoice.normalize" />
+            </n-form-item>
+            <n-form-item label="Concurrency">
+              <n-input-number v-model:value="form.cosyvoice.concurrency" :min="1" :max="8" style="width: 100%" />
+            </n-form-item>
+          </template>
+
+          <n-form-item label="合成 QA 门">
+            <n-switch v-model:value="form.tts.qa.enabled" />
+            <span style="margin-left: 12px; font-size: 12px; color: #999">
+              每条 take 先过 ffmpeg 分析，不达标自动加盐重 roll
+            </span>
           </n-form-item>
-          <n-form-item label="Concurrency">
-            <n-input-number v-model:value="form.voxcpm.concurrency" :min="1" :max="8" style="width: 100%" />
-          </n-form-item>
+
           <n-form-item>
-            <n-button size="small" :loading="testing.voxcpm" @click="testService('voxcpm')">
+            <n-button size="small" :loading="currentTtsTesting" @click="testService(form.tts.provider)">
               测试连通性
             </n-button>
-            <span v-if="testResult.voxcpm" :style="{ marginLeft: '12px', fontSize: '13px' }">
-              <span v-if="testResult.voxcpm.ok" style="color: #18a058">连接成功 ({{ testResult.voxcpm.latencyMs }}ms)</span>
-              <span v-else style="color: #d03050">{{ testResult.voxcpm.message }}</span>
+            <span v-if="currentTtsResult" :style="{ marginLeft: '12px', fontSize: '13px' }">
+              <span v-if="currentTtsResult.ok" style="color: #18a058">连接成功 ({{ currentTtsResult.latencyMs }}ms)</span>
+              <span v-else style="color: #d03050">{{ currentTtsResult.message }}</span>
             </span>
           </n-form-item>
         </n-form>
@@ -396,6 +441,11 @@ const imageGenProviderOptions = [
   { label: 'OpenAI 兼容 API', value: 'openai' },
 ]
 
+const ttsProviderOptions = [
+  { label: 'Fun-CosyVoice3（固定参考音，推荐）', value: 'cosyvoice' },
+  { label: 'VoxCPM2（行级延续链）', value: 'voxcpm' },
+]
+
 const agentProviderOptions = [
   { label: 'Anthropic 兼容 API（Claude / DeepSeek / GLM / Kimi）', value: 'anthropic-api' },
   { label: 'Claude CLI（claude login 凭证）', value: 'claude-cli' },
@@ -495,6 +545,20 @@ const form = reactive({
     modelDir: '' as string,
     concurrency: 2 as number | null,
   },
+  tts: {
+    provider: 'voxcpm' as 'voxcpm' | 'cosyvoice',
+    qa: {
+      enabled: true as boolean,
+      maxRetries: 2 as number | null,
+    },
+  },
+  cosyvoice: {
+    endpoint: '' as string,
+    modelDir: '' as string,
+    concurrency: 1 as number | null,
+    referenceText: '' as string,
+    normalize: true as boolean,
+  },
   musetalk: {
     url: '' as string,
   },
@@ -515,6 +579,7 @@ const testing = reactive({
   anthropic: false,
   imageGen: false,
   voxcpm: false,
+  cosyvoice: false,
   musetalk: false,
 })
 
@@ -522,8 +587,13 @@ const testResult = reactive<Record<string, { ok: boolean; latencyMs?: number; me
   anthropic: null,
   imageGen: null,
   voxcpm: null,
+  cosyvoice: null,
   musetalk: null,
 })
+
+// 语音合成 tab：连通性测试跟随当前选中的 TTS 底座
+const currentTtsTesting = computed(() => testing[form.tts.provider])
+const currentTtsResult = computed(() => testResult[form.tts.provider])
 
 // ── Load config ─────────────────────────────────────────────────────────
 
@@ -560,6 +630,16 @@ async function loadConfig() {
   form.voxcpm.endpoint = c.voxcpm.endpoint ?? ''
   form.voxcpm.modelDir = c.voxcpm.modelDir ?? ''
   form.voxcpm.concurrency = c.voxcpm.concurrency ?? 2
+
+  form.tts.provider = c.tts?.provider ?? 'voxcpm'
+  form.tts.qa.enabled = c.tts?.qa?.enabled ?? true
+  form.tts.qa.maxRetries = c.tts?.qa?.maxRetries ?? 2
+
+  form.cosyvoice.endpoint = c.cosyvoice?.endpoint ?? ''
+  form.cosyvoice.modelDir = c.cosyvoice?.modelDir ?? ''
+  form.cosyvoice.concurrency = c.cosyvoice?.concurrency ?? 1
+  form.cosyvoice.referenceText = c.cosyvoice?.referenceText ?? ''
+  form.cosyvoice.normalize = c.cosyvoice?.normalize ?? true
 
   form.musetalk.url = c.musetalk?.url ?? ''
 
@@ -627,6 +707,24 @@ async function onSave() {
       concurrency: form.voxcpm.concurrency,
     }
 
+    // TTS 底座 + 合成 QA 门
+    patch.tts = {
+      provider: form.tts.provider,
+      qa: {
+        enabled: form.tts.qa.enabled,
+        maxRetries: form.tts.qa.maxRetries,
+      },
+    }
+
+    // CosyVoice
+    patch.cosyvoice = {
+      endpoint: form.cosyvoice.endpoint || null,
+      modelDir: form.cosyvoice.modelDir || null,
+      concurrency: form.cosyvoice.concurrency,
+      referenceText: form.cosyvoice.referenceText || null,
+      normalize: form.cosyvoice.normalize,
+    }
+
     // MuseTalk
     patch.musetalk = {
       url: form.musetalk.url || null,
@@ -659,7 +757,7 @@ function onCancel() {
 
 // ── Connectivity test ───────────────────────────────────────────────────
 
-async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'musetalk') {
+async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyvoice' | 'musetalk') {
   testing[service] = true
   testResult[service] = null
   try {

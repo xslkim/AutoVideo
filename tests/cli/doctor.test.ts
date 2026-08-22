@@ -5,6 +5,22 @@ import { doctorAction } from "../../src/cli/doctor.js";
 // disk space) — on slower machines each invocation can exceed the 5s default.
 describe("doctor command", { timeout: 30000 }, () => {
   it("should output a table with all 11 check items", async () => {
+    // Pin the TTS provider so the assertions don't depend on the local
+    // autovideo.config.json flip (voxcpm ↔ cosyvoice).
+    vi.doMock("../../src/config/load.js", async (importOriginal) => {
+      const mod = await importOriginal<typeof import("../../src/config/load.js")>();
+      return {
+        ...mod,
+        loadConfig: (...args: Parameters<typeof mod.loadConfig>) => {
+          const result = mod.loadConfig(...args);
+          result.config.tts.provider = "voxcpm";
+          return result;
+        },
+      };
+    });
+    vi.resetModules();
+    const { doctorAction: freshDoctorAction } = await import("../../src/cli/doctor.js");
+
     const logs: string[] = [];
     const origLog = console.log;
     console.log = (...args: any[]) => {
@@ -12,9 +28,11 @@ describe("doctor command", { timeout: 30000 }, () => {
     };
 
     try {
-      await doctorAction();
+      await freshDoctorAction();
     } finally {
       console.log = origLog;
+      vi.resetModules();
+      vi.doUnmock("../../src/config/load.js");
     }
 
     const stdout = logs.join("\n");
@@ -139,5 +157,41 @@ describe("doctor command", { timeout: 30000 }, () => {
 
     const stdout = logs.join("\n");
     expect(stdout).toMatch(/Summary: \d+ PASS, \d+ WARN, \d+ FAIL/);
+  });
+
+  it("dispatches TTS checks to CosyVoice3 when tts.provider is cosyvoice", async () => {
+    vi.doMock("../../src/config/load.js", async (importOriginal) => {
+      const mod = await importOriginal<typeof import("../../src/config/load.js")>();
+      return {
+        ...mod,
+        loadConfig: (...args: Parameters<typeof mod.loadConfig>) => {
+          const result = mod.loadConfig(...args);
+          result.config.tts.provider = "cosyvoice";
+          return result;
+        },
+      };
+    });
+    vi.resetModules();
+    const { doctorAction: freshDoctorAction } = await import("../../src/cli/doctor.js");
+
+    const logs: string[] = [];
+    const origLog = console.log;
+    console.log = (...args: any[]) => {
+      logs.push(args.join(" "));
+    };
+
+    try {
+      await freshDoctorAction();
+    } finally {
+      console.log = origLog;
+      vi.resetModules();
+      vi.doUnmock("../../src/config/load.js");
+    }
+
+    const stdout = logs.join("\n");
+    expect(stdout).toContain("CosyVoice3 service");
+    expect(stdout).toContain("CosyVoice3 model weights");
+    expect(stdout).not.toContain("VoxCPM2 service");
+    expect(stdout).not.toContain("VoxCPM2 model weights");
   });
 });

@@ -206,6 +206,66 @@ export async function checkVoxCPMService(config: AutoVideoConfig): Promise<Check
   }
 }
 
+async function checkCosyVoiceService(config: AutoVideoConfig): Promise<CheckResult> {
+  const endpoint = config.cosyvoice.endpoint;
+  try {
+    const code = await httpGetStatus(`${endpoint}/health`);
+    if (code >= 200 && code < 400) {
+      return { name: "CosyVoice3 service", status: "PASS", detail: `${endpoint}/health → ${code}`, fix: "" };
+    }
+    return {
+      name: "CosyVoice3 service",
+      status: "WARN",
+      detail: `${endpoint}/health → HTTP ${code}`,
+      fix: code === 503
+        ? `The model may still be loading (or failed to load) — check logs/cosyvoice.log and retry. Otherwise start the service: bash third_servers/cosyvoice-tts/start.sh`
+        : `Start the CosyVoice3 service. Run: bash third_servers/cosyvoice-tts/start.sh (see third_servers/cosyvoice-tts/README.md)`,
+    };
+  } catch {
+    return {
+      name: "CosyVoice3 service",
+      status: "WARN",
+      detail: `unreachable at ${endpoint}`,
+      fix: `Start the CosyVoice3 service. Run: bash third_servers/cosyvoice-tts/start.sh (see third_servers/cosyvoice-tts/README.md)`,
+    };
+  }
+}
+
+async function checkCosyVoiceModel(config: AutoVideoConfig): Promise<CheckResult> {
+  const modelDir = expandTilde(config.cosyvoice.modelDir);
+  const configPath = join(modelDir, "config.json");
+  if (existsSync(configPath)) {
+    return {
+      name: "CosyVoice3 model weights",
+      status: "PASS",
+      detail: configPath,
+      fix: "",
+    };
+  }
+  // Also check if the directory itself exists (model files may have different config names)
+  if (existsSync(modelDir)) {
+    try {
+      const files = readdirSync(modelDir);
+      if (files.length > 0) {
+        return {
+          name: "CosyVoice3 model weights",
+          status: "PASS",
+          detail: `${modelDir} (${files.length} file(s))`,
+          fix: "",
+        };
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return {
+    name: "CosyVoice3 model weights",
+    status: "FAIL",
+    detail: `not found at ${modelDir}`,
+    fix: "Download the Fun-CosyVoice3-0.5B weights, then set cosyvoice.modelDir in autovideo.config.json to the weights dir. Run: bash third_servers/cosyvoice-tts/install.sh",
+  };
+}
+
 async function checkVoxCPMModel(config: AutoVideoConfig): Promise<CheckResult> {
   const modelDir = expandTilde(config.voxcpm.modelDir);
   const configPath = join(modelDir, "config.json");
@@ -489,8 +549,15 @@ export async function doctorAction(): Promise<number> {
   checks.push(await checkFfmpeg());
   checks.push(await checkChromium());
   checks.push(await checkCJKFonts());
-  checks.push(await checkVoxCPMService(config));
-  checks.push(await checkVoxCPMModel(config));
+  // Check the engine selected by tts.provider; the other engine's service is
+  // expected to be offline (the two cannot share the GPU anyway).
+  if ((config.tts?.provider ?? "voxcpm") === "cosyvoice") {
+    checks.push(await checkCosyVoiceService(config));
+    checks.push(await checkCosyVoiceModel(config));
+  } else {
+    checks.push(await checkVoxCPMService(config));
+    checks.push(await checkVoxCPMModel(config));
+  }
   checks.push(await checkClaudeCredentials(config));
   checks.push(await checkClaudeApiConnectivity(config));
   checks.push(await checkCacheDirWritable(config));

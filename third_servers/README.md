@@ -9,6 +9,7 @@ AutoVideo 视频生成管线调用三个**自托管的 HTTP 服务**。框架只
 | 服务 | 用途 | 默认端口 | 必需? | 对应配置项 |
 |------|------|---------|--------|-----------|
 | **VoxCPM2** | 旁白语音合成 (TTS) | `8000` | ✅ 必需 | `voxcpm.endpoint` |
+| **Fun-CosyVoice3** | 旁白语音合成 (TTS 可切换底座) | `8002` | ⬜ 可选(替代 VoxCPM2) | `tts.provider` / `cosyvoice.endpoint` |
 | **SenseNova-U1** | 文生图 (image 视觉模式) | `8765` | ⬜ 可选 | `imageGen.baseURL` |
 | **MuseTalk** | 口型/唇形同步 (avatar 模式) | `8001` | ⬜ 可选 | `musetalk.url` |
 
@@ -19,6 +20,7 @@ AutoVideo 视频生成管线调用三个**自托管的 HTTP 服务**。框架只
 | 目录 | 服务 | 收录内容 |
 |------|------|---------|
 | [`voxcpm-tts/`](voxcpm-tts/) | VoxCPM2 TTS | 服务源码 `server.py` + 依赖 + 启动/安装脚本 |
+| [`cosyvoice-tts/`](cosyvoice-tts/) | Fun-CosyVoice3 TTS | 服务源码 `server.py` + 启动/安装脚本(引擎代码需 clone 上游) |
 | [`sensenova-t2i/`](sensenova-t2i/) | SenseNova-U1 文生图 | 部署文档 + 启动/安装脚本(源码需 clone 上游) |
 | [`musetalk-lipsync/`](musetalk-lipsync/) | MuseTalk 唇形同步 | 部署文档 + 启动/安装脚本(源码需 clone 上游) |
 
@@ -31,9 +33,11 @@ AutoVideo 视频生成管线调用三个**自托管的 HTTP 服务**。框架只
 - `start.sh` — 启动服务(支持 `HOST` / `PORT` / 模型路径环境变量)
 
 ```bash
-# 1. 装并启动 TTS(必需)
+# 1. 装并启动 TTS(必需;CosyVoice3 为可切换替代底座,二选一)
 bash third_servers/voxcpm-tts/install.sh
 bash third_servers/voxcpm-tts/start.sh &
+#   或: bash third_servers/cosyvoice-tts/install.sh && bash third_servers/cosyvoice-tts/start.sh &
+#   (两者显存无法并存时用 bash third_servers/stop.sh tts|cosy 串行切换)
 
 # 2.(可选)文生图 / 唇形同步
 bash third_servers/sensenova-t2i/install.sh   && bash third_servers/sensenova-t2i/start.sh &
@@ -46,7 +50,7 @@ bash third_servers/musetalk-lipsync/install.sh && bash third_servers/musetalk-li
 
 ```bash
 bash third_servers/stop.sh                 # 停止全部
-bash third_servers/stop.sh tts             # 只停某个: tts | t2i | lipsync
+bash third_servers/stop.sh tts             # 只停某个: tts | t2i | lipsync | cosy
 ```
 
 ## 端口与健康检查约定
@@ -54,6 +58,7 @@ bash third_servers/stop.sh tts             # 只停某个: tts | t2i | lipsync
 | 服务 | 健康检查 |
 |------|---------|
 | VoxCPM2 | `GET http://127.0.0.1:8000/health` → `{ "status": "ok" }` |
+| Fun-CosyVoice3 | `GET http://127.0.0.1:8002/health` → `{ "status": "ok" }`(模型加载中返回 503) |
 | SenseNova-U1 | `GET http://127.0.0.1:8765/`(Web 服务根) |
 | MuseTalk | `GET http://127.0.0.1:8001/health` |
 

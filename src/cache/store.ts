@@ -35,8 +35,8 @@ export interface AudioKey {
    * MD5 of the previous line's WAV within the same block. Lines are
    * synthesized as a continuation chain (the previous line's audio is the
    * prompt for the next), so a line's waveform depends on its predecessor.
-   * Absent for the first line of a block, keeping its key compatible with
-   * pre-chaining cache entries.
+   * Always present: the first line of a block (and every line for providers
+   * with usesChain=false) uses the sentinel value "null".
    */
   chainPrevHash?: string;
 }

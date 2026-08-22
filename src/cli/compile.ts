@@ -35,7 +35,7 @@ import {
   DICT_FILENAME,
   PronunciationError,
 } from "../tts/pronounce.js";
-import { lintPronunciation, formatPronunciationLint } from "../tts/lint.js";
+import { lintPronunciation, formatPronunciationLint, lintDictReplacements, formatDictLint } from "../tts/lint.js";
 import { scaleFontMentions } from "../compile/font-scale.js";
 import { lintNarrationSync } from "../compile/sync-lint.js";
 
@@ -363,6 +363,11 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   const lintFindings = lintPronunciation(scriptBlocks, pronunciationRules);
   const lintReport = formatPronunciationLint(lintFindings);
   if (lintReport) console.warn(lintReport);
+
+  // Dictionary RHS stability: replacements containing digits/symbols get
+  // re-normalized server-side (wetext), making the reading unpredictable.
+  const dictLintReport = formatDictLint(lintDictReplacements(pronunciationRules));
+  if (dictLintReport) console.warn(dictLintReport);
 
   // ── Step 7.5: Set up local image blocks ────────────────────────────────
   // For image-mode blocks with imageSource, the image file already exists

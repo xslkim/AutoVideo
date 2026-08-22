@@ -73,6 +73,19 @@ function publicConfig(overlay: AppConfig): AppConfigPublic {
       endpoint: overlay.voxcpm?.endpoint,
       modelDir: overlay.voxcpm?.modelDir,
       concurrency: overlay.voxcpm?.concurrency,
+      seedSalt: overlay.voxcpm?.seedSalt,
+    },
+    tts: {
+      provider: overlay.tts?.provider,
+      qa: overlay.tts?.qa ? { ...overlay.tts.qa } : undefined,
+    },
+    cosyvoice: {
+      endpoint: overlay.cosyvoice?.endpoint,
+      modelDir: overlay.cosyvoice?.modelDir,
+      concurrency: overlay.cosyvoice?.concurrency,
+      referenceText: overlay.cosyvoice?.referenceText,
+      normalize: overlay.cosyvoice?.normalize,
+      seedSalt: overlay.cosyvoice?.seedSalt,
     },
     musetalk: {
       url: overlay.musetalk?.url || 'http://localhost:8001',
@@ -106,6 +119,21 @@ export function createSystemRoutes(repoRoot: string): Hono {
   // PUT /api/config — partial or full update
   router.put('/api/config', async (c) => {
     const body = await c.req.json() as Partial<AppConfig>;
+
+    // Reject unknown TTS providers up front — otherwise the bad value would
+    // persist and only surface when the TTS stage factory throws
+    // (src/tts/provider.ts createTtsProvider). null clears, so it's allowed.
+    const ttsProvider = body.tts?.provider;
+    if (ttsProvider !== undefined && ttsProvider !== null
+      && !['voxcpm', 'cosyvoice'].includes(ttsProvider)) {
+      return c.json({
+        error: {
+          code: 'ERR_BAD_REQUEST',
+          message: `Invalid tts.provider: ${String(ttsProvider)}（支持 voxcpm / cosyvoice）`,
+        },
+      }, 400);
+    }
+
     const stored = loadStoredConfig(repoRoot);
     const merged = mergeStoredConfig(stored, body);
     saveStoredConfig(repoRoot, merged);
@@ -118,7 +146,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
     const body = await c.req.json() as { service: string };
     const service = body.service;
 
-    if (!['anthropic', 'imageGen', 'voxcpm', 'musetalk'].includes(service)) {
+    if (!['anthropic', 'imageGen', 'voxcpm', 'cosyvoice', 'musetalk'].includes(service)) {
       return c.json({ error: { code: 'ERR_BAD_REQUEST', message: `Unknown service: ${service}` } }, 400);
     }
 
@@ -232,6 +260,28 @@ export function createSystemRoutes(repoRoot: string): Hono {
         }
       }
 
+      case 'cosyvoice': {
+        // CosyVoice answers /health with 503 while the model is still
+        // loading (or after a load failure) — probe that, not the bare port.
+        const endpoint = cfg.cosyvoice.endpoint || 'http://127.0.0.1:8002';
+        const start = Date.now();
+        try {
+          const resp = await fetch(`${endpoint}/health`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          const latencyMs = Date.now() - start;
+          if (resp.ok) {
+            return c.json({ ok: true, latencyMs });
+          }
+          if (resp.status === 503) {
+            return c.json({ ok: false, latencyMs, message: '服务在线，模型仍在加载中（或加载失败），稍候重试' });
+          }
+          return c.json({ ok: false, latencyMs, message: `HTTP ${resp.status}` });
+        } catch (err) {
+          return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
       case 'musetalk': {
         const musetalkUrl = cfg.musetalk?.url || 'http://localhost:8001';
         const start = Date.now();
@@ -255,6 +305,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
     const cfg = resolveTaskConfig(repoRoot);
     const report: DoctorReport = {
       voxcpm: { status: 'fail', message: '' },
+      cosyvoice: { status: 'fail', message: '' },
       anthropic: { status: 'missing' },
       imageGen: { status: 'missing' },
       ffmpeg: { status: 'missing' },
@@ -355,6 +406,27 @@ export function createSystemRoutes(repoRoot: string): Hono {
       }
     } catch (err) {
       report.voxcpm = {
+        status: 'fail' as const,
+        message: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    // ── cosyvoice ─────────────────────────────────────────────────────────
+    // /health answers 503 while the model loads — report that distinctly.
+    const cosyvoiceEndpoint = cfg.cosyvoice.endpoint || 'http://127.0.0.1:8002';
+    try {
+      const resp = await fetch(`${cosyvoiceEndpoint}/health`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        report.cosyvoice = { status: 'ok' as const };
+      } else if (resp.status === 503) {
+        report.cosyvoice = { status: 'fail' as const, message: '模型加载中（或加载失败）' };
+      } else {
+        report.cosyvoice = { status: 'fail' as const, message: `HTTP ${resp.status}` };
+      }
+    } catch (err) {
+      report.cosyvoice = {
         status: 'fail' as const,
         message: err instanceof Error ? err.message : String(err),
       };

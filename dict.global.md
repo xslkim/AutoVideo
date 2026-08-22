@@ -74,11 +74,11 @@ LoRA       => Lo R A
 QLoRA      => Q Lo R A
 MoE        => M O E
 RAG        => R A G
-FP16       => F P 16
-FP8        => F P 8
-INT8       => I N T 8
-INT4       => I N T 4
-BF16       => B F 16
+FP16       => F P 十六
+FP8        => F P 八
+INT8       => I N T 八
+INT4       => I N T 四
+BF16       => B F 十六
 
 # ── 工程 / 工具 ─────────────────────────────────────────────────
 API        => A P I
