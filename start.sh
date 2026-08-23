@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# AutoVideo 启动脚本
+# AutoVideo 启动脚本（后台运行）
 # 用法：
-#   ./start.sh          # 开发模式（默认）
-#   ./start.sh dev      # 开发模式（server :3030 + Vite :5173）
-#   ./start.sh prod     # 生产模式（先 build，再启动 server :3030）
+#   ./start.sh          # 开发模式（默认，后台：server :3030 + Vite :5173）
+#   ./start.sh dev      # 开发模式（后台）
+#   ./start.sh prod     # 生产模式（后台，先 build，再启动 server :3030）
 #   ./start.sh build    # 仅执行 build，不启动服务器
 #   ./start.sh check    # 仅检查环境，不启动
+#   ./stop.sh           # 停止一切（Web + AI 服务）
 #
-# dev/prod 模式会自动拉起已部署的 AI 服务（TTS / 文生图 / 口型），退出时自动停止。
+# dev/prod 模式会自动拉起已部署的 AI 服务（TTS / 文生图 / 口型）。
+# 所有服务均在后台常驻，退出脚本不会停止任何东西；停止请用 ./stop.sh。
+# 日志与 PID 文件在 logs/ 下。
 # 环境变量：
 #   AV_SKIP_SERVICES=1            # 不启动任何 AI 服务（仅 Web）
 #   AV_SERVICES="tts t2i"        # 只启动指定服务（默认 auto = 自动探测已部署的全部）
@@ -106,20 +109,45 @@ build_all() {
   ok "前端构建完成 → web/dist/"
 }
 
-# ── 启动开发模式 ──────────────────────────────────────────────────────────────
-start_dev() {
-  section "启动开发模式"
-  cd "$REPO_DIR"
-  echo
-  info "后端  http://localhost:3030"
-  info "前端  http://localhost:5173"
-  echo
-  npm run dev:web
+# ── 后台启动辅助 ──────────────────────────────────────────────────────────────
+# 以独立会话后台启动命令，写 PID 文件；stop.sh 按 PID 杀整个进程组。
+launch_bg() {
+  local name="$1" logfile="$2" pidfile="$3"; shift 3
+  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
+    warn "$name 已在运行 (PID $(cat "$pidfile"))，如需重启请先 ./stop.sh"
+    return 0
+  fi
+  rm -f "$pidfile"
+  info "后台启动 $name（日志: ${logfile#$REPO_DIR/}）"
+  setsid "$@" > "$logfile" 2>&1 &
+  echo $! > "$pidfile"
 }
 
-# ── 启动生产模式 ──────────────────────────────────────────────────────────────
+# 等待端口就绪（最多 ~30s），仅用于启动反馈，失败不阻断
+wait_port() {
+  local name="$1" port="$2"
+  for _ in $(seq 1 10); do
+    if port_busy "$port"; then ok "$name 就绪 → http://127.0.0.1:$port"; return 0; fi
+    sleep 3
+  done
+  warn "$name 30s 内未就绪，详见日志（服务可能仍在启动中）"
+}
+
+# ── 启动开发模式（后台） ─────────────────────────────────────────────────────
+start_dev() {
+  section "启动开发模式（后台）"
+  cd "$REPO_DIR"
+  mkdir -p "$LOG_DIR"
+  launch_bg "dev-web" "$LOG_DIR/dev-web.log" "$LOG_DIR/dev-web.pid" npm run dev:web
+  wait_port "后端 server" 3030
+  wait_port "前端 vite" 5173
+  echo
+  ok "已在后台运行。停止: ./stop.sh    日志: logs/dev-web.log"
+}
+
+# ── 启动生产模式（后台） ─────────────────────────────────────────────────────
 start_prod() {
-  section "启动生产模式"
+  section "启动生产模式（后台）"
   cd "$REPO_DIR"
 
   if [[ ! -f dist/server/server/index.js ]]; then
@@ -131,11 +159,13 @@ start_prod() {
     exit 1
   fi
 
+  mkdir -p "$LOG_DIR"
   PORT="${PORT:-3030}"
   HOST="${HOST:-127.0.0.1}"
-  info "启动服务 http://${HOST}:${PORT}"
+  launch_bg "web(prod)" "$LOG_DIR/web.log" "$LOG_DIR/web.pid" npm run start:web
+  wait_port "生产服务" "$PORT"
   echo
-  npm run start:web
+  ok "已在后台运行: http://${HOST}:${PORT}    停止: ./stop.sh    日志: logs/web.log"
 }
 
 # ── 第三方 AI 服务 ──────────────────────────────────────────────────────────────
@@ -221,12 +251,8 @@ start_services() {
   fi
 }
 
-stop_services() {
-  [[ ${#SERVICES_STARTED[@]} -eq 0 ]] && return 0
-  echo
-  info "停止本次启动的 AI 服务: ${SERVICES_STARTED[*]}"
-  bash "$SERVICES_DIR/stop.sh" "${SERVICES_STARTED[@]}" >/dev/null 2>&1 || true
-}
+# AI 服务由 start_services 后台拉起后常驻；停止统一走 ./stop.sh（内部调用
+# third_servers/stop.sh），这里不再挂 trap 随脚本退出而停止。
 
 # ── 主流程 ────────────────────────────────────────────────────────────────────
 echo -e "${BOLD}AutoVideo 启动脚本${NC}  (模式: ${MODE})"
@@ -247,7 +273,6 @@ case "$MODE" in
   dev)
     check_env
     install_deps
-    trap stop_services EXIT INT TERM
     start_services
     start_dev
     ;;
@@ -259,7 +284,6 @@ case "$MODE" in
       warn "未找到构建产物，自动执行构建..."
       build_all
     fi
-    trap stop_services EXIT INT TERM
     start_services
     start_prod
     ;;

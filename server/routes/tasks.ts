@@ -16,7 +16,7 @@ import type { Stage, TaskRecord, ProgressEvent } from '../types/api.js';
 
 const STAGES_WITH_BLOCK_IDS: Stage[] = ['tts', 'visuals', 'render'];
 
-const VALID_STAGES: Stage[] = ['compile', 'tts', 'visuals', 'render', 'build', 'merge'];
+const VALID_STAGES: Stage[] = ['compile', 'tts', 'visuals', 'render', 'build', 'quick', 'merge'];
 
 // ---------------------------------------------------------------------------
 // Route factory

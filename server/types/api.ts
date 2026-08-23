@@ -1,7 +1,7 @@
 // 共享类型定义 — 源自 docs/architecture/WEB_PRD.md 附录 B
 // 前端通过 path alias 引用
 
-export type Stage = 'compile' | 'tts' | 'visuals' | 'render' | 'build' | 'merge';
+export type Stage = 'compile' | 'tts' | 'visuals' | 'render' | 'build' | 'quick' | 'merge';
 
 export type TaskStatus = 'pending' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled';
 

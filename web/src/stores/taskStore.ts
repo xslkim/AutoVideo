@@ -14,6 +14,7 @@ const STAGE_LABEL: Record<Stage, string> = {
   visuals: '生成视觉',
   render: '渲染',
   build: '全量构建',
+  quick: '快速构建',
   merge: '合并视频',
 }
 

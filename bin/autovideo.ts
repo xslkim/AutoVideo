@@ -8,6 +8,7 @@ import { visuals } from "../src/cli/visuals.js";
 import { render } from "../src/cli/render.js";
 import { preview } from "../src/cli/preview.js";
 import { buildCommand } from "../src/cli/build.js";
+import { quickBuildCommand } from "../src/cli/quick.js";
 import { registerCacheCommand } from "../src/cli/cache.js";
 import { doctorCommand } from "../src/cli/doctor.js";
 import { initCommand } from "../src/cli/init.js";
@@ -38,6 +39,20 @@ program
   .option("--meta <key=value...>", "override meta fields")
   .action(async (project, opts) => {
     await buildCommand(project, opts);
+  });
+
+program
+  .command("quick-build")
+  .description("Fast preview build: compile → tts → placeholder visuals → render (no LLM/T2I/lipsync)")
+  .argument("<project>", "path to project.json")
+  .option("--out <dir>", "output directory (default: build/<slug>-quick)")
+  .option("--config <file>", "path to autovideo.config.json")
+  .option("--cache-dir <dir>", "override cache directory")
+  .option("--verbose", "detailed logging")
+  .option("--dry-run", "show what would be done without executing")
+  .option("--meta <key=value...>", "override meta fields")
+  .action(async (project, opts) => {
+    await quickBuildCommand(project, opts);
   });
 
 // ── Individual stages ─────────────────────────────────────────────

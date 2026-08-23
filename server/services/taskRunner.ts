@@ -17,6 +17,7 @@ import { compile } from '../../src/cli/compile.js';
 import { tts } from '../../src/cli/tts.js';
 import { visuals } from '../../src/cli/visuals.js';
 import { render } from '../../src/cli/render.js';
+import { quickBuild } from '../../src/cli/quick.js';
 import { readMeta } from '../../src/parser/meta.js';
 import type { AutoVideoConfig } from '../../src/config/defaults.js';
 import { resolveTaskConfig } from './configService.js';
@@ -431,6 +432,24 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
 
         // Finish (95–100%)
         onProgress({ percent: 100, step: '构建完成', stage: 'build' });
+        break;
+      }
+
+      // ── quick (compile → tts → 占位卡片 → 快速渲染) ──────────────────
+      // 输出到独立目录 build/<slug>-quick/；quickBuild 内部自行改写 meta
+      // （skipLipsync=true、删除 avatarRef），无需 syncAvatarMetaToScript。
+      case 'quick': {
+        const quickOutDir = path.join(projectDir, 'build', `${slug}-quick`);
+        snapshotSourceFiles(projectDir, quickOutDir);
+
+        await quickBuild({
+          projectPath: path.join(quickOutDir, '_snapshot', 'project.json'),
+          outDir: quickOutDir,
+          config,
+          onProgress: wrapProgress((e) => onProgress({ ...e, stage: 'quick' })),
+          signal,
+          verbose: true,
+        });
         break;
       }
 

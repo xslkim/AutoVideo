@@ -1,21 +1,19 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "strict": true,
     "esModuleInterop": true,
-    "outDir": "dist",
-    "rootDir": ".",
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "noEmit": true
   },
   "include": [
-    "bin/**/*.ts",
-    "src/**/*.ts"
+    "remotion/**/*.ts",
+    "remotion/**/*.tsx"
   ],
   "exclude": [
     "node_modules",

@@ -83,7 +83,7 @@ describe("renderHighlightedText", () => {
     expect(result).toHaveLength(3);
     expect(result[0]).toBe("这是");
 
-    const hlSpan = result[1] as React.ReactElement;
+    const hlSpan = result[1] as React.ReactElement<{ children: React.ReactNode; style: { color?: string } }>;
     expect(hlSpan.props.children).toBe("重要");
     expect(hlSpan.props.style.color).toBe("#58a6ff");
 
@@ -118,7 +118,7 @@ describe("renderHighlightedText", () => {
     );
     expect(result).toHaveLength(2);
 
-    const hl = result[0] as React.ReactElement;
+    const hl = result[0] as React.ReactElement<{ children: React.ReactNode; style: { color?: string } }>;
     expect(hl.props.children).toBe("Hello");
     expect(result[1]).toBe(" world");
   });
@@ -132,7 +132,7 @@ describe("renderHighlightedText", () => {
     expect(result).toHaveLength(2);
     expect(result[0]).toBe("Hello ");
 
-    const hl = result[1] as React.ReactElement;
+    const hl = result[1] as React.ReactElement<{ children: React.ReactNode; style: { color?: string } }>;
     expect(hl.props.children).toBe("world");
   });
 
@@ -144,7 +144,7 @@ describe("renderHighlightedText", () => {
     );
     expect(result).toHaveLength(1);
 
-    const hl = result[0] as React.ReactElement;
+    const hl = result[0] as React.ReactElement<{ children: React.ReactNode; style: { color?: string } }>;
     expect(hl.props.children).toBe("Hello");
   });
 
@@ -159,10 +159,10 @@ describe("renderHighlightedText", () => {
     );
     expect(result).toHaveLength(2);
 
-    const hl1 = result[0] as React.ReactElement;
+    const hl1 = result[0] as React.ReactElement<{ children: React.ReactNode; style: { color?: string } }>;
     expect(hl1.props.children).toBe("ABC");
 
-    const hl2 = result[1] as React.ReactElement;
+    const hl2 = result[1] as React.ReactElement<{ children: React.ReactNode; style: { color?: string } }>;
     expect(hl2.props.children).toBe("DEF");
   });
 });

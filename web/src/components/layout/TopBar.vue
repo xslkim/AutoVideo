@@ -38,6 +38,14 @@
         </n-button>
         <n-button
           size="small"
+          :disabled="quickDisabled"
+          :loading="quickLoading"
+          @click="onQuickBuild"
+        >
+          快速构建
+        </n-button>
+        <n-button
+          size="small"
           :disabled="mergeDisabled"
           :loading="mergeLoading"
           @click="onMerge"
@@ -158,6 +166,7 @@ const taskStore = useTaskStore()
 
 const compileLoading = ref(false)
 const buildLoading   = ref(false)
+const quickLoading   = ref(false)
 const mergeLoading   = ref(false)
 
 // ── Disable logic: same stage already has a pending/running task ──────
@@ -168,6 +177,10 @@ const compileDisabled = computed(() =>
 
 const buildDisabled = computed(() =>
   props.nonStandard || taskStore.hasActiveStage('build') || taskStore.hasActiveStage('compile'),
+)
+
+const quickDisabled = computed(() =>
+  props.nonStandard || taskStore.hasActiveStage('quick') || taskStore.hasActiveStage('compile'),
 )
 
 const mergeDisabled = computed(() =>
@@ -371,6 +384,16 @@ async function onBuild() {
   buildLoading.value = false
   if (task) {
     message.success('全量构建任务已提交')
+  }
+}
+
+async function onQuickBuild() {
+  // 快速构建不做口型同步/头像 overlay，无需检查头像
+  quickLoading.value = true
+  const task = await taskStore.createTask(props.projectName, 'quick')
+  quickLoading.value = false
+  if (task) {
+    message.success('快速构建任务已提交')
   }
 }
 

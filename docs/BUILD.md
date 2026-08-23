@@ -180,6 +180,7 @@ EOF
 | `autovideo visuals <script.json>` | Claude AI 生成视觉组件 |
 | `autovideo render <script.json>` | 渲染为 MP4（Remotion） |
 | `autovideo build <project.json>` | 一键：compile → tts → visuals → render |
+| `autovideo quick-build <project.json>` | 快速预览构建：compile → tts → 占位文字卡片（不调 LLM/文生图/口型同步）→ render（crf 30 + veryfast），输出到 `build/<slug>-quick/` |
 | `autovideo preview <script.json>` | 打开 Remotion Studio 交互预览 |
 | `autovideo cache [stats\|clean]` | 缓存管理 |
 | `autovideo doctor` | 环境诊断 |

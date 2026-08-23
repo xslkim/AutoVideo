@@ -62,6 +62,7 @@ CLI 与 Web UI 均已完成，项目处于**持续优化迭代**阶段（无固�
 
 ```bash
 npx tsc -p tsconfig.server.json --noEmit   # 类型检查 server + src
+npm run typecheck:remotion                 # 类型检查 remotion/（bundler 解析，独立 tsconfig）
 cd web && npx vue-tsc --noEmit             # 类型检查前端
 npx vitest run                             # 全量测试（约 40s）
 npm run dev:web                            # 联调（server :3030 + vite :5173）

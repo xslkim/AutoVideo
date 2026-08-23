@@ -112,6 +112,7 @@ const runningLabel = computed(() => {
     visuals: '生成视觉',
     render: '渲染中',
     build: '全量构建中',
+    quick: '快速构建中',
     merge: '合并视频',
   }
   return labels[t.stage] || t.stage

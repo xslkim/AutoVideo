@@ -13,7 +13,8 @@
     "build:web": "npm run build:server && npm run build:client",
     "start:web": "NODE_ENV=production node dist/server/server/index.js",
     "dev:web": "concurrently -k \"tsx server/index.ts\" \"cd web && npx vite\"",
-    "dev": "tsx bin/autovideo.ts"
+    "dev": "tsx bin/autovideo.ts",
+    "typecheck:remotion": "tsc -p tsconfig.remotion.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.30.0",
