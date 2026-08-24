@@ -222,6 +222,7 @@ tts_provider() {
     p=$(node -e "try{const c=JSON.parse(require('fs').readFileSync('$f','utf-8'));const v=c&&c.tts&&c.tts.provider;if(v)console.log(v)}catch(e){}" 2>/dev/null)
     [[ -n "$p" ]] && { echo "$p"; return 0; }
   done
+  return 0
 }
 
 start_services() {
