@@ -74,6 +74,12 @@ export interface PartialKey {
    * even when the block's own Component.tsx is unchanged.
    */
   libraryHash: string;
+  /**
+   * md5 of the synced engine runtime files (REMOTION_RUNTIME_FILES:
+   * VideoComposition / block-frame / theme / SubtitleOverlay). Theme or
+   * overlay edits (e.g. subtitle position) must invalidate partials too.
+   */
+  runtimeHash?: string;
   /** Serialized render.quality settings — partials encoded differently must not mix */
   qualityJson?: string;
 }

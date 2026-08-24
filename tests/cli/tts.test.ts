@@ -815,3 +815,13 @@ describe("TTS QA gate", () => {
     }
   });
 });
+
+describe("stripCodeParens", () => {
+  it("removes ASCII parens from code identifiers but keeps inner text", async () => {
+    const { stripCodeParens } = await import("../../src/cli/tts.js");
+    expect(stripCodeParens("调用 apply() 挂载插件")).toBe("调用 apply 挂载插件");
+    expect(stripCodeParens("get(x) 返回结果")).toBe("getx 返回结果");
+    expect(stripCodeParens("纯中文（全角括号）不动")).toBe("纯中文（全角括号）不动");
+    expect(stripCodeParens("没有括号")).toBe("没有括号");
+  });
+});

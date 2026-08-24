@@ -60,10 +60,16 @@ export function createProjectRoutes(projectsRoot: string) {
       return c.json({ error: { code: 'ERR_COPY_FAILED', message: `Failed to copy template: ${err instanceof Error ? err.message : String(err)}` } }, 500);
     }
 
-    // Copy default voice reference (B00.wav) from repo root into the project
+    // Copy default voice reference (B00.wav) from repo root into the project,
+    // along with its same-named .txt transcript — CosyVoice zero-shot cloning
+    // requires it (see resolveCosyVoicePromptText in src/tts/provider.ts).
     const defaultVoicePath = path.resolve('B00.wav');
     if (fs.existsSync(defaultVoicePath)) {
       fs.copyFileSync(defaultVoicePath, path.join(projDir, 'B00.wav'));
+      const defaultVoiceTxtPath = path.resolve('B00.txt');
+      if (fs.existsSync(defaultVoiceTxtPath)) {
+        fs.copyFileSync(defaultVoiceTxtPath, path.join(projDir, 'B00.txt'));
+      }
     }
 
     // Always write an explicit lowercase slug into meta.md. The CLI derives
@@ -121,7 +127,8 @@ export function createProjectRoutes(projectsRoot: string) {
     return c.json({ ok: true });
   });
 
-  // POST /api/projects/:name/cache/clear — clear cache/ and build/
+  // POST /api/projects/:name/cache/clear — clear build/（缓存为全局共享目录，
+  // 不按项目清除；projDir/cache 为已废弃的历史结构，存在则一并删除）
   app.post('/:name/cache/clear', projectGuard(projectsRoot), (c) => {
     const name = c.req.param('name')!;
     const projDir = path.join(projectsRoot, name);

@@ -108,6 +108,27 @@ def _set_seed(seed: int) -> None:
 # Generation is GPU-bound and stateful (RNG + model); serialize requests.
 _gen_lock = threading.Lock()
 
+# Prompt-feature cache revision per voice: (stored wav mtime, prompt txt mtime).
+# Deriving speech tokens / speaker embedding from the reference wav is
+# deterministic, so we do it once per voice via add_zero_shot_spk() instead of
+# on every /v1/speech line. Keyed by file mtimes so re-registration with a new
+# trim or a newly attached prompt_text transparently re-derives the features.
+_spk_cache: dict[str, tuple[int, int]] = {}
+
+
+def _ensure_prompt_cached(voice_id: str, prompt_text: str, wav_path: Path) -> None:
+    """Register the voice's prompt features with the model once (idempotent).
+
+    Must be called with _gen_lock held: mutates model.frontend.spk2info.
+    """
+    txt_path = _voice_paths(voice_id)[1]
+    rev = (wav_path.stat().st_mtime_ns, txt_path.stat().st_mtime_ns)
+    if _spk_cache.get(voice_id) == rev and voice_id in model.frontend.spk2info:
+        return
+    logger.info(f"Caching zero-shot prompt features for voice {voice_id} ...")
+    model.add_zero_shot_spk(prompt_text, str(wav_path), voice_id)
+    _spk_cache[voice_id] = rev
+
 app = FastAPI(title="Fun-CosyVoice3 TTS Server")
 
 
@@ -274,12 +295,14 @@ def run_generate(
     with _gen_lock:
         _set_seed(seed)
         try:
+            _ensure_prompt_cached(voice_id, prompt_text, wav_path)
             chunks = [
                 out["tts_speech"]
                 for out in model.inference_zero_shot(
                     text,
                     prompt_text,
                     str(wav_path),
+                    zero_shot_spk_id=voice_id,
                     stream=False,
                     speed=speed,
                     text_frontend=normalize,

@@ -99,6 +99,19 @@ function md5File(filePath: string): string {
 }
 
 /**
+ * Strip ASCII parentheses from spoken text.
+ *
+ * Narration often mentions code identifiers like `apply()` — the engine
+ * would read the parens aloud as "左括号/右括号". They carry no spoken
+ * meaning, so they are removed before synthesis (the text inside stays).
+ * Full-width （） are Chinese punctuation and are left untouched.
+ * Subtitles always show the original ttsText; this only affects speech.
+ */
+export function stripCodeParens(text: string): string {
+  return text.replace(/[()]/g, "");
+}
+
+/**
  * Write a WAV buffer to a temporary file and return its path.
  */
 function writeTempWav(prefix: string, buffer: Buffer): string {
@@ -310,8 +323,9 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
       if (abortController.signal.aborted) return;
 
       const line = block.narration.lines[li];
-      // dict.md rewrites reach the engine but never the subtitles.
-      const spoken = line.speakText ?? line.ttsText;
+      // dict.md rewrites reach the engine but never the subtitles;
+      // ASCII parens (code identifiers like apply()) are not read aloud.
+      const spoken = stripCodeParens(line.speakText ?? line.ttsText);
       const cacheKey: AudioKey = {
         ttsText: spoken,
         voiceRefHash,

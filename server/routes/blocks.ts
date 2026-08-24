@@ -6,6 +6,7 @@ import { projectGuard } from '../middleware/pathGuard.js';
 import { serveFileWithRange } from '../middleware/range.js';
 import { readFileWithEtag, writeFileWithEtag, parseMetaFields, computeSlug } from '../services/projectService.js';
 import { parseScript } from '../services/scriptParser.js';
+import { resolveTaskConfig } from '../services/configService.js';
 import {
   extractBlock,
   replaceBlock,
@@ -100,7 +101,7 @@ function patchDirective(blockContent: string, key: string, value: string): strin
 // Route factory
 // ---------------------------------------------------------------------------
 
-export function createBlockRoutes(projectsRoot: string) {
+export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
   const app = new Hono();
 
   // -------------------------------------------------------------------------
@@ -291,7 +292,8 @@ export function createBlockRoutes(projectsRoot: string) {
     const slug = resolveSlug(projectsRoot, name);
     const buildDir = path.join(projDir, 'build', slug);
     const scriptJsonPath = path.join(buildDir, 'script.json');
-    const cacheDir = path.join(projDir, 'cache');
+    // 缓存目录与 CLI 统一：配置中的全局缓存目录（默认 ~/.autovideo/cache）
+    const cacheDir = resolveTaskConfig(repoRoot).cache.dir;
     const manifestPath = path.join(cacheDir, 'manifest.json');
 
     // --- Parse block content from script.md for cache matching ---

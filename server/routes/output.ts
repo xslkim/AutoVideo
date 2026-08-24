@@ -21,12 +21,15 @@ export function createOutputRoutes(projectsRoot: string) {
   // ---------------------------------------------------------------------------
   // GET /api/projects/:name/output
   //   final_normalized.mp4 first, fallback final.mp4, 404 if neither
+  //   ?variant=quick → serve from the quick-build dir (build/<slug>-quick/output)
   //   ?download=1 → Content-Disposition: attachment
   // ---------------------------------------------------------------------------
   app.get('/:name/output', projectGuard(projectsRoot), (c) => {
     const name = c.req.param('name')!;
     const slug = resolveSlug(projectsRoot, name);
-    const outputDir = path.join(projectsRoot, name, 'build', slug, 'output');
+    const isQuick = c.req.query('variant') === 'quick';
+    const buildSlug = isQuick ? `${slug}-quick` : slug;
+    const outputDir = path.join(projectsRoot, name, 'build', buildSlug, 'output');
 
     const normalizedPath = path.join(outputDir, 'final_normalized.mp4');
     const plainPath = path.join(outputDir, 'final.mp4');
@@ -41,7 +44,7 @@ export function createOutputRoutes(projectsRoot: string) {
     }
 
     const download = c.req.query('download') === '1';
-    const downloadName = download ? `${slug}.mp4` : undefined;
+    const downloadName = download ? `${buildSlug}.mp4` : undefined;
 
     const response = serveFileWithRange(c, filePath, 'video/mp4', downloadName);
 

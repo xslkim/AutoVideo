@@ -21,7 +21,7 @@ export const NO_LIBRARY_HASH = 'no-library';
  * Engine files copied verbatim into <buildDir>/ — same relative paths as in
  * the repo. Keep in sync with the imports of the generated remotion roots.
  */
-const REMOTION_RUNTIME_FILES = [
+export const REMOTION_RUNTIME_FILES = [
   'remotion/VideoComposition.tsx',
   'remotion/engine/block-frame.tsx',
   'remotion/engine/theme.ts',
@@ -115,6 +115,24 @@ function listFilesRecursive(dir: string, base: string): string[] {
     }
   }
   return out;
+}
+
+/**
+ * Deterministic md5 over the synced engine runtime files
+ * (REMOTION_RUNTIME_FILES under <buildDir>). Same scheme as
+ * computeLibraryHash: path + contents, sorted. Missing files are skipped —
+ * a build dir without the synced runtime hashes as "no runtime", which is
+ * fine because rendering would fail before the key is ever used.
+ */
+export function computeRuntimeHash(buildDir: string): string {
+  const hash = crypto.createHash('md5');
+  for (const rel of [...REMOTION_RUNTIME_FILES].sort()) {
+    const abs = path.join(buildDir, rel);
+    if (!fs.existsSync(abs)) continue;
+    hash.update(rel);
+    hash.update(fs.readFileSync(abs));
+  }
+  return hash.digest('hex');
 }
 
 /**

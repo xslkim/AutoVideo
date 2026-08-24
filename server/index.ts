@@ -39,7 +39,7 @@ app.get('/api/health', (c) => {
 });
 
 app.route('/api/projects', createProjectRoutes(projectsRoot));
-app.route('/api/projects', createBlockRoutes(projectsRoot));
+app.route('/api/projects', createBlockRoutes(projectsRoot, repoRoot));
 app.route('/api/projects', createAssetRoutes(projectsRoot));
 app.route('/api/projects', createOutputRoutes(projectsRoot));
 app.route('/api/tasks', createTaskRoutes(taskQueue));

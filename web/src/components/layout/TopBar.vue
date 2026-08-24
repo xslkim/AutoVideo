@@ -52,6 +52,10 @@
         >
           合并视频
         </n-button>
+        <n-radio-group v-model:value="outputVariant" size="small">
+          <n-radio-button value="release">正式</n-radio-button>
+          <n-radio-button value="quick">快速</n-radio-button>
+        </n-radio-group>
         <n-button size="small" @click="showPreview = true">预览成片</n-button>
         <n-button size="small" @click="onDownload">下载成片</n-button>
         <!-- Health indicator -->
@@ -92,10 +96,11 @@
     </div>
 
     <!-- Final video preview modal -->
-    <n-modal v-model:show="showPreview" title="预览成片" preset="card" style="width: 720px" :mask-closable="true">
+    <n-modal v-model:show="showPreview" :title="outputVariant === 'quick' ? '预览成片（快速构建）' : '预览成片'" preset="card" style="width: 720px" :mask-closable="true">
       <div class="preview-modal-body">
         <video
           v-if="showPreview"
+          :key="outputUrl"
           controls
           autoplay
           :src="outputUrl"
@@ -189,8 +194,12 @@ const mergeDisabled = computed(() =>
 
 // ── Final video preview/download ──────────────────────────────────────
 
+// release = 全量构建产物 (build/<slug>)，quick = 快速构建产物 (build/<slug>-quick)
+const outputVariant = ref<'release' | 'quick'>('release')
+
 const outputUrl = computed(() =>
-  `/api/projects/${props.projectName}/output`,
+  `/api/projects/${props.projectName}/output` +
+  (outputVariant.value === 'quick' ? '?variant=quick' : ''),
 )
 
 const showPreview = ref(false)
@@ -326,11 +335,15 @@ watch(showPreview, (val) => {
 })
 
 function onPreviewError() {
-  previewError.value = '无法加载成片视频，请确认已执行全量构建'
+  previewError.value =
+    outputVariant.value === 'quick'
+      ? '无法加载快速构建视频，请确认已执行快速构建'
+      : '无法加载成片视频，请确认已执行全量构建'
 }
 
 function onDownload() {
-  window.open(`${outputUrl.value}?download=1`, '_blank')
+  const sep = outputUrl.value.includes('?') ? '&' : '?'
+  window.open(`${outputUrl.value}${sep}download=1`, '_blank')
 }
 
 // ── Action handlers ───────────────────────────────────────────────────

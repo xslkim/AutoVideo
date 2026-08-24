@@ -4,7 +4,7 @@
  * Calls CLI modules (compile/tts/visuals/render/build) for each task stage.
  * - Manages AbortController + cancel signal propagation
  * - Source file snapshot for compile/build stages
- * - Config snapshot at task start with cache.dir override
+ * - Config snapshot at task start (cache.dir 与 CLI 一致，全系统共用一份缓存)
  * - Build aggregate progress weighting
  *
  * PRD refs: §4.5 (task queue), §7 (taskRunner calling constraints)
@@ -253,13 +253,11 @@ export function snapshotSourceFiles(projectDir: string, outDir: string): void {
 
 /**
  * Effective config snapshot at task start (defaults + autovideo.config.json +
- * web UI overlay via configService), with the project-scoped cache dir.
+ * web UI overlay via configService). cache.dir 不再按项目覆盖：web 与 CLI 共用
+ * 配置里的同一个缓存目录（默认 ~/.autovideo/cache），全系统只有一份缓存。
  */
-function getTaskConfig(repoRoot: string, projectDir: string): AutoVideoConfig {
-  const cfg = resolveTaskConfig(repoRoot);
-  // Override cache dir to project-scoped cache (hard constraint per §3.3 / §4.5)
-  cfg.cache.dir = path.join(projectDir, 'cache');
-  return cfg;
+function getTaskConfig(repoRoot: string): AutoVideoConfig {
+  return resolveTaskConfig(repoRoot);
 }
 
 // ---------------------------------------------------------------------------
@@ -288,8 +286,8 @@ export function createTaskRunner(projectsRoot: string, repoRoot: string) {
 
     const stage = task.stage;
 
-    // Config snapshot at task start (with project-scoped cache dir)
-    const config = getTaskConfig(repoRoot, projectDir);
+    // Config snapshot at task start（缓存目录与 CLI 共用配置中的同一目录）
+    const config = getTaskConfig(repoRoot);
 
     switch (stage) {
       // ── compile ──────────────────────────────────────────────────────

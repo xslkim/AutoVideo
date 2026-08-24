@@ -96,7 +96,7 @@ project/
     │           ├── partials/{id}.mp4  ← 每块 partial（block.render.partialPath）
     │           ├── final.mp4          ← concat 中间产物（不直接交付）
     │           └── final_normalized.mp4  ← ★ loudnorm 后的最终交付文件
-    └── cache/                         ← 缓存（audio / components / partials / images）
+    └── （缓存不在项目内；统一存放于配置 cache.dir，默认 ~/.autovideo/cache，CLI 与 Web 共用）
 ```
 
 Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
@@ -141,7 +141,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 
 ### 3.3 build 目录硬约束
 
-- `build/` 与 `cache/` **必须**位于 `project/{name}/` 内
+- `build/` **必须**位于 `project/{name}/` 内；`cache/` 不再按项目隔离——web 与 CLI 统一使用配置 `cache.dir`（默认 `~/.autovideo/cache`），全系统只有一份缓存
 - taskRunner 调用任何 CLI stage 前都必须显式传 `outDir = path.join(projectDir, "build", currentSlug)`，**禁止依赖 `process.cwd()` 的相对解析**
 - compile 模块即使保留默认行为（`resolve("build", slug)`），web 路径也由调用方覆盖
 - 服务启动时若发现 `<repo>/build/` 目录存在（孤儿产物），日志 warn 一次，不删除
@@ -172,7 +172,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 **功能**:
 - 扫描 `project/` 目录，列出所有含 `project.json` 的子目录
 - 每张卡片显示：项目名称、`title`（meta.md 读取，缺失显示项目名）、块数量、最新 build 时间、是否有 `final_normalized.mp4`、若 project.json 非标准则角标提示
-- 卡片操作菜单：进入项目、删除项目（弹二次确认，整个目录删除，无保留选项）、清空缓存（删 `cache/` + `build/`）
+- 卡片操作菜单：进入项目、删除项目（弹二次确认，整个目录删除，无保留选项）、清空缓存（删 `build/`；项目级 `cache/` 已废弃，缓存为全局共享）
 - 空状态：无项目时显示「创建第一个项目」+「试用 Demo 项目」两个按钮
   - **首次启动 Demo**：点击后端从 `templates/starter/` 复制到 `project/demo/`，自动跳转 `/project/demo`；如果 `project/demo` 已存在则直接进入
 - 错误状态：扫描失败时显示错误信息 + 「重试」按钮
@@ -470,7 +470,7 @@ GET    /api/projects                    → 项目列表 [{ name, title, blockCo
 GET    /api/projects/:name              → 项目详情（含最新 build 状态、currentSlug、健康检查结果）
 POST   /api/projects                    → 新建项目 { name, title?, slug? }
 DELETE /api/projects/:name              → 删除项目（rm -rf 整个目录，无保留选项）
-POST   /api/projects/:name/cache/clear  → 清空 cache/ 与 build/
+POST   /api/projects/:name/cache/clear  → 清空 build/（全局共享缓存不按项目清除）
 
 GET    /api/projects/:name/meta         → 读取 meta.md 内容；响应头 ETag: sha256:xxx
 PUT    /api/projects/:name/meta         → 保存 meta.md { content }；请求头 If-Match

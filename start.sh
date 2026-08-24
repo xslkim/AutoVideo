@@ -12,13 +12,18 @@
 # 所有服务均在后台常驻，退出脚本不会停止任何东西；停止请用 ./stop.sh。
 # 日志与 PID 文件在 logs/ 下。
 # 环境变量：
+#   HOST=0.0.0.0                  # Web/Vite 绑定地址（默认 0.0.0.0，局域网与 WSL 可访问）
+#   PORT=3030                     # 后端端口（默认 3030）
 #   AV_SKIP_SERVICES=1            # 不启动任何 AI 服务（仅 Web）
-#   AV_SERVICES="tts t2i"        # 只启动指定服务（默认 auto = 自动探测已部署的全部）
+#   AV_SERVICES="cosy t2i"        # 只启动指定服务（tts=voxcpm / cosy=cosyvoice / t2i / lipsync；默认 auto = 按 tts.provider 配置自动选择）
 
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="${1:-dev}"
+# 默认绑所有网卡：WSL 下 Windows 浏览器访问 localhost / 局域网 IP 才能连上
+# 不在此 export PORT：svc_port t2i 会回落到 PORT，避免把文生图端口误设成 3030
+export HOST="${HOST:-0.0.0.0}"
 
 # ── 颜色 ──────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -127,7 +132,7 @@ launch_bg() {
 wait_port() {
   local name="$1" port="$2"
   for _ in $(seq 1 10); do
-    if port_busy "$port"; then ok "$name 就绪 → http://127.0.0.1:$port"; return 0; fi
+    if port_busy "$port"; then ok "$name 就绪 → http://${HOST}:$port"; return 0; fi
     sleep 3
   done
   warn "$name 30s 内未就绪，详见日志（服务可能仍在启动中）"
@@ -138,8 +143,10 @@ start_dev() {
   section "启动开发模式（后台）"
   cd "$REPO_DIR"
   mkdir -p "$LOG_DIR"
-  launch_bg "dev-web" "$LOG_DIR/dev-web.log" "$LOG_DIR/dev-web.pid" npm run dev:web
-  wait_port "后端 server" 3030
+  export PORT="${PORT:-3030}"
+  launch_bg "dev-web" "$LOG_DIR/dev-web.log" "$LOG_DIR/dev-web.pid" \
+    npx concurrently -k "tsx server/index.ts" "cd web && npx vite --host ${HOST} --port 5173"
+  wait_port "后端 server" "${PORT}"
   wait_port "前端 vite" 5173
   echo
   ok "已在后台运行。停止: ./stop.sh    日志: logs/dev-web.log"
@@ -160,8 +167,7 @@ start_prod() {
   fi
 
   mkdir -p "$LOG_DIR"
-  PORT="${PORT:-3030}"
-  HOST="${HOST:-127.0.0.1}"
+  export PORT="${PORT:-3030}"
   launch_bg "web(prod)" "$LOG_DIR/web.log" "$LOG_DIR/web.pid" npm run start:web
   wait_port "生产服务" "$PORT"
   echo
@@ -178,6 +184,7 @@ SERVICES_STARTED=()
 svc_port() {
   case "$1" in
     tts)     echo "${VOXCPM_PORT:-8000}" ;;
+    cosy)    echo "${COSYVOICE_PORT:-8002}" ;;
     t2i)     echo "${SENSENOVA_PORT:-${PORT:-8765}}" ;;
     lipsync) echo "${MUSE_PORT:-8001}" ;;
   esac
@@ -186,6 +193,7 @@ svc_port() {
 svc_script() {
   case "$1" in
     tts)     echo "$SERVICES_DIR/voxcpm-tts/start.sh" ;;
+    cosy)    echo "$SERVICES_DIR/cosyvoice-tts/start.sh" ;;
     t2i)     echo "$SERVICES_DIR/sensenova-t2i/start.sh" ;;
     lipsync) echo "$SERVICES_DIR/musetalk-lipsync/start.sh" ;;
   esac
@@ -199,9 +207,21 @@ svc_deployable() {
   case "$1" in
     tts)     [[ -x "$SERVICES_DIR/voxcpm-tts/.venv/bin/python" ]] \
                && { [[ -d "$SERVICES_DIR/voxcpm-tts/models/VoxCPM2" ]] || [[ -n "${VOXCPM_MODEL_DIR:-}" ]]; } ;;
+    cosy)    [[ -x "$SERVICES_DIR/cosyvoice-tts/.venv/bin/python" ]] \
+               && { [[ -d "$SERVICES_DIR/cosyvoice-tts/models/Fun-CosyVoice3-0.5B" ]] || [[ -n "${COSYVOICE_MODEL_DIR:-}" ]]; } ;;
     t2i)     [[ -f "$SERVICES_DIR/sensenova-t2i/repo/.venv/bin/activate" ]] ;;
     lipsync) [[ -f "$SERVICES_DIR/musetalk-lipsync/repo/lipsync_server.py" ]] ;;
   esac
+}
+
+# 读取配置的 TTS provider（web 设置面板覆盖优先于仓库根配置）
+tts_provider() {
+  local f p
+  for f in "$REPO_DIR/.autovideo-web/config.json" "$REPO_DIR/autovideo.config.json"; do
+    [[ -f "$f" ]] || continue
+    p=$(node -e "try{const c=JSON.parse(require('fs').readFileSync('$f','utf-8'));const v=c&&c.tts&&c.tts.provider;if(v)console.log(v)}catch(e){}" 2>/dev/null)
+    [[ -n "$p" ]] && { echo "$p"; return 0; }
+  done
 }
 
 start_services() {
@@ -212,8 +232,19 @@ start_services() {
   section "启动 AI 服务"
   mkdir -p "$LOG_DIR"
 
+  # auto 模式：按配置的 tts.provider 选择 TTS 引擎（cosyvoice → cosy，否则 voxcpm），
+  # 避免拉起配置之外的引擎，也避免配置用 cosyvoice 时没人启动它。
   local list="$AV_SERVICES"
-  [[ "$list" == "auto" ]] && list="tts t2i lipsync"
+  if [[ "$list" == "auto" ]]; then
+    local provider; provider="$(tts_provider)"
+    if [[ "$provider" == "cosyvoice" ]]; then
+      list="cosy t2i lipsync"
+    else
+      [[ "$provider" != "voxcpm" && -n "$provider" ]] && warn "未知 tts.provider '$provider'，按 voxcpm 处理"
+      list="tts t2i lipsync"
+    fi
+    info "TTS provider: ${provider:-voxcpm(默认)} → 服务清单: $list"
+  fi
 
   local svc port
   for svc in $list; do
@@ -236,15 +267,18 @@ start_services() {
   done
 
   # 仅阻塞等待 TTS(必需且加载较快);GPU 服务后台预热,不卡 Web 启动
-  if [[ " ${SERVICES_STARTED[*]:-} " == *" tts "* ]]; then
-    local p; p="$(svc_port tts)"
-    info "等待 TTS 就绪(:$p)..."
+  local tts_svc=""
+  [[ " ${SERVICES_STARTED[*]:-} " == *" tts "* ]] && tts_svc="tts"
+  [[ " ${SERVICES_STARTED[*]:-} " == *" cosy "* ]] && tts_svc="cosy"
+  if [[ -n "$tts_svc" ]]; then
+    local p; p="$(svc_port "$tts_svc")"
+    info "等待 TTS($tts_svc) 就绪(:$p)..."
     local ready=0
-    for _ in $(seq 1 40); do
+    for _ in $(seq 1 60); do
       if curl -s -m 2 "http://127.0.0.1:$p/health" >/dev/null 2>&1; then ready=1; break; fi
       sleep 3
     done
-    if [[ "$ready" == "1" ]]; then ok "TTS 就绪"; else warn "TTS 未在约 120s 内就绪,详见 logs/tts.log"; fi
+    if [[ "$ready" == "1" ]]; then ok "TTS 就绪"; else warn "TTS 未在约 180s 内就绪,详见 logs/$tts_svc.log"; fi
   fi
   if [[ " ${SERVICES_STARTED[*]:-} " == *" t2i "* || " ${SERVICES_STARTED[*]:-} " == *" lipsync "* ]]; then
     info "文生图/口型为 GPU 服务,首次加载需数分钟;可用 'npx tsx bin/autovideo.ts doctor' 复查"

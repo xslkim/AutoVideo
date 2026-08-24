@@ -449,9 +449,9 @@ export const DEFAULT_QUALITY: QualityConfig = DEFAULT_CONFIG.render.quality;
  * captions will overlap content.
  *
  * Math @1080p with the dark-code theme (fontSizePct 0.04 → 43.2px base,
- * lineHeight 1.4, paddingPx 14, bottomMarginPx 28):
- *   single-line capsule = 43.2 × 1.4 + 28 ≈ 88.5px → band ≥ 117px minimum
- *   two-line capsule ≈ 149px → needs band ≥ 177px for full size
+ * lineHeight 1.4, paddingPx 14, bottomMarginPx 0 — capsule 紧贴视频下边缘):
+ *   single-line capsule = 43.2 × 1.4 + 28 ≈ 88.5px → band ≥ 89px minimum
+ *   two-line capsule ≈ 149px → needs band ≥ 149px for full size
  * 120/1080 → single-line captions render at full 43.2px (normal lines are
  * short); only ≥36-char lines wrap to two lines and shrink to ~27px.
  */

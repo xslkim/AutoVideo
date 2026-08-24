@@ -74,7 +74,7 @@ const DARK_CODE: Theme = {
     strokeColor: "rgba(0, 0, 0, 0.9)",
     strokeWidthPx: 3,
     borderRadiusPx: 12,
-    bottomMarginPx: 28,
+    bottomMarginPx: 0,
     maxLines: 2,
   },
 };
