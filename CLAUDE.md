@@ -27,7 +27,7 @@ CLI 与 Web UI 均已完成，项目处于**持续优化迭代**阶段（无固�
 
 - 所有 LLM 调用（组件生成、视觉评审、dict suggest）必须走 `createAgentDriver(config)`，
   **不要**在调用点直接 new Anthropic SDK 或 spawn CLI。
-- Provider：`anthropic-api`（含 DeepSeek/GLM 的 Anthropic 兼容端点）/ `claude-cli` / `opencode-cli` / `codex-cli`。
+- Provider：`anthropic-api`（含 DeepSeek/GLM 的 Anthropic 兼容端点）/ `claude-cli` / `opencode-cli` / `codex-cli` / `kimi-cli`。
  legacy `useCLI: true` 兼容映射为 `claude-cli`。
 - Provider 怪癖（thinking 参数、OAuth header、CLI flag、输出解析）封装在各 driver 内。
 - CLI 调用统一带超时（`cliTimeoutMs`，默认 600s）；opencode 出错时退出码为 0，
@@ -35,6 +35,9 @@ CLI 与 Web UI 均已完成，项目处于**持续优化迭代**阶段（无固�
 - codex 只支持 OpenAI Responses API：配 baseURL 时驱动用 `-c` 注入临时
  provider，key 走环境变量不落命令行；GLM 官方端点不兼容，需 OpenRouter
  或本地代理（详见 `codex-cli.ts`）。
+- kimi 用 `kimi -p` + `--output-format stream-json`（默认 text 渲染会给 markdown
+ 加 bullet 前缀，会污染 TSX 提取）；选项必须放在 `-p` 之前；`-p` 不能和 `--yolo`
+ 组合，视觉评审靠 print 模式自动放行的只读工具读图（详见 `kimi-cli.ts`）。
 
 ## 配置协议
 

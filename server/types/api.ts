@@ -55,7 +55,7 @@ export interface BlocksResponse {
   currentSlug: string;
 }
 
-export type AgentProviderName = 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli';
+export type AgentProviderName = 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli' | 'kimi-cli';
 
 /** 思考强度档位（仅 anthropic-api 驱动生效）；未设置等同 'off' */
 export type ThinkingMode = 'off' | 'low' | 'medium' | 'high';

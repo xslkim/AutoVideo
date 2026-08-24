@@ -17,8 +17,9 @@
  * - "opencode-cli":  local `opencode` CLI (models configured in opencode)
  * - "codex-cli":     local `codex` CLI; custom Responses-API providers
  *   (DeepSeek direct, GLM via OpenRouter/proxy) via baseURL + apiKey
+ * - "kimi-cli":      local `kimi` CLI (Kimi Code, `kimi login` credentials)
  */
-export type AgentProvider = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli";
+export type AgentProvider = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli" | "kimi-cli";
 
 /**
  * 思考强度（仅 anthropic-api 驱动生效；CLI 驱动忽略）。
@@ -44,6 +45,7 @@ export interface AgentConfig {
    * opencode-cli:  opencode `provider/model` form (e.g. deepseek/deepseek-chat)
    * codex-cli:     model name understood by the endpoint (deepseek-chat,
    *                z-ai/glm-4.6 on OpenRouter, gpt-5-codex on OpenAI login…)
+   * kimi-cli:      model alias from kimi's config.toml (`kimi -m`)
    * claude-cli:    ignored (the CLI picks its logged-in default)
    */
   model?: string;

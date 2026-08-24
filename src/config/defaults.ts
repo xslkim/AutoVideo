@@ -102,7 +102,7 @@ export interface TtsConfig {
 export const TTS_PIPELINE_VERSION = "2";
 
 /** Agent backend. See src/ai/agent/types.ts (AgentProvider). */
-export type AgentProviderName = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli";
+export type AgentProviderName = "anthropic-api" | "claude-cli" | "opencode-cli" | "codex-cli" | "kimi-cli";
 
 /** 思考强度档位。See src/ai/agent/types.ts (ThinkingMode). */
 export type ThinkingMode = "off" | "low" | "medium" | "high";
@@ -116,6 +116,7 @@ export interface AnthropicConfig {
    * - "opencode-cli":  本地 opencode CLI（模型在 opencode 里配置）
    * - "codex-cli":     本地 codex CLI（OpenAI 登录，或 baseURL+apiKey 接
    *   Responses API 端点：DeepSeek 官方 / GLM 走 OpenRouter 或本地代理）
+   * - "kimi-cli":      本地 kimi CLI（Kimi Code，kimi login 凭证）
    * 未设置时按 legacy useCLI 映射（true → claude-cli）。
    */
   provider?: AgentProviderName;

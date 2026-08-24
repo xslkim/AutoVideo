@@ -112,6 +112,13 @@
                 />
               </n-form-item>
             </template>
+            <n-form-item v-else-if="form.anthropic.provider === 'kimi-cli'" label="Model">
+              <n-input
+                v-model:value="form.anthropic.model"
+                placeholder="模型别名（留空 = config.toml 的 default_model）"
+                clearable
+              />
+            </n-form-item>
             <n-form-item v-else label="Model">
               <span style="font-size: 12px; color: #999">
                 claude CLI 使用 claude login 账号的默认模型（不透传 model）
@@ -461,6 +468,7 @@ const agentProviderOptions = [
   { label: 'Claude CLI（claude login 凭证）', value: 'claude-cli' },
   { label: 'OpenCode CLI（模型在 opencode 里配置）', value: 'opencode-cli' },
   { label: 'Codex CLI（ChatGPT 登录 / DeepSeek / GLM via OpenRouter）', value: 'codex-cli' },
+  { label: 'Kimi Code CLI（kimi login 凭证）', value: 'kimi-cli' },
 ]
 
 const agentBaseUrlOptions = [
@@ -506,6 +514,7 @@ const codexModelOptions = [
 const cliPathPlaceholder = computed(() => {
   if (form.anthropic.provider === 'opencode-cli') return 'opencode'
   if (form.anthropic.provider === 'codex-cli') return 'codex'
+  if (form.anthropic.provider === 'kimi-cli') return 'kimi'
   return 'claude'
 })
 
@@ -552,7 +561,7 @@ function clampAnthropicConcurrency(value: number | null | undefined): number {
 
 const form = reactive({
   anthropic: {
-    provider: 'anthropic-api' as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli',
+    provider: 'anthropic-api' as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli' | 'kimi-cli',
     apiKey: '' as string,
     baseURL: '' as string | null,
     model: '' as string | null,
@@ -562,7 +571,7 @@ const form = reactive({
     thinking: 'off' as ThinkingMode,
     reviewEnabled: false as boolean,
     review: {
-      provider: null as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli' | null,
+      provider: null as 'anthropic-api' | 'claude-cli' | 'opencode-cli' | 'codex-cli' | 'kimi-cli' | null,
       model: '' as string | null,
       baseURL: '' as string | null,
       apiKey: '' as string,

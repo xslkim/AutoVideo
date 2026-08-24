@@ -181,7 +181,7 @@ avatarRef: ./avatar.mp4
 
 | 模式 | `--- visual ---` 的作用 | 产物 |
 |------|------------------------|------|
-| `@visual: animation`（默认） | **原样发送给 Claude AI**：优先从预制组件库选组件填参数组装（版式/动效由库保证）；无合适组件时才自由生成 React/Remotion 组件 | `src/blocks/{id}/Component.tsx` |
+| `@visual: animation`（默认） | **原样发送给配置的 Agent 后端**（`anthropic.provider`，如 Claude / Kimi CLI）：优先从预制组件库选组件填参数组装（版式/动效由库保证）；无合适组件时才自由生成 React/Remotion 组件 | `src/blocks/{id}/Component.tsx` |
 | `@visual: image` | **原样发送给文生图 API**，作为图片生成的 prompt | `public/images/{id}.png`（API 生成） |
 | `@visual: html` | **直接当作 HTML/CSS 源码**写入 `public/html/{id}.html`，由 headless Chrome 截图（**不调 AI**；`--- visual ---` 必须是完整 HTML，不是描述） | `public/html/{id}.html` + 截图 |
 | `@visual: image(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/images/{id}.png`（直接复制本地文件） |
@@ -212,7 +212,7 @@ avatarRef: ./avatar.mp4
 
 ### 3.1 动画模式（默认）写法要点
 
-> 这是默认模式。这段文本会**原样发送给 Claude AI**。生成分两步策略：**组装优先**——AI 先从预制组件库中选一个组件并填充参数（版式与动效质量由库保证）；描述明显不命中任何组件时，才回退为自由生成完整 React/Remotion 组件。
+> 这是默认模式。这段文本会**原样发送给配置的 Agent 后端**。生成分两步策略：**组装优先**——AI 先从预制组件库中选一个组件并填充参数（版式与动效质量由库保证）；描述明显不命中任何组件时，才回退为自由生成完整 React/Remotion 组件。
 >
 > **预制组件库（`remotion/library/`）与命中写法**：直接按下面的结构化措辞描述，就能命中组装路径——
 >

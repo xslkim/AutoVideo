@@ -8,6 +8,7 @@
  *   - "opencode-cli"  → local `opencode` CLI (models configured in opencode)
  *   - "codex-cli"     → local `codex` CLI (OpenAI login, or DeepSeek/GLM via
  *                       Responses-API baseURL + apiKey)
+ *   - "kimi-cli"      → local `kimi` CLI (Kimi Code, `kimi login` credentials)
  */
 
 import type { AgentConfig, AgentDriver, AgentProvider } from "./types.js";
@@ -15,6 +16,7 @@ import { AnthropicApiDriver } from "./anthropic-api.js";
 import { ClaudeCliDriver } from "./claude-cli.js";
 import { OpencodeCliDriver } from "./opencode-cli.js";
 import { CodexCliDriver } from "./codex-cli.js";
+import { KimiCliDriver } from "./kimi-cli.js";
 
 /** Effective provider: explicit `provider` wins; legacy useCLI → claude-cli. */
 export function resolveAgentProvider(config: AgentConfig): AgentProvider {
@@ -27,6 +29,7 @@ export function defaultCliBinary(provider: AgentProvider): string {
   switch (provider) {
     case "opencode-cli": return "opencode";
     case "codex-cli": return "codex";
+    case "kimi-cli": return "kimi";
     default: return "claude";
   }
 }
@@ -39,6 +42,8 @@ export function createAgentDriver(config: AgentConfig): AgentDriver {
       return new OpencodeCliDriver(config);
     case "codex-cli":
       return new CodexCliDriver(config);
+    case "kimi-cli":
+      return new KimiCliDriver(config);
     case "anthropic-api":
       return new AnthropicApiDriver(config);
   }
@@ -48,6 +53,7 @@ export { AnthropicApiDriver } from "./anthropic-api.js";
 export { ClaudeCliDriver } from "./claude-cli.js";
 export { OpencodeCliDriver } from "./opencode-cli.js";
 export { CodexCliDriver } from "./codex-cli.js";
+export { KimiCliDriver } from "./kimi-cli.js";
 export { checkCliVersion, DEFAULT_CLI_TIMEOUT_MS } from "./cli-common.js";
 export type {
   AgentCapabilities,
