@@ -371,11 +371,28 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
     }
 
     // --- Clear build products ---
+    // Compile-managed visuals (local image with imageSource / video / html) are
+    // products of the compile stage — no later stage can regenerate them, so a
+    // cache clear must not remove them. Deleting them strands the block: render
+    // fails with "image mode requires visual.imagePath" and only a full
+    // recompile restores them.
+    let compileManagedVisual = false;
+    if (fs.existsSync(scriptJsonPath)) {
+      try {
+        const scriptJson = JSON.parse(fs.readFileSync(scriptJsonPath, 'utf-8'));
+        const b = ((scriptJson.blocks ?? []) as any[]).find((x: any) => x.id === id);
+        compileManagedVisual = !!b && (
+          b.visualMode === 'video' ||
+          b.visualMode === 'html' ||
+          (b.visualMode === 'image' && typeof b.imageSource === 'string')
+        );
+      } catch { /* script.json corrupted — treat as not compile-managed */ }
+    }
     if (kind === 'audio' || kind === 'all') {
       const p = path.join(buildDir, 'public', 'audio', `${id}.wav`);
       try { fs.unlinkSync(p); } catch { /* not found */ }
     }
-    if (kind === 'visual' || kind === 'all') {
+    if ((kind === 'visual' || kind === 'all') && !compileManagedVisual) {
       const compPath = path.join(buildDir, 'src', 'blocks', id, 'Component.tsx');
       const imgPath = path.join(buildDir, 'public', 'images', `${id}.png`);
       try { fs.unlinkSync(compPath); } catch { /* not found */ }
@@ -398,7 +415,7 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
           if (kind === 'audio' || kind === 'all') {
             delete block.audio;
           }
-          if (kind === 'visual' || kind === 'all') {
+          if ((kind === 'visual' || kind === 'all') && !compileManagedVisual) {
             if (block.visual) {
               delete block.visual.componentPath;
               delete block.visual.imagePath;
