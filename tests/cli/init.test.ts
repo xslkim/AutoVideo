@@ -23,7 +23,8 @@ describe("init command", () => {
     // Verify all expected files exist
     expect(fs.existsSync(path.join(target, "project.json"))).toBe(true);
     expect(fs.existsSync(path.join(target, "meta.md"))).toBe(true);
-    expect(fs.existsSync(path.join(target, "script.md"))).toBe(true);
+    expect(fs.existsSync(path.join(target, "visuals.md"))).toBe(true);
+    expect(fs.existsSync(path.join(target, "narration.md"))).toBe(true);
     expect(fs.existsSync(path.join(target, "hero.png"))).toBe(true);
     expect(fs.existsSync(path.join(target, "autovideo.config.json"))).toBe(true);
     expect(fs.existsSync(path.join(target, "README.md"))).toBe(true);
@@ -70,7 +71,9 @@ describe("init command", () => {
       fs.readFileSync(path.join(target, "project.json"), "utf-8")
     );
     expect(project.meta).toBe("./meta.md");
-    expect(project.blocks).toContain("./script.md");
+    expect(project.blocks).toEqual([
+      { visual: "./visuals.md", narration: "./narration.md" },
+    ]);
   });
 
   it("should have valid meta.md with required fields", async () => {
@@ -85,14 +88,17 @@ describe("init command", () => {
     expect(meta).toContain("fps:");
   });
 
-  it("should have script.md with visual and narration sections", async () => {
+  it("should have visuals.md and narration.md in split format", async () => {
     const target = path.join(tmpDir, "project");
     await initCommand(target);
 
-    const script = fs.readFileSync(path.join(target, "script.md"), "utf-8");
-    expect(script).toContain("--- visual ---");
-    expect(script).toContain("--- narration ---");
-    expect(script).toContain("./hero.png");
+    const visuals = fs.readFileSync(path.join(target, "visuals.md"), "utf-8");
+    const narration = fs.readFileSync(path.join(target, "narration.md"), "utf-8");
+    expect(visuals).toContain(">>>");
+    expect(visuals).toContain("./hero.png");
+    expect(visuals).not.toContain("--- visual ---");
+    expect(narration).toContain(">>>");
+    expect(narration).not.toContain("--- narration ---");
   });
 
   it("should have README.md with instructions", async () => {

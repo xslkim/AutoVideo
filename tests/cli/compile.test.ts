@@ -204,8 +204,92 @@ describe("compile", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Dry-run mode
+  // Split format: visuals.md + narration.md aligned by #Bxx ID
   // -------------------------------------------------------------------------
+
+  it("should compile a split-format project (visuals.md + narration.md)", async () => {
+    const tempDir = resolve(OUTPUT_BASE, "split-test");
+    // Content files live in a subdirectory to prove that relative asset
+    // paths resolve against the visuals file's directory.
+    const contentDir = resolve(tempDir, "content");
+    mkdirSync(resolve(contentDir, "assets"), { recursive: true });
+
+    const wavSrc = readFileSync(resolve(FIXTURES_DIR, "B00.wav"));
+    writeFileSync(resolve(tempDir, "B00.wav"), wavSrc);
+    const pngSrc = readFileSync(resolve(FIXTURES_DIR, "assets/diagram.png"));
+    writeFileSync(resolve(contentDir, "assets/diagram.png"), pngSrc);
+
+    writeFileSync(
+      resolve(tempDir, "project.json"),
+      JSON.stringify({
+        meta: "./meta.md",
+        blocks: [
+          { visual: "./content/visuals.md", narration: "./content/narration.md" },
+        ],
+      }),
+    );
+
+    writeFileSync(
+      resolve(tempDir, "meta.md"),
+      ["--- meta ---", "title: Split Test", "aspect: 16:9", "---"].join("\n"),
+    );
+
+    writeFileSync(
+      resolve(contentDir, "visuals.md"),
+      [
+        ">>> Intro #B01",
+        "@enter: fade-up",
+        "@duration: 6s",
+        "",
+        '屏幕中央显示大标题 "Split"',
+        "",
+        ">>> Diagram #B02",
+        "@visual: image(./assets/diagram.png)",
+        "",
+        "显示架构图 ./assets/diagram.png",
+      ].join("\n"),
+    );
+
+    // Narration file intentionally lists B02 before B01
+    writeFileSync(
+      resolve(contentDir, "narration.md"),
+      [
+        ">>> #B02",
+        "架构图的说明",
+        "",
+        ">>> 介绍 #B01",
+        "这是**拆分**格式的测试",
+      ].join("\n"),
+    );
+
+    const outDir = resolve(OUTPUT_BASE, "split-out");
+    const result = await compile({
+      projectPath: resolve(tempDir, "project.json"),
+      outDir,
+    });
+
+    const script = result.script;
+
+    // Order follows the visuals file
+    expect(script.blocks.map((b: { id: string }) => b.id)).toEqual(["B01", "B02"]);
+
+    const b01 = script.blocks[0];
+    expect(b01.title).toBe("Intro");
+    expect(b01.enter).toBe("fade-up");
+    expect(b01.narration.explicitDurationSec).toBe(6);
+    expect(b01.narration.lines).toHaveLength(1);
+    expect(b01.narration.lines[0].ttsText).toBe("这是拆分格式的测试");
+    expect(b01.narration.lines[0].highlights).toEqual([{ start: 2, end: 4 }]);
+
+    const b02 = script.blocks[1];
+    expect(b02.visualMode).toBe("image");
+    // Asset path resolved relative to the visuals file dir, manifest key
+    // relative to the project dir
+    expect(b02.visual.description).toMatch(/assets\/[a-f0-9]+\.png/);
+    expect(Object.keys(script.assets)).toEqual(["content/assets/diagram.png"]);
+  });
+
+
 
   it("should not write files in dry-run mode", async () => {
     const outDir = resolve(OUTPUT_BASE, "dryrun-test");

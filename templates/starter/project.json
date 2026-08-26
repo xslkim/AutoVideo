@@ -1,6 +1,9 @@
 {
   "meta": "./meta.md",
   "blocks": [
-    "./script.md"
+    {
+      "visual": "./visuals.md",
+      "narration": "./narration.md"
+    }
   ]
 }

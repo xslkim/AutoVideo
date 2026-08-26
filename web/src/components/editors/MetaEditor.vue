@@ -460,7 +460,7 @@ async function save() {
     // 409 conflict
     conflictData.value = {
       yourContent: content,
-      currentContent: result.conflict.currentContent,
+      currentContent: result.conflict.currentContent ?? '',
       currentEtag: result.conflict.currentEtag,
     }
     showDiff.value = false
@@ -495,7 +495,7 @@ async function overwrite() {
     // Another conflict occurred during overwrite
     conflictData.value = {
       yourContent: content,
-      currentContent: result.conflict.currentContent,
+      currentContent: result.conflict.currentContent ?? '',
       currentEtag: result.conflict.currentEtag,
     }
     message.warning('服务端再次变更，请重试')

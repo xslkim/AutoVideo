@@ -125,7 +125,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useMessage, useDialog } from 'naive-ui'
-import { apiGet, apiFetch, getEtag } from '../../utils/api'
+import { apiGet, apiFetch, getEtag, type ScriptResponse } from '../../utils/api'
 
 interface AssetFile {
   name: string
@@ -278,17 +278,18 @@ async function onCopyPath(name: string) {
 
 // Delete with confirmation + reference check
 async function onDeleteAsset(fileName: string) {
-  // Check if the asset is referenced in script.md
+  // Check if the asset is referenced in the script (visuals.md in split layout)
   let isReferenced = false
   try {
-    const result = await apiGet<{ content: string }>(`/api/projects/${props.projectName}/script`, { silent: true })
+    const result = await apiGet<ScriptResponse>(`/api/projects/${props.projectName}/script`, { silent: true })
     if (result.ok) {
-      isReferenced = result.data.content.includes(`./assets/${fileName}`)
+      const text = result.data.mode === 'split' ? result.data.visuals : result.data.content
+      isReferenced = text.includes(`./assets/${fileName}`)
     }
   } catch { /* ignore */ }
 
   const title = isReferenced
-    ? `此资源正在被 script.md 引用，确定要删除吗？`
+    ? `此资源正在被脚本引用，确定要删除吗？`
     : `确定要删除 ${fileName} 吗？`
 
   dialog.warning({

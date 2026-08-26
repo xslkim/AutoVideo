@@ -23,8 +23,8 @@
 ### 1.3 核心使用流程
 
 ```
-1. 写一个 project.json（指向 meta.md 和一个或多个内容 .md 文件）
-2. 在内容文件里，每个块写：--- visual ---（文字描述视觉效果）+ --- narration ---（口播文字）
+1. 写一个 project.json（指向 meta.md 和 visuals/narration 文件对）
+2. 在 visuals.md 里写块（指令 + 视觉描述），在 narration.md 里写同 ID 块的口播文字（按 #Bxx 一一对应）
 3. 运行  autovideo build project.json
 4. 等几分钟，得到  output/final.mp4
 5. 不满意某一块，  autovideo visuals script.json --block B03 --force  重生成
@@ -44,6 +44,8 @@
 ---
 
 ## 3. 输入格式：Markdown DSL
+
+> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应，ID 必填，指令只写在 visuals.md，无 `--- visual ---` / `--- narration ---` section 标记；`project.json` 用 `{ "visual": "...", "narration": "..." }` 对象 entry）。本章描述的旧单文件格式继续兼容；现行权威格式说明见 `docs/AUTHORING.md`。
 
 ### 3.1 项目文件（`project.json`）
 
@@ -657,7 +659,7 @@ autovideo preview <script.json>          [--block B03] [--config FILE]
 # 工具
 autovideo cache    stats | clean [--type audio|component|partial] [--older-than 30d] [--stale]
 autovideo doctor                          # 检查环境，输出 PASS/WARN/FAIL 表；退出码见下文
-autovideo init     <dir>                  # 生成模板项目（含示例 project.json + meta.md + script.md + README.md）
+autovideo init     <dir>                  # 生成模板项目（含示例 project.json + meta.md + visuals.md + narration.md + README.md）
                                           # 生成的 README.md 说明：在 meta.md 同目录放置 B00.wav（10–30s 清晰人声 WAV）后才能 build
 ```
 
@@ -767,7 +769,8 @@ autovideo/
 │   └── starter/                  # autovideo init 复制此模板
 │       ├── project.json
 │       ├── meta.md
-│       ├── script.md
+│       ├── visuals.md
+│       ├── narration.md
 │       ├── autovideo.config.json # 可选项目级配置示例
 │       └── README.md             # 提示用户放置 B00.wav
 │
@@ -788,13 +791,14 @@ autovideo/
 
 ```
 ./microgpt/                       # 用户自己的项目目录
-├── project.json                  # 入口：指向 meta 文件和内容文件列表
+├── project.json                  # 入口：指向 meta 文件和 visuals/narration 文件对
 ├── meta.md                       # 全局设置（--- meta --- 段）
 ├── B00.wav                       # 默认参考音色（10–30 秒清晰人声，用户自备）
-├── intro.md                      # 内容文件（只含块）
-├── part1.md
-└── part2.md
+├── visuals.md                    # 视觉元素文件（块 + 指令 + 视觉描述，#Bxx 必填）
+└── narration.md                  # 语音文件（旁白行，块 ID 与 visuals.md 一一对应）
 ```
+
+> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应，`project.json` 用 `{ "visual": "...", "narration": "..." }` 对象 entry）；旧单文件 `script.md` 格式（`blocks` 为字符串 entry）继续兼容。详见 `docs/AUTHORING.md`。
 
 ### 8.3 构建产物目录（`autovideo build` 输出）
 

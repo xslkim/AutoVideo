@@ -21,9 +21,30 @@ export function setEtag(url: string, etag: string): void {
 // ---------------------------------------------------------------------------
 
 export interface ConflictData {
-  currentContent: string
+  // single-file layout (script.md)
+  currentContent?: string
+  // split layout (visuals.md + narration.md)
+  currentVisuals?: string
+  currentNarration?: string
   currentEtag: string
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:name/script — discriminated union on `mode`
+// ---------------------------------------------------------------------------
+
+export interface ScriptSingleResponse {
+  mode: 'single'
+  content: string
+}
+
+export interface ScriptSplitResponse {
+  mode: 'split'
+  visuals: string
+  narration: string
+}
+
+export type ScriptResponse = ScriptSingleResponse | ScriptSplitResponse
 
 export interface ApiError {
   message: string

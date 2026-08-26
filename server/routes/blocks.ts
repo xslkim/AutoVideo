@@ -13,6 +13,16 @@ import {
   NotFoundError,
   ValidationError,
 } from '../services/scriptEditor.js';
+import {
+  resolveScriptFiles,
+  readSplitWithEtag,
+  writeSplitWithEtag,
+  splitMergedBlock,
+  extractNarrationBlock,
+  replaceNarrationBlock,
+  visualDescFromBlock,
+  narrationTextFromBlock,
+} from '../services/scriptFiles.js';
 import type { VisualMode, CacheClearKind } from '../types/api.js';
 
 // Allowed visual modes
@@ -110,10 +120,12 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
   app.get('/:name/blocks', projectGuard(projectsRoot), (c) => {
     const name = c.req.param('name')!;
     const projDir = path.join(projectsRoot, name);
-    const scriptPath = path.join(projDir, 'script.md');
+    // 新布局从 visuals.md 解析块头/指令（语法同 script.md，仅无 section 标记）
+    const layout = resolveScriptFiles(projDir);
+    const blocksPath = layout.mode === 'single' ? layout.scriptPath : layout.visualsPath;
 
-    if (!fs.existsSync(scriptPath)) {
-      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'script.md not found' } }, 404);
+    if (!fs.existsSync(blocksPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: `${path.basename(blocksPath)} not found` } }, 404);
     }
 
     // Determine currentSlug from meta.md
@@ -126,7 +138,7 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
     }
 
     const buildDir = path.join(projDir, 'build', currentSlug);
-    const scriptMd = fs.readFileSync(scriptPath, 'utf-8');
+    const scriptMd = fs.readFileSync(blocksPath, 'utf-8');
     const { blocks, warnings } = parseScript(scriptMd, buildDir);
 
     return c.json({ blocks, warnings, currentSlug });
@@ -140,10 +152,60 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
     const name = c.req.param('name')!;
     const id = c.req.param('id')!;
     const projDir = path.join(projectsRoot, name);
-    const scriptPath = path.join(projDir, 'script.md');
+    const layout = resolveScriptFiles(projDir);
 
-    if (!fs.existsSync(scriptPath)) {
-      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'script.md not found' } }, 404);
+    if (layout.mode === 'single') {
+      const scriptPath = layout.scriptPath;
+      if (!fs.existsSync(scriptPath)) {
+        return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'script.md not found' } }, 404);
+      }
+
+      const ifMatch = c.req.header('If-Match');
+      if (!ifMatch) {
+        return c.json({ error: { code: 'ERR_MISSING_IF_MATCH', message: 'If-Match header required' } }, 400);
+      }
+
+      const body = await c.req.json<{ content: string }>();
+      if (typeof body.content !== 'string') {
+        return c.json({ error: { code: 'ERR_INVALID_BODY', message: 'body.content must be a string' } }, 400);
+      }
+
+      // Read current script.md and check ETag
+      const { content: scriptMd, etag: currentEtag } = readFileWithEtag(scriptPath);
+      if (currentEtag !== ifMatch) {
+        return c.json({ currentContent: scriptMd, currentEtag }, 409);
+      }
+
+      // Replace block content (may throw NotFoundError or ValidationError)
+      let newScriptMd: string;
+      try {
+        newScriptMd = replaceBlock(scriptMd, id, body.content);
+      } catch (err) {
+        if (err instanceof NotFoundError) {
+          return c.json({ error: { code: err.code, message: err.message } }, 404);
+        }
+        if (err instanceof ValidationError) {
+          return c.json({ error: { code: err.code, message: err.message } }, 422);
+        }
+        throw err;
+      }
+
+      // Write back (re-checks ETag atomically)
+      const result = writeFileWithEtag(scriptPath, newScriptMd, ifMatch);
+      if ('conflict' in result) {
+        const fresh = readFileWithEtag(scriptPath);
+        return c.json({ currentContent: fresh.content, currentEtag: fresh.etag }, 409);
+      }
+
+      return c.json({ ok: true, etag: result.etag });
+    }
+
+    // --- split layout: 合并块文本拆成两份，分别写入 visuals.md / narration.md ---
+    if (!fs.existsSync(layout.visualsPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'visuals.md not found' } }, 404);
+    }
+    if (!fs.existsSync(layout.narrationPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'narration.md not found' } }, 404);
     }
 
     const ifMatch = c.req.header('If-Match');
@@ -156,16 +218,22 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
       return c.json({ error: { code: 'ERR_INVALID_BODY', message: 'body.content must be a string' } }, 400);
     }
 
-    // Read current script.md and check ETag
-    const { content: scriptMd, etag: currentEtag } = readFileWithEtag(scriptPath);
-    if (currentEtag !== ifMatch) {
-      return c.json({ currentContent: scriptMd, currentEtag }, 409);
+    // Read current files and check combined ETag
+    const current = readSplitWithEtag(layout.visualsPath, layout.narrationPath);
+    if (current.etag !== ifMatch) {
+      return c.json(
+        { currentVisuals: current.visuals, currentNarration: current.narration, currentEtag: current.etag },
+        409,
+      );
     }
 
-    // Replace block content (may throw NotFoundError or ValidationError)
-    let newScriptMd: string;
+    // 先完整解析校验（拆块 + 两个文件各自定位替换），全部通过后才落盘
+    let newVisuals: string;
+    let newNarration: string;
     try {
-      newScriptMd = replaceBlock(scriptMd, id, body.content);
+      const { visualsBlock, narrationBlock } = splitMergedBlock(body.content);
+      newVisuals = replaceBlock(current.visuals, id, visualsBlock);
+      newNarration = replaceNarrationBlock(current.narration, id, narrationBlock);
     } catch (err) {
       if (err instanceof NotFoundError) {
         return c.json({ error: { code: err.code, message: err.message } }, 404);
@@ -176,11 +244,14 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
       throw err;
     }
 
-    // Write back (re-checks ETag atomically)
-    const result = writeFileWithEtag(scriptPath, newScriptMd, ifMatch);
-    if ('conflict' in result) {
-      const fresh = readFileWithEtag(scriptPath);
-      return c.json({ currentContent: fresh.content, currentEtag: fresh.etag }, 409);
+    // Write back both files (re-checks ETag)
+    const result = writeSplitWithEtag(layout.visualsPath, layout.narrationPath, newVisuals, newNarration, ifMatch);
+    if (!result) {
+      const fresh = readSplitWithEtag(layout.visualsPath, layout.narrationPath);
+      return c.json(
+        { currentVisuals: fresh.visuals, currentNarration: fresh.narration, currentEtag: fresh.etag },
+        409,
+      );
     }
 
     return c.json({ ok: true, etag: result.etag });
@@ -194,10 +265,15 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
     const name = c.req.param('name')!;
     const id = c.req.param('id')!;
     const projDir = path.join(projectsRoot, name);
-    const scriptPath = path.join(projDir, 'script.md');
+    const layout = resolveScriptFiles(projDir);
 
-    if (!fs.existsSync(scriptPath)) {
-      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'script.md not found' } }, 404);
+    // @visual/@enter/@exit 指令行都在 visuals.md（新）或 script.md（旧）里
+    const directivesPath = layout.mode === 'single' ? layout.scriptPath : layout.visualsPath;
+    if (!fs.existsSync(directivesPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: `${path.basename(directivesPath)} not found` } }, 404);
+    }
+    if (layout.mode === 'split' && !fs.existsSync(layout.narrationPath)) {
+      return c.json({ error: { code: 'ERR_NOT_FOUND', message: 'narration.md not found' } }, 404);
     }
 
     const ifMatch = c.req.header('If-Match');
@@ -229,16 +305,9 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
       );
     }
 
-    // Read current script.md and check ETag
-    const { content: scriptMd, etag: currentEtag } = readFileWithEtag(scriptPath);
-    if (currentEtag !== ifMatch) {
-      return c.json({ currentContent: scriptMd, currentEtag }, 409);
-    }
-
-    // Extract block, patch directives, replace block
-    let newScriptMd: string;
-    try {
-      const { content: blockContent } = extractBlock(scriptMd, id);
+    // Patch block directives (shared by both layouts)
+    const patchBlock = (fileContent: string): string => {
+      const { content: blockContent } = extractBlock(fileContent, id);
       let patchedBlock = blockContent;
       if (body.mode !== undefined) {
         patchedBlock = patchVisualMode(patchedBlock, body.mode as VisualMode);
@@ -249,8 +318,10 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
       if (body.exit !== undefined) {
         patchedBlock = patchDirective(patchedBlock, 'exit', body.exit);
       }
-      newScriptMd = replaceBlock(scriptMd, id, patchedBlock);
-    } catch (err) {
+      return replaceBlock(fileContent, id, patchedBlock);
+    };
+
+    const handlePatchError = (err: unknown) => {
       if (err instanceof NotFoundError) {
         return c.json({ error: { code: err.code, message: err.message } }, 404);
       }
@@ -258,13 +329,57 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
         return c.json({ error: { code: err.code, message: err.message } }, 422);
       }
       throw err;
+    };
+
+    if (layout.mode === 'single') {
+      const scriptPath = layout.scriptPath;
+
+      // Read current script.md and check ETag
+      const { content: scriptMd, etag: currentEtag } = readFileWithEtag(scriptPath);
+      if (currentEtag !== ifMatch) {
+        return c.json({ currentContent: scriptMd, currentEtag }, 409);
+      }
+
+      let newScriptMd: string;
+      try {
+        newScriptMd = patchBlock(scriptMd);
+      } catch (err) {
+        return handlePatchError(err);
+      }
+
+      // Write back
+      const result = writeFileWithEtag(scriptPath, newScriptMd, ifMatch);
+      if ('conflict' in result) {
+        const fresh = readFileWithEtag(scriptPath);
+        return c.json({ currentContent: fresh.content, currentEtag: fresh.etag }, 409);
+      }
+
+      return c.json({ ok: true, etag: result.etag, mode: body.mode, enter: body.enter, exit: body.exit });
     }
 
-    // Write back
-    const result = writeFileWithEtag(scriptPath, newScriptMd, ifMatch);
-    if ('conflict' in result) {
-      const fresh = readFileWithEtag(scriptPath);
-      return c.json({ currentContent: fresh.content, currentEtag: fresh.etag }, 409);
+    // --- split layout: 只改 visuals.md，narration.md 原样 ---
+    const current = readSplitWithEtag(layout.visualsPath, layout.narrationPath);
+    if (current.etag !== ifMatch) {
+      return c.json(
+        { currentVisuals: current.visuals, currentNarration: current.narration, currentEtag: current.etag },
+        409,
+      );
+    }
+
+    let newVisuals: string;
+    try {
+      newVisuals = patchBlock(current.visuals);
+    } catch (err) {
+      return handlePatchError(err);
+    }
+
+    const result = writeSplitWithEtag(layout.visualsPath, layout.narrationPath, newVisuals, current.narration, ifMatch);
+    if (!result) {
+      const fresh = readSplitWithEtag(layout.visualsPath, layout.narrationPath);
+      return c.json(
+        { currentVisuals: fresh.visuals, currentNarration: fresh.narration, currentEtag: fresh.etag },
+        409,
+      );
     }
 
     return c.json({ ok: true, etag: result.etag, mode: body.mode, enter: body.enter, exit: body.exit });
@@ -296,23 +411,45 @@ export function createBlockRoutes(projectsRoot: string, repoRoot: string) {
     const cacheDir = resolveTaskConfig(repoRoot).cache.dir;
     const manifestPath = path.join(cacheDir, 'manifest.json');
 
-    // --- Parse block content from script.md for cache matching ---
-    const scriptPath = path.join(projDir, 'script.md');
+    // --- Parse block content for cache matching ---
+    // 旧布局读 script.md（section 标记提取）；新布局读 visuals.md（视觉描述）
+    // 与 narration.md（旁白文本，audio 缓存按 ttsText 匹配需要）
+    const layout = resolveScriptFiles(projDir);
     let narrationText = '';
     let visualDesc = '';
 
-    if (fs.existsSync(scriptPath)) {
-      try {
-        const scriptMd = fs.readFileSync(scriptPath, 'utf-8');
-        const { content: blockContent } = extractBlock(scriptMd, id);
-        // Extract narration section text
-        const narrMatch = blockContent.match(/---\s+narration\s+---\s*\n([\s\S]*?)(?=\n(?:---\s+(?:visual|narration)|$))/);
-        if (narrMatch) narrationText = narrMatch[1].trim();
-        // Extract visual section text
-        const visMatch = blockContent.match(/---\s+visual\s+---\s*\n([\s\S]*?)(?=\n(?:---\s+(?:visual|narration)|$))/);
-        if (visMatch) visualDesc = visMatch[1].trim();
-      } catch {
-        // Block not found in script.md — proceed with cache and build cleanup only
+    if (layout.mode === 'single') {
+      const scriptPath = layout.scriptPath;
+      if (fs.existsSync(scriptPath)) {
+        try {
+          const scriptMd = fs.readFileSync(scriptPath, 'utf-8');
+          const { content: blockContent } = extractBlock(scriptMd, id);
+          // Extract narration section text
+          const narrMatch = blockContent.match(/---\s+narration\s+---\s*\n([\s\S]*?)(?=\n(?:---\s+(?:visual|narration)|$))/);
+          if (narrMatch) narrationText = narrMatch[1].trim();
+          // Extract visual section text
+          const visMatch = blockContent.match(/---\s+visual\s+---\s*\n([\s\S]*?)(?=\n(?:---\s+(?:visual|narration)|$))/);
+          if (visMatch) visualDesc = visMatch[1].trim();
+        } catch {
+          // Block not found in script.md — proceed with cache and build cleanup only
+        }
+      }
+    } else {
+      if (fs.existsSync(layout.visualsPath)) {
+        try {
+          const visualsMd = fs.readFileSync(layout.visualsPath, 'utf-8');
+          visualDesc = visualDescFromBlock(extractBlock(visualsMd, id).content);
+        } catch {
+          // Block not found in visuals.md — proceed with cache and build cleanup only
+        }
+      }
+      if (fs.existsSync(layout.narrationPath)) {
+        try {
+          const narrationMd = fs.readFileSync(layout.narrationPath, 'utf-8');
+          narrationText = narrationTextFromBlock(extractNarrationBlock(narrationMd, id));
+        } catch {
+          // Block not found in narration.md — proceed with cache and build cleanup only
+        }
       }
     }
 

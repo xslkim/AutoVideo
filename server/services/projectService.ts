@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { slugify } from '../../src/utils/slugify.js';
+import { resolveScriptFiles } from './scriptFiles.js';
 
 // ---------------------------------------------------------------------------
 // ETag helpers
@@ -100,7 +101,7 @@ function computeSlug(meta: MetaFields, projectName: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Block counting (lightweight, from script.md)
+// Block counting (lightweight, from script.md / visuals.md)
 // ---------------------------------------------------------------------------
 
 const BLOCK_HEADER_RE = /^>>>\s+(.+?)\s+#(B\d+)\s*$/;
@@ -113,21 +114,43 @@ function countBlocks(scriptContent: string): number {
   return count;
 }
 
+/** 块计数来源文件：新布局数 visuals.md，旧布局数 script.md */
+function countProjectBlocks(projDir: string): number {
+  const layout = resolveScriptFiles(projDir);
+  const blocksPath = layout.mode === 'single' ? layout.scriptPath : layout.visualsPath;
+  if (!fs.existsSync(blocksPath)) return 0;
+  return countBlocks(fs.readFileSync(blocksPath, 'utf-8'));
+}
+
 // ---------------------------------------------------------------------------
 // project.json validation
 // ---------------------------------------------------------------------------
 
+interface ProjectJsonBlocksObject {
+  visual?: string;
+  narration?: string;
+}
+
 interface ProjectJson {
   meta: string;
-  blocks: string[];
+  blocks: (string | ProjectJsonBlocksObject)[];
 }
 
 function isNonStandard(pj: ProjectJson): boolean {
   if (pj.meta !== './meta.md' && pj.meta !== 'meta.md') return true;
   if (!Array.isArray(pj.blocks) || pj.blocks.length !== 1) return true;
   const b = pj.blocks[0];
-  if (b !== './script.md' && b !== 'script.md') return true;
-  return false;
+  // 旧标准布局：单文件 script.md
+  if (typeof b === 'string') {
+    return b !== './script.md' && b !== 'script.md';
+  }
+  // 新标准布局：拆分双文件 visuals.md + narration.md
+  if (b && typeof b === 'object') {
+    const visOk = b.visual === './visuals.md' || b.visual === 'visuals.md';
+    const narOk = b.narration === './narration.md' || b.narration === 'narration.md';
+    return !(visOk && narOk);
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,12 +196,8 @@ export function listProjects(projectsRoot: string): ProjectSummary[] {
         currentSlug = computeSlug(meta, entry.name);
       }
 
-      // Count blocks from script.md
-      const scriptPath = path.join(projDir, 'script.md');
-      if (fs.existsSync(scriptPath)) {
-        const scriptContent = fs.readFileSync(scriptPath, 'utf-8');
-        blockCount = countBlocks(scriptContent);
-      }
+      // Count blocks（新布局数 visuals.md，旧布局数 script.md）
+      blockCount = countProjectBlocks(projDir);
 
       // Check build status
       const buildDir = path.join(projDir, 'build', currentSlug);
@@ -244,10 +263,7 @@ export function getProject(projectsRoot: string, name: string): ProjectDetail | 
 
     const currentSlug = computeSlug(metaFields, name);
 
-    const scriptPath = path.join(projDir, 'script.md');
-    if (fs.existsSync(scriptPath)) {
-      blockCount = countBlocks(fs.readFileSync(scriptPath, 'utf-8'));
-    }
+    blockCount = countProjectBlocks(projDir);
 
     const buildDir = path.join(projDir, 'build', currentSlug);
     let latestBuildAt: string | null = null;

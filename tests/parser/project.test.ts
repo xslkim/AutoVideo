@@ -205,4 +205,126 @@ describe("readProject", () => {
       /must be a JSON object/,
     );
   });
+
+  // --- Split-format { visual, narration } entries ---
+
+  it("resolves split object entries to absolute paths", () => {
+    writeFileSync(join(tmpDir, "meta.md"), "--- meta ---\ntitle: Test\n---");
+    writeFileSync(join(tmpDir, "visuals.md"), ">>> #B01\n描述");
+    writeFileSync(join(tmpDir, "narration.md"), ">>> #B01\n旁白");
+    writeFileSync(
+      join(tmpDir, "project.json"),
+      JSON.stringify({
+        meta: "./meta.md",
+        blocks: [{ visual: "./visuals.md", narration: "./narration.md" }],
+      }),
+    );
+
+    const result = readProject(join(tmpDir, "project.json"));
+
+    expect(result.blockEntries).toEqual([
+      {
+        kind: "split",
+        visualPath: join(tmpDir, "visuals.md"),
+        narrationPath: join(tmpDir, "narration.md"),
+      },
+    ]);
+    // Legacy blockPaths view only contains single-file entries
+    expect(result.blockPaths).toEqual([]);
+  });
+
+  it("supports mixed string and object entries in order", () => {
+    writeFileSync(join(tmpDir, "meta.md"), "--- meta ---\ntitle: Test\n---");
+    writeFileSync(join(tmpDir, "intro.md"), "# Intro");
+    writeFileSync(join(tmpDir, "visuals.md"), ">>> #B02\n描述");
+    writeFileSync(join(tmpDir, "narration.md"), ">>> #B02\n旁白");
+    writeFileSync(
+      join(tmpDir, "project.json"),
+      JSON.stringify({
+        meta: "./meta.md",
+        blocks: [
+          "./intro.md",
+          { visual: "./visuals.md", narration: "./narration.md" },
+        ],
+      }),
+    );
+
+    const result = readProject(join(tmpDir, "project.json"));
+
+    expect(result.blockEntries).toEqual([
+      { kind: "single", path: join(tmpDir, "intro.md") },
+      {
+        kind: "split",
+        visualPath: join(tmpDir, "visuals.md"),
+        narrationPath: join(tmpDir, "narration.md"),
+      },
+    ]);
+    expect(result.blockPaths).toEqual([join(tmpDir, "intro.md")]);
+  });
+
+  it("throws when split entry is missing the visual field", () => {
+    writeFileSync(join(tmpDir, "meta.md"), "--- meta ---\ntitle: Test\n---");
+    writeFileSync(
+      join(tmpDir, "project.json"),
+      JSON.stringify({
+        meta: "./meta.md",
+        blocks: [{ narration: "./narration.md" }],
+      }),
+    );
+
+    expect(() => readProject(join(tmpDir, "project.json"))).toThrow(ProjectError);
+    expect(() => readProject(join(tmpDir, "project.json"))).toThrow(
+      /blocks\[0\]\.visual.*must be a non-empty string/,
+    );
+  });
+
+  it("throws when split entry is missing the narration field", () => {
+    writeFileSync(join(tmpDir, "meta.md"), "--- meta ---\ntitle: Test\n---");
+    writeFileSync(
+      join(tmpDir, "project.json"),
+      JSON.stringify({
+        meta: "./meta.md",
+        blocks: [{ visual: "./visuals.md" }],
+      }),
+    );
+
+    expect(() => readProject(join(tmpDir, "project.json"))).toThrow(ProjectError);
+    expect(() => readProject(join(tmpDir, "project.json"))).toThrow(
+      /blocks\[0\]\.narration.*must be a non-empty string/,
+    );
+  });
+
+  it("throws when split visual file doesn't exist", () => {
+    writeFileSync(join(tmpDir, "meta.md"), "--- meta ---\ntitle: Test\n---");
+    writeFileSync(join(tmpDir, "narration.md"), ">>> #B01\n旁白");
+    writeFileSync(
+      join(tmpDir, "project.json"),
+      JSON.stringify({
+        meta: "./meta.md",
+        blocks: [{ visual: "./missing.md", narration: "./narration.md" }],
+      }),
+    );
+
+    expect(() => readProject(join(tmpDir, "project.json"))).toThrow(ProjectError);
+    expect(() => readProject(join(tmpDir, "project.json"))).toThrow(
+      /Visual file not found/,
+    );
+  });
+
+  it("throws when split narration file doesn't exist", () => {
+    writeFileSync(join(tmpDir, "meta.md"), "--- meta ---\ntitle: Test\n---");
+    writeFileSync(join(tmpDir, "visuals.md"), ">>> #B01\n描述");
+    writeFileSync(
+      join(tmpDir, "project.json"),
+      JSON.stringify({
+        meta: "./meta.md",
+        blocks: [{ visual: "./visuals.md", narration: "./missing.md" }],
+      }),
+    );
+
+    expect(() => readProject(join(tmpDir, "project.json"))).toThrow(ProjectError);
+    expect(() => readProject(join(tmpDir, "project.json"))).toThrow(
+      /Narration file not found/,
+    );
+  });
 });

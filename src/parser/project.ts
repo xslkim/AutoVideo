@@ -16,14 +16,32 @@ import { resolve, dirname, isAbsolute } from "node:path";
 // ---------------------------------------------------------------------------
 
 /**
+ * Raw shape of a `blocks` entry in project.json.
+ *
+ * Two forms are supported:
+ * - string: path to a single-file script (legacy format, visual + narration
+ *   sections in one .md file)
+ * - object: `{ "visual": "./visuals.md", "narration": "./narration.md" }` —
+ *   split format, blocks are aligned across the two files by #Bxx ID
+ */
+export type RawBlockEntry = string | { visual: string; narration: string };
+
+/**
  * Raw shape of project.json as written by the user.
  */
 export interface RawProjectJson {
   /** Path to meta.md (relative to project.json directory) */
   meta: string;
-  /** List of content .md file paths (relative to project.json directory) */
-  blocks: string[];
+  /** List of content entries (relative to project.json directory) */
+  blocks: RawBlockEntry[];
 }
+
+/**
+ * A resolved `blocks` entry with all paths absolute.
+ */
+export type BlockEntry =
+  | { kind: "single"; path: string }
+  | { kind: "split"; visualPath: string; narrationPath: string };
 
 /**
  * Resolved project structure with all paths as absolute.
@@ -35,8 +53,13 @@ export interface ResolvedProject {
   projectDir: string;
   /** Absolute path to the meta.md file */
   metaPath: string;
-  /** Absolute paths to each block content .md file (in order) */
+  /**
+   * Absolute paths to each single-file (legacy) block content .md, in order.
+   * Kept for backward compatibility; new callers should use `blockEntries`.
+   */
   blockPaths: string[];
+  /** All block entries in order (both single-file and split forms) */
+  blockEntries: BlockEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -113,9 +136,28 @@ export function readProject(projectJsonPath: string): ResolvedProject {
   }
 
   for (let i = 0; i < obj.blocks.length; i++) {
-    if (typeof obj.blocks[i] !== "string" || (obj.blocks[i] as string).trim() === "") {
+    const entry = obj.blocks[i] as unknown;
+    if (typeof entry === "string") {
+      if (entry.trim() === "") {
+        throw new ProjectError(
+          `project.json "blocks[${i}]" must be a non-empty string`,
+        );
+      }
+    } else if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
+      const split = entry as Record<string, unknown>;
+      if (typeof split.visual !== "string" || split.visual.trim() === "") {
+        throw new ProjectError(
+          `project.json "blocks[${i}].visual" must be a non-empty string`,
+        );
+      }
+      if (typeof split.narration !== "string" || split.narration.trim() === "") {
+        throw new ProjectError(
+          `project.json "blocks[${i}].narration" must be a non-empty string`,
+        );
+      }
+    } else {
       throw new ProjectError(
-        `project.json "blocks[${i}]" must be a non-empty string`,
+        `project.json "blocks[${i}]" must be a non-empty string or an object with "visual" and "narration" fields`,
       );
     }
   }
@@ -124,9 +166,19 @@ export function readProject(projectJsonPath: string): ResolvedProject {
 
   // 4. Resolve paths relative to project.json directory
   const metaPath = resolve(projectDir, obj.meta as string);
-  const blockPaths = (obj.blocks as string[]).map((p) =>
-    resolve(projectDir, p),
+  const rawEntries = obj.blocks as RawBlockEntry[];
+  const blockEntries: BlockEntry[] = rawEntries.map((entry) =>
+    typeof entry === "string"
+      ? { kind: "single", path: resolve(projectDir, entry) }
+      : {
+          kind: "split",
+          visualPath: resolve(projectDir, entry.visual),
+          narrationPath: resolve(projectDir, entry.narration),
+        },
   );
+  const blockPaths = blockEntries
+    .filter((e): e is { kind: "single"; path: string } => e.kind === "single")
+    .map((e) => e.path);
 
   // 5. Validate files exist
   if (!existsSync(metaPath)) {
@@ -135,11 +187,27 @@ export function readProject(projectJsonPath: string): ResolvedProject {
     );
   }
 
-  for (let i = 0; i < blockPaths.length; i++) {
-    if (!existsSync(blockPaths[i])) {
-      throw new ProjectError(
-        `Block file not found: ${blockPaths[i]} (resolved from "${obj.blocks[i]}" in ${projectPath})`,
-      );
+  for (let i = 0; i < blockEntries.length; i++) {
+    const entry = blockEntries[i];
+    const raw = rawEntries[i];
+    if (entry.kind === "single") {
+      if (!existsSync(entry.path)) {
+        throw new ProjectError(
+          `Block file not found: ${entry.path} (resolved from "${raw}" in ${projectPath})`,
+        );
+      }
+    } else {
+      const rawSplit = raw as { visual: string; narration: string };
+      if (!existsSync(entry.visualPath)) {
+        throw new ProjectError(
+          `Visual file not found: ${entry.visualPath} (resolved from "${rawSplit.visual}" in ${projectPath})`,
+        );
+      }
+      if (!existsSync(entry.narrationPath)) {
+        throw new ProjectError(
+          `Narration file not found: ${entry.narrationPath} (resolved from "${rawSplit.narration}" in ${projectPath})`,
+        );
+      }
     }
   }
 
@@ -148,5 +216,6 @@ export function readProject(projectJsonPath: string): ResolvedProject {
     projectDir,
     metaPath,
     blockPaths,
+    blockEntries,
   };
 }

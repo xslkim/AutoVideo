@@ -6,7 +6,9 @@ import { doctorAction } from "../../src/cli/doctor.js";
 describe("doctor command", { timeout: 30000 }, () => {
   it("should output a table with all 11 check items", async () => {
     // Pin the TTS provider so the assertions don't depend on the local
-    // autovideo.config.json flip (voxcpm ↔ cosyvoice).
+    // autovideo.config.json flip (voxcpm ↔ cosyvoice). Likewise pin the
+    // agent provider to anthropic-api — with a CLI provider (e.g. kimi-cli)
+    // the "Claude credentials" check becomes "Agent CLI" instead.
     vi.doMock("../../src/config/load.js", async (importOriginal) => {
       const mod = await importOriginal<typeof import("../../src/config/load.js")>();
       return {
@@ -14,6 +16,7 @@ describe("doctor command", { timeout: 30000 }, () => {
         loadConfig: (...args: Parameters<typeof mod.loadConfig>) => {
           const result = mod.loadConfig(...args);
           result.config.tts.provider = "voxcpm";
+          result.config.anthropic.provider = "anthropic-api";
           return result;
         },
       };
@@ -57,11 +60,26 @@ describe("doctor command", { timeout: 30000 }, () => {
   });
 
   it("should return non-zero when Claude credentials are missing", async () => {
+    // Pin the agent provider to anthropic-api (a CLI provider would replace
+    // this check with "Agent CLI") and mock credentials as absent.
+    vi.doMock("../../src/config/load.js", async (importOriginal) => {
+      const mod = await importOriginal<typeof import("../../src/config/load.js")>();
+      return {
+        ...mod,
+        loadConfig: (...args: Parameters<typeof mod.loadConfig>) => {
+          const result = mod.loadConfig(...args);
+          result.config.anthropic.provider = "anthropic-api";
+          return result;
+        },
+      };
+    });
     // Temporarily mock resolveClaudeCredentials to return null
     vi.doMock("../../src/config/claude-settings.js", () => ({
       resolveClaudeCredentials: () => null,
       readClaudeSettings: () => null,
     }));
+    vi.resetModules();
+    const { doctorAction: freshDoctorAction } = await import("../../src/cli/doctor.js");
 
     const logs: string[] = [];
     const origLog = console.log;
@@ -71,10 +89,12 @@ describe("doctor command", { timeout: 30000 }, () => {
 
     let code: number;
     try {
-      code = await doctorAction();
+      code = await freshDoctorAction();
     } finally {
       console.log = origLog;
       vi.resetModules();
+      vi.doUnmock("../../src/config/load.js");
+      vi.doUnmock("../../src/config/claude-settings.js");
     }
 
     const stdout = logs.join("\n");

@@ -14,7 +14,8 @@ AutoVideo 把 Markdown 教学脚本编译成 MP4 视频，全流程由 AI 驱动
 │ 步骤 1：编写输入资源      │        │ 步骤 2：构建生成视频      │
 │ ────────────────────     │        │ ────────────────────     │
 │ 产出：meta.md            │  ───►  │ 输入：meta.md            │
-│       script.md          │        │       script.md          │
+│       visuals.md         │        │       visuals.md         │
+│       narration.md       │        │       narration.md       │
 │                          │        │ 产出：final.mp4          │
 │ 文档：AUTHORING.md       │        │ 文档：BUILD.md           │
 └──────────────────────────┘        └──────────────────────────┘
@@ -22,8 +23,8 @@ AutoVideo 把 Markdown 教学脚本编译成 MP4 视频，全流程由 AI 驱动
 
 | 你的任务 | 看哪个文档 |
 |----------|-----------|
-| **要写 / 修改 `meta.md` 或 `script.md`**（设计视频内容、视觉、旁白） | 📄 [`AUTHORING.md`](AUTHORING.md) |
-| **要把已有的 `meta.md` + `script.md` 编译成 MP4**（执行构建命令） | 📄 [`BUILD.md`](BUILD.md) |
+| **要写 / 修改 `meta.md`、`visuals.md` 或 `narration.md`**（设计视频内容、视觉、旁白） | 📄 [`AUTHORING.md`](AUTHORING.md) |
+| **要把已有的 `meta.md` + `visuals.md` + `narration.md` 编译成 MP4**（执行构建命令） | 📄 [`BUILD.md`](BUILD.md) |
 | **要同时承担两个步骤** | 先看 `AUTHORING.md`，再看 `BUILD.md` |
 
 ---
@@ -45,7 +46,8 @@ AutoVideo/
 └── project/                      # 视频项目目录
     └── MicroGpt/                 # 一个示例项目
         ├── meta.md               # ← 步骤 1 产出
-        ├── part1.md              # ← 步骤 1 产出（可拆分）
+        ├── visuals.md            # ← 步骤 1 产出（视觉描述，可拆分多对文件）
+        ├── narration.md          # ← 步骤 1 产出（旁白，与 visuals.md 按 #Bxx 对应）
         ├── project.json          # 自动生成
         ├── build-part1.sh        # 步骤 2 用的脚本
         └── build/                # 步骤 2 产出（在项目目录内，不是 AutoVideo 根目录）

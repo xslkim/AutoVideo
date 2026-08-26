@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 import { readProject } from "../parser/project.js";
 import { createAgentDriver } from "../ai/agent/index.js";
-import { parseAndMergeBlocks } from "../parser/blocks.js";
+import { parseProjectBlocks } from "../parser/blocks.js";
 import { loadPronunciationDicts, DICT_FILENAME } from "../tts/pronounce.js";
 import { lintPronunciation, type LintFinding } from "../tts/lint.js";
 import { resolveClaudeCredentials } from "../config/claude-settings.js";
@@ -43,7 +43,7 @@ export async function dictSuggestCommand(
   // Reuse the compile-time pipeline so the term list matches what lint saw.
   const project = readProject(projectPath);
   const rules = loadPronunciationDicts(project.projectDir);
-  const rawBlocks = parseAndMergeBlocks(project.blockPaths);
+  const rawBlocks = parseProjectBlocks(project.blockEntries);
 
   const blocks = rawBlocks.map(
     (raw): Block => ({

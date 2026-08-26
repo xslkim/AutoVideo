@@ -2,9 +2,10 @@
 
 > **本文档专为编写视频输入资源的 AI Agent 编写**。
 >
-> 任务：在 AutoVideo 工程目录下产出两个 Markdown 文件：
+> 任务：在 AutoVideo 工程目录下产出三个 Markdown 文件：
 > - `meta.md` — 视频元数据
-> - `script.md` — 视频脚本（按 `>>>` 分块）
+> - `visuals.md` — 视觉元素文件（按 `>>>` 分块，含指令与视觉描述）
+> - `narration.md` — 语音文件（按 `>>>` 分块，块 ID 与 visuals.md 一一对应）
 >
 > 写完之后由另一个 Agent 按 [`BUILD.md`](BUILD.md) 跑构建生成 MP4。本文档**不涉及**任何构建命令。
 
@@ -15,7 +16,8 @@
 ```
 project/MyVideo/
 ├── meta.md          ← 你要产出的文件 1：YAML 元数据
-└── script.md        ← 你要产出的文件 2：视频脚本（>>> 分块）
+├── visuals.md       ← 你要产出的文件 2：视觉元素（>>> 分块，指令 + 视觉描述）
+└── narration.md     ← 你要产出的文件 3：旁白语音（>>> 分块，块 ID 与 visuals.md 一一对应）
 ```
 
 ```markdown
@@ -31,17 +33,19 @@ voiceRef: ../../B00.wav
 ```
 
 ```markdown
-# script.md
+# visuals.md
 >>> 开场 #B01
 @enter: fade-up
 @exit: fade
 @visual: animation
 
---- visual ---
-（这里写视觉描述，AI 会据此生成 React 动画组件）
+（指令行之后，首个非空、非 @ 行起全部算视觉描述，AI 会据此生成 React 动画组件；没有 --- visual --- 标记）
+```
 
---- narration ---
-（这里写旁白，每行一句，**双星号** 表示字幕高亮词）
+```markdown
+# narration.md
+>>> 开场 #B01
+（这里写旁白，每个非空行一条，**双星号** 表示字幕高亮词）
 ```
 
 ---
@@ -96,36 +100,46 @@ avatarRef: ./avatar.mp4
 
 ---
 
-## 2. `script.md` — 视频脚本
+## 2. `visuals.md` + `narration.md` — 视频脚本（双文件）
+
+视频脚本拆成两个文件：`visuals.md` 承载块结构、指令与视觉描述，`narration.md` 承载旁白文本；两文件按块 ID（`#Bxx`）一一对应（详见 §2.4）。
 
 ### 2.1 整体结构
 
-每个 `.md` 文件包含一个或多个块，每个块以 `>>>` 开头：
+每个 `.md` 文件包含一个或多个块，每个块以 `>>>` 开头。
+
+`visuals.md`：
 
 ```markdown
 >>> 块标题 #B01
 @enter: fade-up
 @exit: fade
 
---- visual ---
-视觉描述（自然语言，AI 据此生成 React/Remotion 组件）
-
---- narration ---
-旁白第一行
-旁白第二行，可以用 **双星号** 标记字幕高亮词
+屏幕中央显示大标题 "Hello"，白色大字，渐显动画
+（视觉描述：指令行之后的首个非空、非 @ 行起，直到下一个 >>> 块头）
 
 
 >>> 下一个块的标题 #B02
 @enter: fade
 
---- visual ---
 另一段视觉描述
+```
 
---- narration ---
+`narration.md`：
+
+```markdown
+>>> 块标题 #B01
+旁白第一行
+旁白第二行，可以用 **双星号** 标记字幕高亮词
+
+
+>>> 下一个块的标题 #B02
 旁白文字
 ```
 
-**section 顺序固定**：`>>>` 标题行 → 指令行（可选）→ `--- visual ---` → `--- narration ---`
+**结构规则**：
+- `visuals.md`：`>>>` 标题行 → 指令行（可选，紧跟块头）→ 视觉描述（首个非空、非 @ 行起，**没有 `--- visual ---` 标记**）
+- `narration.md`：`>>>` 标题行 → 旁白行；**没有 `--- narration ---` 标记，也不写任何指令**
 
 ### 2.2 块头 `>>>`
 
@@ -133,14 +147,14 @@ avatarRef: ./avatar.mp4
 >>> 显示标题 #BLOCK_ID
 ```
 
-- **显示标题**：必填，会出现在管理界面
-- **`#BLOCK_ID`**：可选，格式为 `#B` + 两位以上数字（如 `#B01`、`#B12`）
-  - 省略时自动从 `B01` 起递增
-  - **跨文件全局唯一**（如果拆成多个文件，不可重号）
+- **显示标题**：`visuals.md` 中必填（会出现在管理界面）；`narration.md` 中可省略，写成 `>>> #B01`
+- **`#BLOCK_ID`**：**必填**，格式为 `#B` + 两位以上数字（如 `#B01`、`#B12`）
+  - 文件内唯一；两文件的 ID 集合必须一致
+  - 省略自动编号只属于旧版单文件兼容格式（见 §2.4），新格式不支持
 
 ### 2.3 指令
 
-放在 `>>>` 标题行之后、`--- visual ---` 之前，每行一条：
+**指令只写在 `visuals.md`**（`narration.md` 不含任何指令），放在 `>>>` 标题行之后、视觉描述之前，每行一条：
 
 | 指令 | 格式 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -153,10 +167,10 @@ avatarRef: ./avatar.mp4
 
 | 值 | 说明 |
 |------|------|
-| `animation`（默认） | AI 根据 `--- visual ---` 描述生成 React/Remotion 动画组件 |
-| `image` | AI 根据 `--- visual ---` 描述调用文生图 API 生成图片 |
-| `image(./path)` | 使用本地图片文件，**不需要调用 API**，`--- visual ---` 描述仅作文档用途 |
-| `video(./path)` | 使用本地 mp4 视频文件，**不需要调用任何 AI 服务**，`--- visual ---` 描述仅作文档用途 |
+| `animation`（默认） | AI 根据视觉描述生成 React/Remotion 动画组件 |
+| `image` | AI 根据视觉描述调用文生图 API 生成图片 |
+| `image(./path)` | 使用本地图片文件，**不需要调用 API**，视觉描述仅作文档用途 |
+| `video(./path)` | 使用本地 mp4 视频文件，**不需要调用任何 AI 服务**，视觉描述仅作文档用途 |
 
 > 详细说明见 §3。新建块默认带 `@enter: fade` / `@exit: fade` / `@visual: animation`。
 
@@ -173,17 +187,52 @@ avatarRef: ./avatar.mp4
 | `zoom-out` | 缩放缩小 + 渐显 |
 | `none` | 无动画（持续时间为 0） |
 
+### 2.4 两文件对应规则与旧版兼容格式
+
+**对应规则（visuals.md ↔ narration.md）：**
+
+- 两文件按 `#Bxx` ID **一一对应**，ID 集合必须完全一致，否则 compile 报错
+- 块顺序以 `visuals.md` 为准
+- 对应关系由 `project.json` 声明：
+
+```json
+{
+  "meta": "./meta.md",
+  "blocks": [
+    { "visual": "./visuals.md", "narration": "./narration.md" }
+  ]
+}
+```
+
+- `blocks` 数组可以有多个 entry（拆分多个文件时，见 §6）
+
+**旧版单文件兼容格式（仍支持，新写请用双文件格式）：**
+
+单个 `script.md` 同时包含两个 section，`#Bxx` 可省略（省略时自动从 `B01` 起递增）：
+
+```markdown
+>>> 标题 #B01
+@enter: fade-up
+@visual: animation
+--- visual ---
+视觉描述
+--- narration ---
+旁白行
+```
+
+project.json 用字符串 entry：`{ "meta": "./meta.md", "blocks": ["./script.md"] }`。
+
 ---
 
-## 3. `--- visual ---` 视觉描述
+## 3. 视觉描述（visuals.md 块体）
 
-视觉描述的行为取决于 `@visual` 指令的模式：
+视觉描述写在 `visuals.md` 对应块的块体中（指令行之后，首个非空、非 @ 行起，直到下一个 `>>>` 块头）。其行为取决于 `@visual` 指令的模式：
 
-| 模式 | `--- visual ---` 的作用 | 产物 |
-|------|------------------------|------|
+| 模式 | 视觉描述的作用 | 产物 |
+|------|----------------|------|
 | `@visual: animation`（默认） | **原样发送给配置的 Agent 后端**（`anthropic.provider`，如 Claude / Kimi CLI）：优先从预制组件库选组件填参数组装（版式/动效由库保证）；无合适组件时才自由生成 React/Remotion 组件 | `src/blocks/{id}/Component.tsx` |
 | `@visual: image` | **原样发送给文生图 API**，作为图片生成的 prompt | `public/images/{id}.png`（API 生成） |
-| `@visual: html` | **直接当作 HTML/CSS 源码**写入 `public/html/{id}.html`，由 headless Chrome 截图（**不调 AI**；`--- visual ---` 必须是完整 HTML，不是描述） | `public/html/{id}.html` + 截图 |
+| `@visual: html` | **直接当作 HTML/CSS 源码**写入 `public/html/{id}.html`，由 headless Chrome 截图（**不调 AI**；视觉描述必须是完整 HTML，不是描述） | `public/html/{id}.html` + 截图 |
 | `@visual: image(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/images/{id}.png`（直接复制本地文件） |
 | `@visual: video(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/videos/{id}.mp4`（直接复制本地文件） |
 
@@ -208,7 +257,7 @@ avatarRef: ./avatar.mp4
 
 ⚠️ **`animation` 自由生成路径的质量取决于 LLM 的指令遵循能力**：实测可能出现不遵守布局锚点（元素重叠/越界）、引用未声明的变量（编译失败）、`interpolate()` 区间使用运行时值（渲染崩溃）等问题。**组装路径（默认优先）基本不受此影响**——版式与动效由预制组件库保证，组装连续失败也会自动回退自由生成重试。同一个画面如果能用 HTML 静态表达，就不要交给 animation。
 
-⚠️ **`html` 模式的 `--- visual ---` 必须是完整 HTML/CSS 源码**（compile 直接写盘、不调 AI），不是中文描述。若只想用描述驱动，请用 `image`（描述→文生图）或 `animation`（描述→组件）。
+⚠️ **`html` 模式的视觉描述必须是完整 HTML/CSS 源码**（compile 直接写盘、不调 AI），不是中文描述。若只想用描述驱动，请用 `image`（描述→文生图）或 `animation`（描述→组件）。
 
 ### 3.1 动画模式（默认）写法要点
 
@@ -368,7 +417,7 @@ avatarRef: ./avatar.mp4
 
 #### API 生成模式 (`@visual: image`)
 
-`--- visual ---` 描述作为文生图 API 的 **prompt** 输出。写 prompt 时注意：
+视觉描述作为文生图 API 的 **prompt** 输出。写 prompt 时注意：
 
 - **描述画面内容**：用自然语言描述想要的画面（如"一张科技风格的架构图，深色背景，蓝色连线"）
 - **指定风格**：可写"扁平化风格""写实风格""极简风格"等
@@ -377,7 +426,6 @@ avatarRef: ./avatar.mp4
 - ⚠️ **底部留白避让字幕（重要）**：生成的图片会占满全屏，字幕直接覆盖在图片上方。画面底部约 **120px** 区域是字幕安全区，**不要在此区域放置重要文字、图标或关键内容**，否则会被字幕遮挡。在 prompt 中明确写出"画面底部 120px 区域留白，不放置任何文字或重要元素"或"所有重要内容集中在画面上半部分和中部"。
 
 ```
---- visual ---
 一张科技风格的软件架构图，深色背景，蓝色 (#58a6ff) 连线连接各个模块，
 模块用圆角矩形表示，白色文字标签，整体干净简洁。
 画面底部 120px 区域留白，不放置任何文字或重要元素，避免被字幕遮挡。
@@ -385,20 +433,16 @@ avatarRef: ./avatar.mp4
 
 #### 本地文件模式 (`@visual: image(./path)`)
 
-指定项目中已有的图片文件，编译时自动复制到产物目录。`--- visual ---` 描述仅作文档用途，不参与生成。
+指定项目中已有的图片文件，编译时自动复制到产物目录。视觉描述仅作文档用途，不参与生成。
 
 ```
 @visual: image(./hero.png)
 
---- visual ---
 （此描述仅作文档参考，实际使用 ./hero.png 图片文件）
 显示产品架构图，居中展示
-
---- narration ---
-这是我们的系统架构图
 ```
 
-> ⚠️ 本地图片模式**不需要调用任何 AI 服务**，编译后即可直接预览和渲染。路径相对于 `script.md` 所在目录。
+> ⚠️ 本地图片模式**不需要调用任何 AI 服务**，编译后即可直接预览和渲染。路径相对于 `visuals.md` 所在目录。
 
 #### 视频模式 (`@visual: video(./path)`)
 
@@ -407,21 +451,17 @@ avatarRef: ./avatar.mp4
 ```
 @visual: video(./assets/demo.mp4)
 
---- visual ---
 （此描述仅作文档参考，实际使用 ./assets/demo.mp4 视频文件）
 <!-- 录屏操作记录：cd repo && pnpm dev --patch ./config/app.yml，
      终端打印 "ready in 1.2s"。成片约 24 秒。 -->
-
---- narration ---
-这是程序实际运行的画面
 ```
 
 要求与说明：
 
-- 路径相对于 `script.md` 所在目录，用 `./` 开头
+- 路径相对于 `visuals.md` 所在目录，用 `./` 开头
 - 格式为 **mp4**（H.264 编码，`yuv420p` 像素格式以确保兼容性）
 - 分辨率建议与视频输出一致（16:9 用 1920×1080）
-- `--- visual ---` 描述**仅作文档用途**，不参与生成，也不发送给任何 AI 服务
+- 视觉描述**仅作文档用途**，不参与生成，也不发送给任何 AI 服务
 - ⚠️ **录屏的命令示例必须包在 `<!-- -->` 注释里**：描述正文中形如 `--patch ./config/app.yml` 的片段会被当作资产引用，因文件不存在而编译失败（Web 端会弹"上传缺失文件"卡住）
 - 视频会出现在画面中央（contain 适配，黑底），与图片模式一致
 - **时长关系**：视频片段时长与块时长（由旁白决定）通常不一致——
@@ -484,13 +524,14 @@ AI 生成的组件可以使用 `remotion` 包的：
 
 ---
 
-## 4. `--- narration ---` 旁白
+## 4. `narration.md` — 旁白
 
 ### 4.1 基本规则
 
-- **每行 = 一条旁白**，TTS 逐行生成语音后拼接
+- 块头与 `visuals.md` 对应：`>>> 标题 #B01`（标题可省为 `>>> #B01`），块 ID 必须与 `visuals.md` 一致
+- **每个非空行 = 一条旁白**，TTS 逐行生成语音后拼接；空行被忽略
 - 行间自动插入 **200ms 静音**
-- 空行被忽略
+- **不写 section 标记、不写指令**：`@duration`、`@enter`/`@exit` 等所有指令只写在 `visuals.md`（见 §2.3）
 
 ### 4.2 字幕高亮
 
@@ -569,19 +610,19 @@ AI 生成的组件可以使用 `remotion` 包的：
 
 **方式一：在动画模式的 visual 描述中引用**
 
-在 `--- visual ---` 中用 `./` 相对路径引用图片（如 `./hero.png`）。AI 生成的组件可能使用该图片。构建时按哈希复制到 `build/<slug>/public/assets/<hash>.png`。
+在视觉描述中用 `./` 相对路径引用图片（如 `./hero.png`）。AI 生成的组件可能使用该图片。构建时按哈希复制到 `build/<slug>/public/assets/<hash>.png`。
 
 **方式二：图片模式下直接使用（推荐）**
 
 用 `@visual: image(./hero.png)` 直接将图片作为块的视觉内容。编译后即可预览和渲染，**不需要调用 AI 服务**。图片会出现在画面中央（contain 适配，黑底）。
 
-> 两种方式的路径都相对于 `script.md` 所在目录。
+> 两种方式的路径都相对于 `visuals.md` 所在目录。
 
 ### 视频
 
 用 `@visual: video(./assets/demo.mp4)` 直接将本地 mp4 作为块的视觉内容。编译后即可预览和渲染，**不需要调用 AI 服务**。视频会出现在画面中央（contain 适配，黑底）。
 
-- 路径相对于 `script.md` 所在目录
+- 路径相对于 `visuals.md` 所在目录
 - 格式为 mp4（H.264 + `yuv420p`）
 - 构建时复制到 `build/<slug>/public/videos/{id}.mp4`
 - 适用场景：程序运行录屏、真实渲染画面、实拍片段（详见 §3.2）
@@ -598,27 +639,31 @@ AI 生成的组件可以使用 `remotion` 包的：
 
 ## 6. 拆分多个脚本文件（可选）
 
-当 `script.md` 过长时，可以拆成多个文件，例如：
+当脚本过长时，可以拆成多个 visuals / narration 文件，例如：
 
 ```
 project/MyVideo/
 ├── meta.md
-├── part1.md      # 块 B01–B05
-├── part2.md      # 块 B06–B10
-└── part3.md      # 块 B11–B15
+├── part1-visuals.md      # 块 B01–B05 的视觉
+├── part1-narration.md    # 块 B01–B05 的旁白
+├── part2-visuals.md      # 块 B06–B10 的视觉
+└── part2-narration.md    # 块 B06–B10 的旁白
 ```
 
-需要相应地修改 `project.json`（如果存在）：
+需要相应地修改 `project.json`（如果存在），`blocks` 数组每个 entry 声明一对 visual / narration 文件：
 
 ```json
 {
   "meta": "./meta.md",
-  "blocks": ["./part1.md", "./part2.md", "./part3.md"]
+  "blocks": [
+    { "visual": "./part1-visuals.md", "narration": "./part1-narration.md" },
+    { "visual": "./part2-visuals.md", "narration": "./part2-narration.md" }
+  ]
 }
 ```
 
 > **注意**：构建脚本通常会自动生成 `project.json`，你只需关心 `.md` 文件即可。
-> 如果使用单文件方案，命名为 `script.md` 是默认约定。
+> 不拆分时命名为 `visuals.md` + `narration.md` 是默认约定。
 
 ---
 
@@ -637,7 +682,7 @@ voiceRef: ../../B00.wav
 ---
 ```
 
-### 7.2 `script.md`
+### 7.2 `visuals.md`
 
 ```markdown
 >>> 开场标题 #B01
@@ -645,15 +690,10 @@ voiceRef: ../../B00.wav
 @exit: fade
 @visual: animation
 
---- visual ---
 居中显示大标题 "GPT 入门"，白色粗体 96px，深色背景 #0d1117，整体内容占画布约 80% 宽度。
 [0s] 标题从透明渐显，伴随 32px 上移动画。
 [1s] 标题下方 40px 处出现副标题 "从零理解 Transformer"，颜色 #8b949e，字号 36px。
 [1.5s] 标题正下方 16px 处出现 4px 粗的 accent 色 (#58a6ff) 横线（宽度 = 主标题宽度），从左向右扫入。
-
---- narration ---
-大家好
-今天我们从零开始理解 **GPT** 的工作原理
 
 
 >>> 什么是语言模型 #B02
@@ -661,18 +701,11 @@ voiceRef: ../../B00.wav
 @exit: fade
 @visual: animation
 
---- visual ---
 分步动画演示，整体内容占画布约 85% 区域，背景 #0d1117：
 [0s] 屏幕中央显示等式 "输入 → ???"，字号 88px，问号带闪烁动画。
 [3s] 等式平滑变为 "今天天气 → 预测下一个字"，字号保持 88px。
 [6s] 等式下方 60px 处出现概率条形图（宽度占画布 60%）：好 35%(accent 色)、不 12%、冷 8%，每条标签字号 36px，百分比字号 32px。
 [8s] "好" 被选中高亮，移入等式变成 "今天天气好 → 预测下一个字"。
-
---- narration ---
-语言模型的核心就是预测下一个词
-给定一段文字作为输入
-模型会输出一个 **概率分布**
-告诉每个可能的下一个词的概率有多高
 
 
 >>> 训练过程 #B03
@@ -680,15 +713,30 @@ voiceRef: ../../B00.wav
 @exit: fade
 @visual: animation
 
---- visual ---
 顶部居中标题 "训练三步循环"，字号 64px，粗体，颜色 #e6edf3，距顶 80px。
 下方三张卡片依次从左滑入（间隔 0.5s），横向等距排列，三卡总宽占画布 90%，卡片间距 48px：
 每张卡片高度 360px，圆角 16px，背景 #161b22，边框 1px solid #30363d，内边距 32px：
   ① 🔥 图标（80px）accent 色 + 标题 "损失函数"（44px）+ 描述 "衡量预测偏差"（28px）
   ② 🧭 图标（80px）accent 色 + 标题 "梯度"（44px）+ 描述 "参数调整方向"（28px）
   ③ ⚙️ 图标（80px）accent 色 + 标题 "优化器"（44px）+ 描述 "执行参数更新"（28px）
+```
 
---- narration ---
+### 7.3 `narration.md`
+
+```markdown
+>>> 开场标题 #B01
+大家好
+今天我们从零开始理解 **GPT** 的工作原理
+
+
+>>> 什么是语言模型 #B02
+语言模型的核心就是预测下一个词
+给定一段文字作为输入
+模型会输出一个 **概率分布**
+告诉每个可能的下一个词的概率有多高
+
+
+>>> 训练过程 #B03
 训练过程就是不断重复三个步骤
 **损失函数** 衡量预测和标准答案差多远
 **梯度** 告诉每个参数该往哪边调整
@@ -701,10 +749,10 @@ voiceRef: ../../B00.wav
 
 ## 8. 写作规则清单（必读）
 
-1. **块 ID 格式**：`B` + 两位以上数字（如 `B01`、`B12`），省略则自动编号
-2. **块 ID 全局唯一**：跨文件不可重号
-3. **每个块必须包含** `--- visual ---` 和 `--- narration ---` 两个 section
-4. **section 顺序固定**：`>>>` 标题 → 指令行（可选）→ `--- visual ---` → `--- narration ---`
+1. **块 ID 格式**：`#B` + 两位以上数字（如 `#B01`、`#B12`），新格式中**必填**；省略自动编号仅旧版单文件格式支持（见 §2.4）
+2. **两文件 ID 一致**：`visuals.md` 与 `narration.md` 的块 ID 集合必须完全一致，块顺序以 `visuals.md` 为准（详见 §2.4）
+3. **`visuals.md` 块结构**：`>>>` 标题 → 指令行（可选，紧跟块头）→ 视觉描述（首个非空、非 @ 行起，无 section 标记）
+4. **`narration.md` 块结构**：`>>>` 标题（可省为 `>>> #B01`）→ 旁白行；不写指令、无 section 标记；所有指令（`@enter`/`@exit`/`@duration`/`@visual`）只写在 `visuals.md`
 5. **`@visual` 模式**：`animation`（默认，AI 生成组件）/ `html`（手写 HTML 截图，**静态画面首选**）/ `image`（AI 生成图片）/ `image(./path)`（本地图片）/ `video(./path)`（本地 mp4 视频）。**优先级：能用静态画面表达的内容 `html` 优先于 `animation`，只有必须动效编排时才用 `animation`（详见 §3.0）**
 6. **动画预设值**必须是：`fade` `fade-up` `fade-down` `slide-left` `slide-right` `zoom-in` `zoom-out` `none`
 7. **`@duration` 格式**：必须是 `<数字>s`，如 `8s`、`1.5s`
@@ -721,7 +769,7 @@ voiceRef: ../../B00.wav
 18. **旁白每行一句**：TTS 逐行生成，空行忽略
 19. ⚠️ **字幕单行长度上限**：中文 ≤ 50 字 / 英文 ≤ 70 字符；超长按标点拆行（详见 §4.4）
 20. **高亮语法**：`**文字**` 在字幕高亮，TTS 只读文字本身；字面 `**` 用 `\*\*`
-21. **资产路径**：图片用 `./` 开头的相对路径
+21. **资产路径**：图片/视频用 `./` 开头的相对路径（相对 `visuals.md` 所在目录）
 22. **文件编码**：UTF-8
 23. **`meta.md` 必填字段**：`title`；其余有默认值
 24. ⚠️ **视觉描述注释**：`<!-- ... -->` 为纯文档内容，编译时剥离、不参与生成；描述正文中的命令示例含 `./xxx` 路径时**必须**包进注释，否则被当作资产引用导致编译失败（详见 §3）
@@ -730,4 +778,4 @@ voiceRef: ../../B00.wav
 
 ## 下一步
 
-写完 `meta.md` 和 `script.md` 后，把项目目录路径交给负责构建的 Agent，由它按 [`BUILD.md`](BUILD.md) 跑构建生成最终 MP4。
+写完 `meta.md`、`visuals.md` 和 `narration.md` 后，把项目目录路径交给负责构建的 Agent，由它按 [`BUILD.md`](BUILD.md) 跑构建生成最终 MP4。

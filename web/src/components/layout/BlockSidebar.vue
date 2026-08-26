@@ -95,7 +95,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { NButton, NCheckbox, NSpin, NSpace, NEmpty, createDiscreteApi } from 'naive-ui'
-import { apiGet, apiPut, apiPost, getEtag, setEtag } from '../../utils/api'
+import { apiGet, apiPut, apiPost, getEtag, setEtag, type ScriptResponse } from '../../utils/api'
 import { parseScript, type ParseResult, type ParsedBlock } from '../../utils/scriptParser'
 import { useTaskStore } from '../../stores/taskStore'
 import type { BlockStatus, Stage, CacheClearKind } from '../../../../server/types/api'
@@ -319,9 +319,48 @@ async function addBlock() {
 
   try {
     const scriptUrl = `/api/projects/${props.projectName}/script`
-    const result = await apiGet<{ content: string }>(scriptUrl, { silent: true })
+    const result = await apiGet<ScriptResponse>(scriptUrl, { silent: true })
     if (!result.ok) {
-      message.error('无法读取 script.md')
+      message.error('无法读取脚本')
+      return
+    }
+
+    const etag = getEtag(scriptUrl)
+
+    if (result.data.mode === 'split') {
+      const { visuals, narration } = result.data
+      const parsed = parseScript(visuals)
+      const newId = nextBlockId(parsed.blocks.map(b => b.id))
+
+      const visualTemplate = [
+        `>>> 新块标题 #${newId}`,
+        '@visual: animation',
+        '',
+        '新视觉描述',
+        '',
+      ].join('\n')
+      const narrationTemplate = [
+        `>>> 新块标题 #${newId}`,
+        '新旁白内容',
+        '',
+      ].join('\n')
+
+      const newVisuals   = visuals.endsWith('\n') ? visuals + visualTemplate : visuals + '\n' + visualTemplate
+      const newNarration = narration.endsWith('\n') ? narration + narrationTemplate : narration + '\n' + narrationTemplate
+
+      const putResult = await apiPut<{ ok: boolean; etag: string }>(
+        scriptUrl,
+        { visuals: newVisuals, narration: newNarration },
+        etag,
+      )
+
+      if (putResult.ok) {
+        if (putResult.data.etag) setEtag(scriptUrl, putResult.data.etag)
+        message.success(`已添加块 ${newId}`, { duration: 1500 })
+        emit('script-changed')
+      } else if (putResult.conflict) {
+        message.error('保存冲突，请先刷新页面重试')
+      }
       return
     }
 
@@ -343,7 +382,6 @@ async function addBlock() {
 
     const newContent = content.endsWith('\n') ? content + template : content + '\n' + template
 
-    const etag = getEtag(scriptUrl)
     const putResult = await apiPut<{ ok: boolean; etag: string }>(
       scriptUrl,
       { content: newContent },

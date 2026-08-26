@@ -35,14 +35,14 @@ AutoVideo 目前是纯 CLI 工具，使用流程繁琐，需要记忆命令、�
 - 移动端适配（最小窗口宽度 ≥ 1280px）
 - 多浏览器 tab 同时编辑同一项目的实时协同（仅靠 ETag 防覆盖）
 - 在 UI 内编辑 Component.tsx（**只读**，如需修改请用外部 IDE 改 `build/{slug}/src/blocks/...`）
-- 拖拽排序块（用户在 script.md 中手动调整顺序）
+- 拖拽排序块（用户在 visuals.md 中手动调整顺序）
 - 在外部编辑器打开（不集成 `code --goto`）
 - 任务历史搜索/过滤（保留最近 50 条按时间倒序即可）
 - 配置文件加密（v1 直接明文落盘，文档中明确提示风险）
 
 ### 1.2 v1.5 计划（占位，本期不实现）
 
-- 音频 lineTimings 时间轴可视化（点击跳转到 script.md 对应行）
+- 音频 lineTimings 时间轴可视化（点击跳转到 narration.md 对应行）
 
 ---
 
@@ -75,7 +75,8 @@ project/
 └── microgpt/                          ← 项目目录名即项目 ID
     ├── project.json                   ← 项目入口（必须存在）
     ├── meta.md                        ← 项目元信息（YAML frontmatter 风格）
-    ├── script.md                      ← 主脚本（含所有 Block）
+    ├── visuals.md                     ← 视觉元素文件（指令 + 视觉描述，#Bxx 必填）
+    ├── narration.md                   ← 语音文件（旁白行，块 ID 与 visuals.md 一一对应）
     ├── assets/                        ← 项目级资源（图片，仅顶层文件）
     ├── voice/                         ← 参考语音目录（首次上传时由后端自动创建）
     │   └── ref.wav
@@ -84,7 +85,8 @@ project/
     │       ├── script.json            ← 编译后 IR
     │       ├── _snapshot/             ← compile/build 启动时复制的源文件快照
     │       │   ├── meta.md
-    │       │   └── script.md
+    │       │   ├── visuals.md
+    │       │   └── narration.md
     │       ├── public/
     │       │   ├── audio/{id}.wav     ← TTS 输出（block.audio.wavPath）
     │       │   └── images/{id}.png    ← 图片模式产物（block.visual.imagePath）
@@ -111,9 +113,22 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 
 > ⚠️ `.autovideo-web/config.json` **包含明文 API Key**，必须加入 `.gitignore`；服务首次启动若检测到该文件未在 gitignore 中会打印警告。
 
-### 3.1 project.json 单脚本强约束（v1）
+### 3.1 project.json 布局约束（v1）
 
-为了避免 UI 编辑的脚本和 CLI 实际编译的脚本不一致，v1 强制：
+为了避免 UI 编辑的脚本和 CLI 实际编译的脚本不一致，v1 支持两种项目布局：
+
+**新布局（split，默认）**：
+
+```json
+{
+  "meta": "./meta.md",
+  "blocks": [
+    { "visual": "./visuals.md", "narration": "./narration.md" }
+  ]
+}
+```
+
+**旧布局（single，兼容旧项目）**：
 
 ```json
 {
@@ -122,12 +137,12 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 }
 ```
 
-后端启动时校验：若 `project.json.blocks` 不严格等于 `["./script.md"]` 或 `meta` 不为 `"./meta.md"`，**项目页顶部显示红色横幅**：
+后端启动时校验：若 `project.json` 不属于上述两种布局（多 entry / 自定义路径）或 `meta` 不为 `"./meta.md"`，**项目页顶部显示红色横幅**：
 
-> ⚠️ 此项目使用了非标准的 project.json 配置（多脚本/自定义路径）。Web UI v1 仅支持 `blocks: ["./script.md"]`。请在文件系统中合并脚本到 `script.md` 后刷新；编辑/构建按钮在此期间禁用。
+> ⚠️ 此项目使用了非标准的 project.json 配置（多脚本/自定义路径）。Web UI v1 仅支持单 entry 的 split 布局（`visuals.md` + `narration.md`）或旧版单 `script.md` 布局。请在文件系统中调整后刷新；编辑/构建按钮在此期间禁用。
 
 横幅状态下：
-- meta.md / script.md 编辑器只读
+- meta.md / 脚本编辑器只读
 - 任务触发按钮全部置灰
 - 仅允许浏览历史 build 产物
 - 提供「查看 project.json」链接（只读）
@@ -137,7 +152,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 ### 3.2 历史文件兼容
 
 - 项目目录中可能存在 `project2.json` / `script2.md` 等历史副本。后端不读取它们，UI 不展示。
-- 资源管理 Tab 隐藏 `project*.json`、`script*.md`、`meta.md`、`build/`、`cache/`、`voice/`，只展示 `assets/` 顶层文件。
+- 资源管理 Tab 隐藏 `project*.json`、`script*.md`、`visuals*.md`、`narration*.md`、`meta.md`、`build/`、`cache/`、`voice/`，只展示 `assets/` 顶层文件。
 
 ### 3.3 build 目录硬约束
 
@@ -196,7 +211,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 ├──────────┬──────────────────────────────────┬───────────────────┤
 │          │                                  │                   │
 │  侧边栏  │         主编辑区                  │   块详情面板       │
-│  块列表  │    (meta.md / script.md 编辑器)   │   (可折叠)        │
+│  块列表  │ (meta.md / 脚本编辑器，见 §4.2.2)  │   (可折叠)        │
 │          │                                  │                   │
 ├──────────┴──────────────────────────────────┴───────────────────┤
 │  任务栏（底部，可展开/折叠）                                        │
@@ -217,11 +232,11 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 
 #### 4.2.1 侧边栏 — 块列表
 
-- 解析当前 `script.md`，列出所有块
+- 解析当前 `visuals.md`（块结构以 visuals.md 为准），列出所有块
 - 每行显示：块 ID、标题、视觉模式标记（🎬 动画 / 🖼 图片）、状态图标三色徽标
 - 点击块 → 在右侧块详情面板中打开（再次点击同一块或按 `Esc` 收起）
 - 每行左侧有**多选框**，配合顶部「批量操作」按钮（见 §4.4 批量操作）
-- 顶部「+ 新建块」按钮：在 script.md 末尾追加块模板（自动生成下一个 `B{NN}` ID，默认 `@visual: animation`）
+- 顶部「+ 新建块」按钮：在 visuals.md 末尾追加块模板，同时在 narration.md 末尾追加同 ID 的空旁白块（自动生成下一个 `B{NN}` ID，默认 `@visual: animation`）
 - 解析失败 / 警告（重复 ID、缺失 ID）显示在侧边栏顶部，列表条目右侧带警告图标
 
 **块状态判定**（**字段名严格对应 `src/types/script.ts` 中现有 IR**）:
@@ -245,19 +260,21 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 - `voiceRef` 字段旁显示「上传语音」按钮：上传 `.wav` 时带当前 meta.md 的 `If-Match` → 后端写入 `project/{name}/voice/{原文件名}` → 自动改写 meta.md 的 `voiceRef` 为 `./voice/{原文件名}` → 编辑器内容刷新（保留光标位置）；若 ETag 冲突返回 409，UI 走同一套「覆盖 / 取消 / 查看 diff」交互
 - 兼容：读取时 `voiceRef` 若是 `../../xxx.wav` 等绝对/越界路径不报错，照常显示；用户可自行改写
 
-**Tab 2: script.md 编辑器**
+**Tab 2: 脚本编辑器**
+
+split 布局（`visuals.md` + `narration.md`）下为**双子 Tab**：「视觉 visuals.md」/「语音 narration.md」；一次保存（`Ctrl+S`）同时 PUT 两文件（`{ visuals, narration }` + 联合 ETag，见 §5.1）。旧 single 布局（`script.md`）下为单个合并编辑器，PUT `{ content }`。
 
 - CodeMirror 6 + 自定义 StreamLanguage（见附录 B 完整 token 表）
 - 主要识别：
   - 块头 `^>>>\s+(.+?)\s+#(B\d+)\s*$` → 蓝色加粗
-  - 指令 `^@(enter|exit|duration|visual):.*$` → 橙色
-  - 分隔符 `^---\s+(visual|narration)\s+---$` → 绿色
-  - 加粗 `\*\*[^*]+\*\*`
-  - 资源路径 `\.\/assets\/[^\s)]+` → 下划线、悬停预览缩略图、点击复制
+  - 指令 `^@(enter|exit|duration|visual):.*$` → 橙色（仅 visuals.md）
+  - 分隔符 `^---\s+(visual|narration)\s+---$` → 绿色（仅旧 single 布局）
+  - 加粗 `\*\*[^*]+\*\*`（narration.md 字幕高亮）
+  - 资源路径 `\.\/assets\/[^\s)]+` → 下划线、悬停预览缩略图、点击复制（仅 visuals.md）
 - `Ctrl+S` 保存（PUT 接口 + ETag）
 - 编辑器内容变更时，侧边栏块列表实时更新（防抖 500ms 重新解析）
 - 「+ 拖入资源」: 把资源管理面板里的图片拖入编辑器自动插入 `./assets/xxx.png`
-- 解析错误（重复 ID、未闭合区段）以 lint 风格在对应行显示，不阻止保存
+- 解析错误（重复 ID、缺失 ID、两文件 ID 集合不一致）以 lint 风格在对应行显示，不阻止保存
 
 **Tab 3: 资源管理（Assets）**
 
@@ -265,7 +282,7 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 - 文件名白名单：`^[a-zA-Z0-9_.-]+\.(png|jpe?g|gif|webp|svg)$`
 - 图片以缩略图网格展示
 - 上传：拖拽 / 点击；多文件并发；超过 10MB 单文件拒绝
-- 删除：弹确认框（提示「正在被脚本引用」如果检测到 `./assets/xxx` 出现在 script.md）
+- 删除：弹确认框（提示「正在被脚本引用」如果检测到 `./assets/xxx` 出现在 visuals.md）
 - 单击 → 复制相对路径 `./assets/xxx.png` 到剪贴板（toast 反馈）；双击 → 大图预览模态框
 
 ---
@@ -276,15 +293,15 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 
 - Radio：动画 (`animation`) / 图片 (`image`)
 - 切换时：
-  1. 调用 `PUT /api/projects/:name/blocks/:id/visual-mode { mode }`，请求头带当前 `script.md` 的 `If-Match`
-  2. 后端在 script.md 该块块头下方插入或更新 `@visual: <mode>` 指令（缺省视为 `animation`）
+  1. 调用 `PUT /api/projects/:name/blocks/:id/visual-mode { mode }`，请求头带当前脚本接口的 `If-Match`（split 布局为两文件联合 ETag）
+  2. 后端在 visuals.md 该块块头下方插入或更新 `@visual: <mode>` 指令（缺省视为 `animation`；旧 single 布局则写回 script.md）
   3. 切换后该块的旧产物（Component.tsx / image.png / partial.mp4）状态可能与新模式不一致；UI 提示「模式已切换，建议重新生成视觉」
 
 下方分为两个子 Tab：
 
 #### Tab A: 脚本编辑
 
-- 从 `script.md` 提取该块内容显示（CodeMirror 6，同主编辑器语法高亮）
+- 提取该块内容显示为**含 section 标记的合并块文本**（`--- visual ---` / `--- narration ---`，CodeMirror 6，同主编辑器语法高亮）；保存时提交合并文本（`PUT /blocks/:id { content }`），服务端拆写回 visuals.md 与 narration.md 两个文件（旧 single 布局直接回写 script.md）
 - 提取/回写算法（**严格按此实现**，见附录 B 伪代码）：
   - 块区间定义：从匹配块头的那一行开始，直到下一个块头出现的前一行（含中间所有空行）；最后一个块到文件末尾
   - 保存时**禁止用户修改块头行的 ID**：若提交内容首行不再匹配同一 `#Bxx`，返回 422 错误，UI 提示「请勿在子编辑器中修改块 ID，请回到主脚本编辑器」
@@ -412,10 +429,10 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 2. 创建 `outDir/_snapshot/`，复制：
    - `project.json` → `_snapshot/project.json`
    - `meta.md` → `_snapshot/meta.md`
-   - `script.md` → `_snapshot/script.md`
+   - `visuals.md` / `narration.md` → `_snapshot/`（旧 single 布局为 `script.md`）
    - `assets/` 整目录 → `_snapshot/assets/`（如存在）
    - `voice/` 整目录 → `_snapshot/voice/`（如存在）。**必须复制**：`src/parser/meta.ts` 把 `voiceRef` 解析为相对 meta.md 目录的绝对路径，从快照编译时若 voice 目录缺失会报 `voiceRef file not found`
-   - 任何 meta.md / script.md 中以 `./` 开头的相对路径引用的目录（v1 仅 `assets/` 和 `voice/`）都要纳入快照
+   - 任何 meta.md / visuals.md 中以 `./` 开头的相对路径引用的目录（v1 仅 `assets/` 和 `voice/`）都要纳入快照
 3. 调用 compile：
    ```ts
    await compile({
@@ -424,9 +441,9 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
      onProgress, signal, ...config,
    });
    ```
-4. compile 内部解析 `_snapshot/project.json` → `_snapshot/meta.md` / `_snapshot/script.md` / `_snapshot/assets/` / `_snapshot/voice/`，输出 `outDir/script.json`（`voiceRef` 字段为快照内绝对路径，下游 tts 直接用即可）
+4. compile 内部解析 `_snapshot/project.json` → `_snapshot/meta.md` / `_snapshot/visuals.md` / `_snapshot/narration.md` / `_snapshot/assets/` / `_snapshot/voice/`，输出 `outDir/script.json`（`voiceRef` 字段为快照内绝对路径，下游 tts 直接用即可）
 
-> 用户编辑 script.md 后，必须重新 `compile`（或 `build`），下游 stage 才看到新内容。这是有意为之的契约（§12-2 的延伸）：避免跑了一半的 IR 与 live source 漂移。tts/visuals/render 直接读 `outDir/script.json`，不需要也不要再拷贝 source。
+> 用户编辑 visuals.md / narration.md 后，必须重新 `compile`（或 `build`），下游 stage 才看到新内容。这是有意为之的契约（§12-2 的延伸）：避免跑了一半的 IR 与 live source 漂移。tts/visuals/render 直接读 `outDir/script.json`，不需要也不要再拷贝 source。
 
 #### 底部任务栏
 
@@ -468,20 +485,24 @@ Web 服务额外维护一个**仓库级**目录（首次启动自动创建）：
 ```
 GET    /api/projects                    → 项目列表 [{ name, title, blockCount, latestBuildAt, hasFinal }]
 GET    /api/projects/:name              → 项目详情（含最新 build 状态、currentSlug、健康检查结果）
-POST   /api/projects                    → 新建项目 { name, title?, slug? }
+POST   /api/projects                    → 新建项目 { name, title?, slug? }；脚手架产出 meta.md + visuals.md + narration.md
 DELETE /api/projects/:name              → 删除项目（rm -rf 整个目录，无保留选项）
 POST   /api/projects/:name/cache/clear  → 清空 build/（全局共享缓存不按项目清除）
 
 GET    /api/projects/:name/meta         → 读取 meta.md 内容；响应头 ETag: sha256:xxx
 PUT    /api/projects/:name/meta         → 保存 meta.md { content }；请求头 If-Match
-GET    /api/projects/:name/script       → 读取 script.md；响应头 ETag
-PUT    /api/projects/:name/script       → 保存 script.md；请求头 If-Match
-PUT    /api/projects/:name/blocks/:id   → 保存单块（来自块详情面板 Tab A）{ content }；请求头 If-Match（script.md ETag）
-                                           服务端按 §4.3 算法回写 script.md，整体 ETag 仍校验
-GET    /api/projects/:name/blocks       → 解析 script.md 返回 [{ id, title, line, visualMode, status, warnings }]
+GET    /api/projects/:name/script       → 读取脚本；响应头 ETag（split 布局为 visuals.md + narration.md 两文件联合 hash）
+                                           旧 single 布局返回 { mode: "single", content }
+                                           新 split 布局返回 { mode: "split", visuals, narration }
+PUT    /api/projects/:name/script       → 保存脚本；请求头 If-Match
+                                           旧 single 布局 body { content }；新 split 布局 body { visuals, narration }
+PUT    /api/projects/:name/blocks/:id   → 保存单块（来自块详情面板 Tab A）{ content }；请求头 If-Match（脚本接口 ETag）
+                                           body 仍是含 `--- visual ---` / `--- narration ---` 标记的合并块文本；
+                                           split 布局下服务端拆写 visuals.md / narration.md 两文件，single 布局回写 script.md，整体 ETag 仍校验
+GET    /api/projects/:name/blocks       → 解析 visuals.md 返回 [{ id, title, line, visualMode, status, warnings }]
 PUT    /api/projects/:name/blocks/:id/visual-mode  → 切换块视觉模式 { mode: "animation" | "image" }
-                                                     请求头 If-Match（script.md ETag）
-                                                     后端在该块块头下方插入/更新 `@visual: <mode>` 指令并写回 script.md
+                                                     请求头 If-Match（脚本接口 ETag）
+                                                     后端在该块块头下方插入/更新 `@visual: <mode>` 指令并写回 visuals.md（single 布局写回 script.md）
 POST   /api/projects/:name/blocks/:id/cache/clear  → 清空该块某类缓存 + 同时删除 build/{slug}/ 下对应实际产物
                                                      body: { kind: "audio" | "visual" | "partial" | "all" }
                                                      audio   → 删 cache/audio/{hash}.* + build/{slug}/public/audio/{id}.wav + script.json 中 block.audio
@@ -494,9 +515,9 @@ POST   /api/projects/:name/blocks/:id/cache/clear  → 清空该块某类缓存 
 ```
 
 **ETag/冲突协议**:
-- `GET` 响应头始终包含 `ETag: sha256:<hex>`（基于文件原始字节）
-- `PUT` 请求头必须带 `If-Match: sha256:<hex>`；不匹配返回 `409 Conflict`，body `{ currentContent, currentEtag }`
-- 任何会改写 `meta.md` / `script.md` 的非 PUT 接口也必须带对应文件的 `If-Match`（如上传语音会改 meta.md），冲突协议同上
+- `GET` 响应头始终包含 `ETag: sha256:<hex>`（基于文件原始字节；split 布局的脚本接口为两文件联合 hash）
+- `PUT` 请求头必须带 `If-Match: sha256:<hex>`；不匹配返回 `409 Conflict`，body：旧 single 布局为 `{ currentContent, currentEtag }`，新 split 布局为 `{ currentVisuals, currentNarration, currentEtag }`
+- 任何会改写 `meta.md` / `visuals.md` / `narration.md` 的非 PUT 接口也必须带对应文件的 `If-Match`（如上传语音会改 meta.md），冲突协议同上
 - UI 收到 409 弹三选一：覆盖 / 取消 / 查看 diff
 
 ### 5.2 资源 API
@@ -631,7 +652,7 @@ web/                                  # 前端代码与现有 src/ 隔离
 │   │       ├── TaskItem.vue
 │   │       └── TaskProgress.vue
 │   └── utils/
-│       ├── scriptParser.ts           # 客户端解析 script.md 块结构
+│       ├── scriptParser.ts           # 客户端解析 visuals.md（旧布局 script.md）块结构
 │       ├── api.ts                    # fetch 封装（含 ETag 处理）
 │       └── sse.ts                    # SSE 重连与事件订阅
 ├── index.html
@@ -660,7 +681,7 @@ server/
 │   ├── taskQueue.ts                  # 单线程 FIFO 队列、持久化 tasks.jsonl
 │   ├── taskRunner.ts                 # 调用 compile/tts/visuals/render 模块；管理 AbortController；快照源文件
 │   ├── frameRenderer.ts              # Remotion bundle 缓存 + renderStill
-│   └── scriptParser.ts               # 解析 script.md → 块列表（服务端版）
+│   └── scriptParser.ts               # 解析 visuals.md → 块列表（服务端版；旧布局解析 script.md）
 ├── middleware/
 │   ├── pathGuard.ts                  # 项目名/文件名白名单 & 路径穿越校验
 │   └── range.ts                      # MP4/WAV Range 支持
@@ -754,7 +775,7 @@ await tts({
 ### 编辑并重新生成单块的完整流程
 
 ```
-用户编辑 script.md 中 B03 的内容
+用户编辑 visuals.md / narration.md 中 B03 的内容
     ↓ 保存（PUT /api/projects/:name/script，带 If-Match）
     ↓ 后端写回文件，返回新 ETag
 用户手动点击「编译」按钮
@@ -809,7 +830,7 @@ await tts({
 每个 Phase 列出**可验证的验收点**，agent 必须自检通过后才进入下一阶段。
 
 ### Phase 1 — 基础骨架
-- 后端：Hono 服务，`/api/health`、`/api/projects`、`/api/projects/:name`、meta.md / script.md 的 GET/PUT（含 ETag）
+- 后端：Hono 服务，`/api/health`、`/api/projects`、`/api/projects/:name`、meta.md / 脚本（visuals.md + narration.md，兼容旧 script.md）的 GET/PUT（含 ETag）
 - 前端：Vue 路由、HomePage 渲染项目卡片、ProjectPage 三栏布局、MetaEditor（YAML 高亮 + 保存）
 
 **验收**:
@@ -825,8 +846,8 @@ await tts({
 - AssetManager：上传 / 列出 / 删除 / 复制路径
 
 **验收**:
-1. 修改 script.md 后保存，文件按预期更新；侧边栏 500ms 内反映新块
-2. 在 Tab A 修改 B03，保存后 script.md 中仅 B03 区段被替换
+1. 修改 visuals.md / narration.md 后保存，文件按预期更新；侧边栏 500ms 内反映新块
+2. 在 Tab A 修改 B03，保存后仅 B03 对应的视觉/旁白内容被替换（服务端拆写两文件）
 3. 在 Tab A 篡改 B03 块头 ID 保存，返回 422
 4. 上传 PNG 后在 assets 目录可见；删除有引用的资源时弹警告
 
@@ -861,7 +882,7 @@ await tts({
 - 单块缓存清理；批量块操作
 
 **验收**:
-1. 在块详情切换某块为图片模式，script.md 中出现 `@visual: image`
+1. 在块详情切换某块为图片模式，visuals.md 中出现 `@visual: image`
 2. 配置文生图 baseURL/key 后点击「生成图片」，产物 PNG 出现在 `build/{slug}/public/images/Bxx.png`，同时 `build/{slug}/src/blocks/Bxx/Component.tsx` 是 staticFile 引用该 PNG 的 wrapper
 3. 该块「渲染分段」走 Remotion 后 partial MP4 全程显示该图片
 4. `GET /api/config` 返回的 apiKey 字段为 `{ set: true, last4: "..." }`，不外露明文
@@ -927,6 +948,8 @@ await tts({
 | 37 | Anthropic 配置来源 | web 模式不读 `~/.claude/settings.json`，统一走 UI 设置 + env；首次启动若检测到 ~/.claude/settings.json 有 key 而 web/env 都没有，UI 弹一次性导入提示 |
 | 38 | 单块清缓存范围 | 同时清 cache/* 和 build/{slug}/ 下对应实际产物 + 回写 script.json 字段，确保块状态立即回退到「未生成」 |
 | 39 | 快照范围 | compile/build 快照必须包含 voice/ 目录（voiceRef 解析依赖），未来若引入新的 meta-relative 资源也需纳入 |
+
+> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应），上表 #2 / #3 / #13 / #17 / #28 中的「单 `script.md`」为当时的历史决策记录；现行布局约束与 API 契约以 §3.1 / §5.1 为准，旧单文件格式继续兼容，详见 ../AUTHORING.md。
 
 ---
 
@@ -1218,7 +1241,7 @@ export interface Block {
 #### A.5.4 `src/ai/image-gen.ts`（新增）
 
 **输入**:
-- `prompt`：来自该块 `--- visual ---` 段的文本
+- `prompt`：来自该块的视觉描述文本（visuals.md 块体）
 - `size`：按 `meta.aspect` 映射（16:9→1920×1080；9:16→1080×1920；1:1→1024×1024；其他→取最接近的标准尺寸并 warn）
 - 配置：`{ baseURL, apiKey, model, timeoutMs }` + `signal`
 
@@ -1343,7 +1366,7 @@ export type VisualMode = 'animation' | 'image';
 export interface BlockStatus {
   id: string;               // 'B01'
   title: string;            // 块头标题（不含 #Bxx）
-  line: number;             // 块头在 script.md 中的行号（1-based）
+  line: number;             // 块头在 visuals.md 中的行号（1-based）
   visualMode: VisualMode;   // 默认 'animation'
   audio: boolean;           // 来自 block.audio?.wavPath + 文件存在
   visual: boolean;          // animation: block.visual.componentPath；image: block.visual.imagePath
@@ -1556,7 +1579,7 @@ curl -fsS -X PUT -H "Content-Type: application/json" -H "If-Match: $SCRIPT_ETAG"
   -d '{"mode":"image"}' \
   http://127.0.0.1:3030/api/projects/microgpt/blocks/B01/visual-mode \
   | jq -e '.ok == true'
-grep -q '@visual: image' project/microgpt/script.md
+grep -q '@visual: image' project/microgpt/visuals.md
 
 # 配置脱敏
 curl -fsS http://127.0.0.1:3030/api/config \
@@ -1625,5 +1648,5 @@ rm -rf project/demo
 curl -fsS -X POST -H "Content-Type: application/json" \
   -d '{"name":"demo"}' http://127.0.0.1:3030/api/projects \
   | jq -e '.name == "demo"'
-test -d project/demo && test -f project/demo/script.md
+test -d project/demo && test -f project/demo/visuals.md && test -f project/demo/narration.md
 ```

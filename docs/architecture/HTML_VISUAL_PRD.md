@@ -3,6 +3,8 @@
 > **状态**：草案 v0.2，已按代码评审结论修订（修订记录见文末附录）
 > **作者**：调研 + 起草（基于三路 agent 调研结论）
 > **范围**：在 AutoVideo 现有 `animation` / `image` / `video` 三种视觉模式之外，新增第四种 `@visual: html` 模式
+>
+> 注：输入格式已重构为 `visuals.md` + `narration.md`，文中「`--- visual ---` 区段」即 `visuals.md` 对应块的块体；详见 ../AUTHORING.md
 
 ---
 
@@ -18,7 +20,7 @@ AutoVideo 当前支持三种 `@visual` 模式（[directives.ts:53](../../src/par
 | `image` | 文生图 API 或本地图片 | ❌ 静态 |
 | `video` | 本地 mp4 文件 | ✅ 但素材是预录制的，不可编程 |
 
-用户在 `script.md` 写 `@visual: html` 时被解析器降级为 `animation`（[directives.ts:137-140](../../src/parser/directives.ts)），因为 `html` 不在合法值表里。
+用户在 `visuals.md` 写 `@visual: html` 时被解析器降级为 `animation`（[directives.ts:137-140](../../src/parser/directives.ts)），因为 `html` 不在合法值表里。
 
 ### 1.2 用户诉求
 
@@ -570,7 +572,7 @@ HTML 中可能写：
 <style> .hero { background: url('./bg.png') } </style>
 ```
 
-**路径基准**：相对于 `script.md` 所在目录（与 image/video 模式一致）。
+**路径基准**：相对于 `visuals.md` 所在目录（与 image/video 模式一致）。
 
 **分工**（评审修订，避免与通用流程重复/冲突）：
 

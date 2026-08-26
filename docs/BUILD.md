@@ -2,16 +2,16 @@
 
 > **本文档专为执行视频构建的 AI Agent 编写**。
 >
-> 任务：输入一个已经准备好 `meta.md` + `script.md` 的工程目录，输出最终的 MP4 视频文件。
+> 任务：输入一个已经准备好 `meta.md` + `visuals.md` + `narration.md` 的工程目录，输出最终的 MP4 视频文件。
 >
-> **本文档不讲怎么写 `meta.md` / `script.md`**，那是 [`AUTHORING.md`](AUTHORING.md) 的内容。
+> **本文档不讲怎么写这些 Markdown 文件**，那是 [`AUTHORING.md`](AUTHORING.md) 的内容。
 
 ---
 
 ## 0. 一分钟速览
 
 ```bash
-# 输入：项目目录（已含 meta.md + script.md）
+# 输入：项目目录（已含 meta.md + visuals.md + narration.md）
 PROJECT_DIR=AutoVideo/project/MyVideo
 
 # 一键构建（必须用 --out 把产物放到项目目录内）
@@ -45,7 +45,8 @@ compile → tts → visuals → render
 ```
 project/MyVideo/
 ├── meta.md              # 必须存在
-├── script.md            # 必须存在（也可拆为 part1.md / part2.md ...）
+├── visuals.md           # 必须存在（也可拆为多对 visuals/narration 文件）
+├── narration.md         # 必须存在（块 ID 与 visuals.md 一一对应）
 └── (project.json)       # 可选；构建脚本会自动生成
 ```
 
@@ -53,8 +54,9 @@ project/MyVideo/
 
 ```bash
 PROJECT_DIR=AutoVideo/project/MyVideo
-test -f "$PROJECT_DIR/meta.md"   && echo "OK: meta.md"   || echo "MISSING: meta.md"
-test -f "$PROJECT_DIR/script.md" && echo "OK: script.md" || echo "MISSING: script.md (或 part*.md)"
+test -f "$PROJECT_DIR/meta.md"      && echo "OK: meta.md"      || echo "MISSING: meta.md"
+test -f "$PROJECT_DIR/visuals.md"   && echo "OK: visuals.md"   || echo "MISSING: visuals.md"
+test -f "$PROJECT_DIR/narration.md" && echo "OK: narration.md" || echo "MISSING: narration.md"
 ```
 
 ### 1.2 验证语法（可选但推荐）
@@ -148,13 +150,15 @@ npx tsx bin/autovideo.ts render  $BUILD/script.json --block B01,B02,B03
 
 ### 2.4 没有 `project.json` 时手动创建
 
-如果项目里只有 `meta.md` + `script.md`，没有 `project.json`，可手动写一个：
+如果项目里只有 `meta.md` + `visuals.md` + `narration.md`，没有 `project.json`，可手动写一个：
 
 ```bash
 cat > $PROJECT_DIR/project.json <<EOF
 {
   "meta": "./meta.md",
-  "blocks": ["./script.md"]
+  "blocks": [
+    { "visual": "./visuals.md", "narration": "./narration.md" }
+  ]
 }
 EOF
 ```
@@ -164,7 +168,10 @@ EOF
 ```json
 {
   "meta": "./meta.md",
-  "blocks": ["./part1.md", "./part2.md", "./part3.md"]
+  "blocks": [
+    { "visual": "./part1-visuals.md", "narration": "./part1-narration.md" },
+    { "visual": "./part2-visuals.md", "narration": "./part2-narration.md" }
+  ]
 }
 ```
 
@@ -174,7 +181,7 @@ EOF
 
 | 命令 | 说明 |
 |------|------|
-| `autovideo init <dir>` | 从模板创建新项目（含示例 `meta.md` / `script.md`） |
+| `autovideo init <dir>` | 从模板创建新项目（含示例 `meta.md` / `visuals.md` / `narration.md`） |
 | `autovideo compile <project.json>` | 解析 Markdown → `script.json` |
 | `autovideo tts <script.json>` | 生成旁白音频（VoxCPM2） |
 | `autovideo visuals <script.json>` | Claude AI 生成视觉组件 |
@@ -213,7 +220,8 @@ EOF
 ```
 project/MyVideo/                         ← 项目目录（PROJECT_DIR）
 ├── meta.md
-├── script.md
+├── visuals.md
+├── narration.md
 ├── project.json
 └── build/
     └── my-video/                        ← BUILD_DIR（= PROJECT_DIR/build/<slug>）
@@ -312,7 +320,7 @@ npx tsx bin/autovideo.ts doctor
 | 现象 | 排查方向 |
 |------|---------|
 | `compile` 失败 | 源文件语法问题 → 让 Agent 按 [`AUTHORING.md`](AUTHORING.md) 修正 |
-| 块 ID 冲突 | 多个文件中存在相同 `#BXX`，统一编号或省略让其自动递增 |
+| 块 ID 冲突 / 不一致 | 文件内存在相同 `#BXX`，或 visuals.md 与 narration.md 的 ID 集合不一致 → 按 [`AUTHORING.md`](AUTHORING.md) §2.4 修正 |
 | `voiceRef` 找不到 | 检查 `meta.md` 中 `voiceRef` 路径（相对 `meta.md` 自身），WAV 文件是否存在 |
 | `tts` 卡住 / 失败 | 确认 VoxCPM2 服务运行中（默认端口 `8000`），可 `curl http://127.0.0.1:8000/health` 验证 |
 | `visuals` 反复重试 | Claude 生成的组件未通过沙盒校验；用 `--verbose` 看错误；可能需要回到 `AUTHORING.md` 让视觉描述更具体 |
@@ -359,4 +367,4 @@ ls -lh "$BUILD/output/final_normalized.mp4"
 
 ## 上一步
 
-如需修改或重写 `meta.md` / `script.md`，请按 [`AUTHORING.md`](AUTHORING.md) 进行。
+如需修改或重写 `meta.md` / `visuals.md` / `narration.md`，请按 [`AUTHORING.md`](AUTHORING.md) 进行。

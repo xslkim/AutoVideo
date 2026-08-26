@@ -12,6 +12,8 @@ import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { parseDirectives, type ParsedDirectives } from "./directives.js";
 import { parseNarration, type NarrationLine } from "./narration.js";
+import { parseSplitFiles } from "./split.js";
+import type { BlockEntry } from "./project.js";
 import type { AnimationPreset, VisualMode } from "../types/script.js";
 
 // ---------------------------------------------------------------------------
@@ -60,8 +62,10 @@ export class BlockError extends Error {
  *
  * Each block starts with `>>>` on a line by itself (with optional title and #ID).
  * Content between two `>>>` lines (or from `>>>` to EOF) forms one block.
+ *
+ * Exported for reuse by the split-file parser (split.ts).
  */
-function splitIntoSegments(
+export function splitIntoSegments(
   content: string,
   filePath: string,
 ): { titleLine: string; bodyLines: string[]; lineIndex: number }[] {
@@ -165,8 +169,10 @@ function extractSection(
  *
  * Format: `Title Text #B01` or just `Title Text`
  * The #ID is optional; if present, it's extracted from the end.
+ *
+ * Exported for reuse by the split-file parser (split.ts).
  */
-function parseTitleLine(titleLine: string): { title: string; id: string | null } {
+export function parseTitleLine(titleLine: string): { title: string; id: string | null } {
   // Match #Bxx pattern at end of line (with optional preceding whitespace)
   const idMatch = titleLine.match(/\s*#(B\d{2,})\s*$/);
   if (idMatch) {
@@ -268,26 +274,12 @@ export function parseBlockFile(filePath: string): RawBlock[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse multiple content files and merge blocks in order.
- *
- * - Blocks are collected in file order, respecting the blocks array order
- * - Explicit IDs (#B01) are preserved
- * - Blocks without explicit IDs are auto-numbered: B01, B02, ...
- * - Explicit IDs must be globally unique
- *
- * @param blockPaths - Absolute paths to content .md files, in order
- * @returns Array of RawBlocks with IDs finalized
- * @throws BlockError on ID conflicts or missing sections
+ * Finalize block IDs across all parsed blocks:
+ * - Explicit IDs (#B01) must be globally unique
+ * - Blocks without explicit IDs are auto-numbered: B01, B02, ...,
+ *   skipping already-used numbers
  */
-export function parseAndMergeBlocks(blockPaths: string[]): RawBlock[] {
-  const allBlocks: RawBlock[] = [];
-
-  // Parse all files in order
-  for (const filePath of blockPaths) {
-    const fileBlocks = parseBlockFile(filePath);
-    allBlocks.push(...fileBlocks);
-  }
-
+function finalizeBlockIds(allBlocks: RawBlock[]): RawBlock[] {
   // Collect explicit IDs and check for conflicts
   const explicitIds = new Set<string>();
   for (const block of allBlocks) {
@@ -316,4 +308,51 @@ export function parseAndMergeBlocks(blockPaths: string[]): RawBlock[] {
   }
 
   return allBlocks;
+}
+
+/**
+ * Parse multiple content files and merge blocks in order.
+ *
+ * - Blocks are collected in file order, respecting the blocks array order
+ * - Explicit IDs (#B01) are preserved
+ * - Blocks without explicit IDs are auto-numbered: B01, B02, ...
+ * - Explicit IDs must be globally unique
+ *
+ * @param blockPaths - Absolute paths to content .md files, in order
+ * @returns Array of RawBlocks with IDs finalized
+ * @throws BlockError on ID conflicts or missing sections
+ */
+export function parseAndMergeBlocks(blockPaths: string[]): RawBlock[] {
+  return parseProjectBlocks(
+    blockPaths.map((path) => ({ kind: "single", path }) as BlockEntry),
+  );
+}
+
+/**
+ * Parse block entries from a ResolvedProject and merge blocks in order.
+ *
+ * - `single` entries use the legacy one-file format (parseBlockFile)
+ * - `split` entries parse a visuals file + a narration file and align
+ *   blocks by #Bxx ID (see split.ts)
+ *
+ * ID finalization (uniqueness check + auto-numbering of legacy blocks
+ * without explicit IDs) is shared with parseAndMergeBlocks.
+ *
+ * @param entries - Block entries in project.json order
+ * @returns Array of RawBlocks with IDs finalized
+ * @throws BlockError on ID conflicts, missing sections, or split-file mismatches
+ */
+export function parseProjectBlocks(entries: BlockEntry[]): RawBlock[] {
+  const allBlocks: RawBlock[] = [];
+
+  // Parse all entries in order
+  for (const entry of entries) {
+    if (entry.kind === "single") {
+      allBlocks.push(...parseBlockFile(entry.path));
+    } else {
+      allBlocks.push(...parseSplitFiles(entry.visualPath, entry.narrationPath));
+    }
+  }
+
+  return finalizeBlockIds(allBlocks);
 }

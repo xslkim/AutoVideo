@@ -78,8 +78,8 @@ import {
 } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { apiGet, apiPut, getEtag, setEtag } from '../../utils/api'
-import { extractBlock, extractAssetPaths } from '../../utils/scriptParser'
+import { apiGet, apiPut, getEtag, setEtag, type ScriptResponse } from '../../utils/api'
+import { extractBlock, extractAssetPaths, parseNarrationBlocks } from '../../utils/scriptParser'
 import { createDiscreteApi } from 'naive-ui'
 
 const { message } = createDiscreteApi(['message'])
@@ -202,6 +202,38 @@ function buildExtensions(onSave: () => void) {
 }
 
 // ---------------------------------------------------------------------------
+// Split layout: merge visuals.md + narration.md into one editable block text
+// with --- visual --- / --- narration --- markers (same shape as the
+// block-level PUT body — the server splits it back on save)
+// ---------------------------------------------------------------------------
+
+function mergeSplitBlock(visuals: string, narration: string, blockId: string): string {
+  const extracted = extractBlock(visuals, blockId)  // throws if not found
+  const lines = extracted.content.split('\n')
+
+  // Head = block header + consecutive @directive lines; rest = visual body
+  let i = 0
+  const head: string[] = []
+  if (i < lines.length) head.push(lines[i++])
+  while (i < lines.length && lines[i].startsWith('@')) head.push(lines[i++])
+  let body = lines.slice(i)
+  while (body.length > 0 && body[0].trim() === '') body = body.slice(1)
+  while (body.length > 0 && body[body.length - 1].trim() === '') body = body.slice(0, -1)
+
+  const narrationLines = parseNarrationBlocks(narration).get(blockId) ?? []
+
+  return [
+    ...head,
+    '',
+    '--- visual ---',
+    ...body,
+    '',
+    '--- narration ---',
+    ...narrationLines,
+  ].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Load block content
 // ---------------------------------------------------------------------------
 
@@ -210,22 +242,26 @@ async function loadBlock() {
   isDirty.value = false
 
   const scriptUrl = `/api/projects/${props.projectName}/script`
-  const result = await apiGet<{ content: string }>(scriptUrl, { silent: true })
+  const result = await apiGet<ScriptResponse>(scriptUrl, { silent: true })
 
   if (!result.ok) {
     loading.value = false
-    message.error('加载 script.md 失败: ' + (result.error?.message ?? '未知错误'))
+    message.error('加载脚本失败: ' + (result.error?.message ?? '未知错误'))
     return
   }
 
-  const scriptMd = result.data.content
   scriptEtag = result.etag ?? ''
 
-  // Extract block content
+  // Extract block content (merged with --- visual --- / --- narration ---
+  // markers in split layout, so the block-level PUT keeps the same shape)
   let blockContent = ''
   try {
-    const extracted = extractBlock(scriptMd, props.blockId)
-    blockContent = extracted.content
+    if (result.data.mode === 'split') {
+      blockContent = mergeSplitBlock(result.data.visuals, result.data.narration, props.blockId)
+    } else {
+      const extracted = extractBlock(result.data.content, props.blockId)
+      blockContent = extracted.content
+    }
   } catch {
     message.error(`未找到块 ${props.blockId}`)
     loading.value = false

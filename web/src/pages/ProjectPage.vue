@@ -47,7 +47,7 @@
                     <n-tab-pane name="meta" tab="meta.md" display-directive="show">
                       <MetaEditor :project-name="projectName" :disabled="nonStandard" />
                     </n-tab-pane>
-                    <n-tab-pane name="script" tab="script.md" display-directive="show">
+                    <n-tab-pane name="script" tab="脚本" display-directive="show">
                       <ScriptEditor :key="'script-' + scriptEditorKey" :project-name="projectName" :disabled="nonStandard" @blocks-updated="onBlocksUpdated" />
                     </n-tab-pane>
                     <n-tab-pane name="assets" tab="资源" display-directive="show">

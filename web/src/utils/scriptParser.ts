@@ -183,6 +183,44 @@ export function extractBlock(scriptMd: string, id: string): ExtractResult {
 }
 
 // ---------------------------------------------------------------------------
+// parseNarrationBlocks — split-layout narration.md (header + narration lines)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse narration.md content into a map of block id → narration lines.
+ * Leading/trailing blank lines of each block body are trimmed.
+ */
+export function parseNarrationBlocks(narrationMd: string): Map<string, string[]> {
+  const result = new Map<string, string[]>()
+  let currentId: string | null = null
+  let currentLines: string[] = []
+
+  const flush = () => {
+    if (currentId === null) return
+    // Trim leading/trailing blank lines
+    let start = 0
+    let end = currentLines.length
+    while (start < end && currentLines[start].trim() === '') start++
+    while (end > start && currentLines[end - 1].trim() === '') end--
+    result.set(currentId, currentLines.slice(start, end))
+  }
+
+  for (const line of narrationMd.split('\n')) {
+    const hm = BLOCK_HEADER.exec(line)
+    if (hm) {
+      flush()
+      currentId = hm.groups!.id
+      currentLines = []
+    } else if (currentId !== null) {
+      currentLines.push(line)
+    }
+  }
+  flush()
+
+  return result
+}
+
+// ---------------------------------------------------------------------------
 // extractAssetPaths — find ./assets/ references in a block
 // ---------------------------------------------------------------------------
 

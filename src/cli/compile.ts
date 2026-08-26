@@ -20,7 +20,7 @@ const Ajv = AjvModule.default ?? AjvModule;
 
 import { readProject, type ResolvedProject } from "../parser/project.js";
 import { readMetaWithDimensions, type ResolvedMeta, type MetaOverrides } from "../parser/meta.js";
-import { parseAndMergeBlocks, type RawBlock } from "../parser/blocks.js";
+import { parseProjectBlocks, type RawBlock } from "../parser/blocks.js";
 import {
   processAssets,
   stripVisualComments,
@@ -226,10 +226,10 @@ export async function compile(options: CompileOptions): Promise<CompileResult> {
   if (verbose)
     console.log(
       "[compile] Parsing blocks from",
-      project.blockPaths.length,
-      "files"
+      project.blockEntries.length,
+      "entries"
     );
-  const rawBlocks: RawBlock[] = parseAndMergeBlocks(project.blockPaths);
+  const rawBlocks: RawBlock[] = parseProjectBlocks(project.blockEntries);
 
   emit(40, "确定输出目录");
 
@@ -558,8 +558,15 @@ export default Component;
 
   // ── Step 9: Write output ───────────────────────────────────────────────
   if (dryRun) {
+    const blockSummary = project.blockEntries
+      .map((e) =>
+        e.kind === "single"
+          ? `\n    - ${e.path} (single-file)`
+          : `\n    - ${e.visualPath} + ${e.narrationPath} (split)`,
+      )
+      .join("");
     console.log(
-      `Would compile:\n  Project: ${project.projectPath}\n  Meta: ${project.metaPath}\n  Blocks: ${project.blockPaths.length} file(s)\n  Title: ${meta.title}\n  Aspect: ${meta.aspect} (${meta.width}×${meta.height})\n  FPS: ${meta.fps}\n  Theme: ${meta.theme}\n  subtitleSafeBottom: ${subtitleSafeBottom}\n  Output: ${outDir}`
+      `Would compile:\n  Project: ${project.projectPath}\n  Meta: ${project.metaPath}\n  Blocks: ${project.blockEntries.length} entr${project.blockEntries.length === 1 ? "y" : "ies"}${blockSummary}\n  Title: ${meta.title}\n  Aspect: ${meta.aspect} (${meta.width}×${meta.height})\n  FPS: ${meta.fps}\n  Theme: ${meta.theme}\n  subtitleSafeBottom: ${subtitleSafeBottom}\n  Output: ${outDir}`
     );
     emit(100, "Dry run 完成");
     return { script, outDir, scriptPath: resolve(outDir, "script.json") };
