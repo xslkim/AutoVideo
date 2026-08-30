@@ -79,7 +79,7 @@ export function lintNarrationSync(blocks: Block[]): SyncLintWarning[] {
           `视觉描述含超出入场阶段的绝对时间戳（最大 [${maxBeat}s]）。` +
           `旁白由 TTS 合成、时长每次都会变，绝对节拍会静默错位——` +
           `跟随旁白的推进请改写为旁白行对应关系（组件可读 props.lineTimings），` +
-          `详见 docs/AUTHORING.md「与旁白同步的节拍」。`,
+          `详见 docs/guidelines/AUTHORING.md「与旁白同步的节拍」。`,
       });
     }
 

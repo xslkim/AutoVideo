@@ -34,6 +34,7 @@ Output will be in `build/my-video/output/final_normalized.mp4`.
 
 - **Edit `visuals.md` / `narration.md`**: `visuals.md` holds content blocks (directives + visual descriptions); `narration.md` holds the narration lines for the same block IDs (`#Bxx`, one per line).
 - **Edit `meta.md`**: Change title, aspect ratio, theme, or FPS.
+- **Replace `avatar.mp4`**: Default lip-sync avatar (128×128, 30fps). `meta.md` ships with `avatarRef: ./avatar.mp4`, so lip-sync is **on by default** — delete that line (and this file) if you don't want it. Requires the MuseTalk service at build time.
 - **Edit `dict.md`**: Fix how the voice reads technical terms and acronyms (`IMU => I M U`). Optional — delete the file if you don't need it.
 - **Replace `hero.png`**: Swap in your own image. Reference it in visual descriptions as `./hero.png`.
 - **Edit `autovideo.config.json`**: Adjust TTS, rendering, and caching settings.
@@ -44,6 +45,7 @@ Output will be in `build/my-video/output/final_normalized.mp4`.
 ├── project.json              # Entry point
 ├── meta.md                   # Global settings (title, aspect, theme, fps)
 ├── B00.wav                   # Reference voice (you provide this)
+├── avatar.mp4                # Default lip-sync avatar (delete avatarRef in meta.md to disable)
 ├── visuals.md                # Content blocks: directives + visual descriptions
 ├── narration.md              # Narration lines, matched to visuals.md by #Bxx ID
 ├── dict.md                   # Optional pronunciation overrides for TTS

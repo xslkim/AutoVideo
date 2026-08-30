@@ -949,7 +949,7 @@ await tts({
 | 38 | 单块清缓存范围 | 同时清 cache/* 和 build/{slug}/ 下对应实际产物 + 回写 script.json 字段，确保块状态立即回退到「未生成」 |
 | 39 | 快照范围 | compile/build 快照必须包含 voice/ 目录（voiceRef 解析依赖），未来若引入新的 meta-relative 资源也需纳入 |
 
-> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应），上表 #2 / #3 / #13 / #17 / #28 中的「单 `script.md`」为当时的历史决策记录；现行布局约束与 API 契约以 §3.1 / §5.1 为准，旧单文件格式继续兼容，详见 ../AUTHORING.md。
+> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应），上表 #2 / #3 / #13 / #17 / #28 中的「单 `script.md`」为当时的历史决策记录；现行布局约束与 API 契约以 §3.1 / §5.1 为准，旧单文件格式继续兼容，详见 ../guidelines/AUTHORING.md。
 
 ---
 

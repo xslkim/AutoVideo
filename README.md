@@ -41,7 +41,7 @@ bash third_servers/musetalk-lipsync/start.sh &
 
 ```bash
 npx tsx bin/autovideo.ts init my-video && cd my-video
-# 编辑 meta.md / visuals.md / narration.md(见 docs/AUTHORING.md)
+# 编辑 meta.md / visuals.md / narration.md(见 docs/guidelines/AUTHORING.md)
 npx tsx bin/autovideo.ts build project.json
 # → build/<slug>/output/final_normalized.mp4
 ```
@@ -67,7 +67,7 @@ npm run dev:web    # 后端 :3030 + 前端 :5173
 | 文档 | 内容 |
 |------|------|
 | [`docs/AGENTS.md`](docs/AGENTS.md) | 总入口 + 管线架构概览 |
-| [`docs/AUTHORING.md`](docs/AUTHORING.md) | 编写 `meta.md` / `visuals.md` / `narration.md`(块语法、视觉描述) |
+| [`docs/guidelines/`](docs/guidelines/) | 编写 `meta.md` / `visuals.md` / `narration.md` 的唯一入口(格式规范 `AUTHORING.md` + 写作方法论) |
 | [`docs/BUILD.md`](docs/BUILD.md) | 构建命令、故障排查 |
 | [`third_servers/README.md`](third_servers/README.md) | 第三方服务部署 |
 | [`CLAUDE.md`](CLAUDE.md) | 给 Claude Code 的项目指令 |

@@ -4,7 +4,7 @@
 > **作者**：调研 + 起草（基于三路 agent 调研结论）
 > **范围**：在 AutoVideo 现有 `animation` / `image` / `video` 三种视觉模式之外，新增第四种 `@visual: html` 模式
 >
-> 注：输入格式已重构为 `visuals.md` + `narration.md`，文中「`--- visual ---` 区段」即 `visuals.md` 对应块的块体；详见 ../AUTHORING.md
+> 注：输入格式已重构为 `visuals.md` + `narration.md`，文中「`--- visual ---` 区段」即 `visuals.md` 对应块的块体；详见 ../guidelines/AUTHORING.md
 
 ---
 
@@ -350,7 +350,7 @@ window.__av = {
 
 用户 HTML 可据此自适应布局（例如把底部留白设为 `subtitleSafeBottom`）。
 
-`lineTimings` 是旁白同步契约（与 animation 模式同源）：`__seek(t)` 内取最后一个 `startSec <= t` 的行（行间静音间隙保持上一行状态），即可让高亮/推进跟随旁白逐行切换，且旁白重新合成后自动对齐。HTML 块的视觉描述同样适用 `docs/AUTHORING.md`「与旁白同步的节拍」的写法约束；Phase 2 落地时，compile 阶段的 `absolute-beat` / `missing-mapping` 告警（`src/compile/sync-lint.ts`）应扩展覆盖 html 块。
+`lineTimings` 是旁白同步契约（与 animation 模式同源）：`__seek(t)` 内取最后一个 `startSec <= t` 的行（行间静音间隙保持上一行状态），即可让高亮/推进跟随旁白逐行切换，且旁白重新合成后自动对齐。HTML 块的视觉描述同样适用 `docs/guidelines/AUTHORING.md`「与旁白同步的节拍」的写法约束；Phase 2 落地时，compile 阶段的 `absolute-beat` / `missing-mapping` 告警（`src/compile/sync-lint.ts`）应扩展覆盖 html 块。
 
 ### 5.4 模板支持
 
@@ -550,7 +550,7 @@ export async function renderHtmlBlock(
 | `server/types/api.ts` | `VisualMode`（L33）加 `'html'` | 低 |
 | `server/routes/blocks.ts` | visual-mode 接口（L189-270）的 mode 枚举同步 | 低 |
 | `package.json` | 加 `puppeteer-core` ^24 依赖 | 低 |
-| `docs/AUTHORING.md` | 新增 `@visual: html` 章节 + seek-hook 约定 + §3.4 解析约束 | 中 |
+| `docs/guidelines/AUTHORING.md` | 新增 `@visual: html` 章节 + seek-hook 约定 + §3.4 解析约束 | 中 |
 | `templates/html-block/` | 新增 html 块模板（static.html / animated.html） | 低 |
 | `web/` 前端 | 块详情视觉模式下拉加 `html`；v1 用纯文本编辑器即可 | 低 |
 | `tests/` | directives/compile/processHtmlAssets/缓存 key/enter-exit 映射的单测 | 中 |
@@ -873,7 +873,7 @@ v1 **不单设 html 块并发数**：html 块与 Remotion 块共用 `render.bloc
 
 - config 段、doctor 检查（§12）
 - Web 后端/前端枚举适配
-- `docs/AUTHORING.md` 新增 html 章节（含 §3.4 解析约束）
+- `docs/guidelines/AUTHORING.md` 新增 html 章节（含 §3.4 解析约束）
 - 模板项目含 html 块示例
 
 ### Phase 5（可选，v2）：兼容档
@@ -897,7 +897,7 @@ v1 **不单设 html 块并发数**：html 块与 Remotion 块共用 `render.bloc
 | AC-7 | 缓存语义正确：无任何输入变化时命中缓存；改 HTML 或改旁白（audioHash 变）都重渲染该块，其他块不受影响 | P2 |
 | AC-8 | HTML 中 `fetch('http://...')` 被拦截，渲染不失败；`fetch('file:///etc/passwd')` 等 build 目录外 file:// 请求被拦截 | P2 |
 | AC-9 | `autovideo doctor` 报告 Chrome 可用性与版本 | P4 |
-| AC-10 | `docs/AUTHORING.md` 含 html 模式完整说明（含 §3.4 约束） | P4 |
+| AC-10 | `docs/guidelines/AUTHORING.md` 含 html 模式完整说明（含 §3.4 约束） | P4 |
 | AC-11 | html 块字幕正确显示：行切换与 lineTimings 对齐、高亮词着色、胶囊样式与 Remotion 块目测一致 | P2 |
 | AC-12 | 无 `__seek` 但含 CSS 动画的 HTML 块降级为静态档并打出 warning | P2 |
 | AC-13 | 内联 HTML 含裸 `---` 行时 compile 报错（而非静默截断） | P1 |

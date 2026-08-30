@@ -81,7 +81,9 @@ voiceRef: ../../B00.wav
 - `voiceRef` 路径相对 `meta.md` 自身。可以指向项目内的 WAV，也可以指向公共音色（如 `../../B00.wav`）
 - `aspect` 决定输出视频的实际像素尺寸，不要再单独指定宽高
 
-### 口型同步（可选）
+### 口型同步（新项目默认开启）
+
+`autovideo init` 与 Web 端新建项目自带默认头像 `avatar.mp4`（模板内置，即仓库根目录 `head128x128.mp4` 的副本）并预写 `avatarRef: ./avatar.mp4`——新项目默认开启口型同步；不需要时删掉该行（及项目内的 `avatar.mp4`）即可。
 
 在 `meta.md` 中指定 `avatarRef` 可启用数字人口型同步功能：
 

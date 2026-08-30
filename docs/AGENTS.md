@@ -17,15 +17,17 @@ AutoVideo 把 Markdown 教学脚本编译成 MP4 视频，全流程由 AI 驱动
 │       visuals.md         │        │       visuals.md         │
 │       narration.md       │        │       narration.md       │
 │                          │        │ 产出：final.mp4          │
-│ 文档：AUTHORING.md       │        │ 文档：BUILD.md           │
+│ 文档：guidelines/        │        │ 文档：BUILD.md           │
 └──────────────────────────┘        └──────────────────────────┘
 ```
 
 | 你的任务 | 看哪个文档 |
 |----------|-----------|
-| **要写 / 修改 `meta.md`、`visuals.md` 或 `narration.md`**（设计视频内容、视觉、旁白） | 📄 [`AUTHORING.md`](AUTHORING.md) |
+| **要写 / 修改 `meta.md`、`visuals.md` 或 `narration.md`**（设计视频内容、视觉、旁白） | 📁 [`docs/guidelines/`](guidelines/README.md)（唯一入口，含格式规范 `AUTHORING.md`） |
 | **要把已有的 `meta.md` + `visuals.md` + `narration.md` 编译成 MP4**（执行构建命令） | 📄 [`BUILD.md`](BUILD.md) |
-| **要同时承担两个步骤** | 先看 `AUTHORING.md`，再看 `BUILD.md` |
+| **要同时承担两个步骤** | 先看 `guidelines/`，再看 `BUILD.md` |
+
+> **步骤 1 的全部文档都在 [`docs/guidelines/`](guidelines/README.md) 一个文件夹内**：格式规范 `AUTHORING.md`、通用底线 `baseline.md`、写作流水线（事实基线 → 写作主法三选一 → 音画预算与验收）。把脚本任务交给 LLM 时引用这一个文件夹即可，从 `guidelines/README.md` 的用法说明开始。
 
 ---
 
@@ -35,14 +37,16 @@ AutoVideo 把 Markdown 教学脚本编译成 MP4 视频，全流程由 AI 驱动
 
 ```
 AutoVideo/
-├── AGENTS.md                     # ← 你正在看的总入口
-├── AUTHORING.md                  # ← 步骤 1 文档
-├── BUILD.md                      # ← 步骤 2 文档
+├── docs/
+│   ├── AGENTS.md                 # ← 你正在看的总入口
+│   ├── BUILD.md                  # ← 步骤 2 文档
+│   └── guidelines/               # ← 步骤 1 全部文档（唯一入口：README / AUTHORING / baseline / 方法论）
 ├── bin/autovideo.ts              # CLI 入口
 ├── src/                          # 工具链源码
 ├── remotion/                     # Remotion 渲染配置
 ├── templates/                    # 项目模板
 ├── B00.wav                       # 默认参考音色
+├── head128x128.mp4               # 默认口型头像（init / Web 新项目自带副本 avatar.mp4）
 └── project/                      # 视频项目目录
     └── MicroGpt/                 # 一个示例项目
         ├── meta.md               # ← 步骤 1 产出

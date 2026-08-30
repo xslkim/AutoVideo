@@ -4,7 +4,7 @@
 >
 > 任务：输入一个已经准备好 `meta.md` + `visuals.md` + `narration.md` 的工程目录，输出最终的 MP4 视频文件。
 >
-> **本文档不讲怎么写这些 Markdown 文件**，那是 [`AUTHORING.md`](AUTHORING.md) 的内容。
+> **本文档不讲怎么写这些 Markdown 文件**，那是 [`AUTHORING.md`](guidelines/AUTHORING.md) 的内容。
 
 ---
 
@@ -76,7 +76,7 @@ npx tsx bin/autovideo.ts compile $PROJECT_DIR/project.json \
 
 > ⚠️ 必须加 `--out $PROJECT_DIR/build/$SLUG`，否则 `script.json` 会写到 AutoVideo 根目录下的 `build/` 里。
 
-如果输出中报错（缺 section、块 ID 重复、动画预设无效等），需要回到 [`AUTHORING.md`](AUTHORING.md) 修正源文件后再继续。
+如果输出中报错（缺 section、块 ID 重复、动画预设无效等），需要回到 [`AUTHORING.md`](guidelines/AUTHORING.md) 修正源文件后再继续。
 
 ### 1.3 `voiceRef` 文件存在性
 
@@ -319,8 +319,8 @@ npx tsx bin/autovideo.ts doctor
 
 | 现象 | 排查方向 |
 |------|---------|
-| `compile` 失败 | 源文件语法问题 → 让 Agent 按 [`AUTHORING.md`](AUTHORING.md) 修正 |
-| 块 ID 冲突 / 不一致 | 文件内存在相同 `#BXX`，或 visuals.md 与 narration.md 的 ID 集合不一致 → 按 [`AUTHORING.md`](AUTHORING.md) §2.4 修正 |
+| `compile` 失败 | 源文件语法问题 → 让 Agent 按 [`AUTHORING.md`](guidelines/AUTHORING.md) 修正 |
+| 块 ID 冲突 / 不一致 | 文件内存在相同 `#BXX`，或 visuals.md 与 narration.md 的 ID 集合不一致 → 按 [`AUTHORING.md`](guidelines/AUTHORING.md) §2.4 修正 |
 | `voiceRef` 找不到 | 检查 `meta.md` 中 `voiceRef` 路径（相对 `meta.md` 自身），WAV 文件是否存在 |
 | `tts` 卡住 / 失败 | 确认 VoxCPM2 服务运行中（默认端口 `8000`），可 `curl http://127.0.0.1:8000/health` 验证 |
 | `visuals` 反复重试 | Claude 生成的组件未通过沙盒校验；用 `--verbose` 看错误；可能需要回到 `AUTHORING.md` 让视觉描述更具体 |
@@ -367,4 +367,4 @@ ls -lh "$BUILD/output/final_normalized.mp4"
 
 ## 上一步
 
-如需修改或重写 `meta.md` / `visuals.md` / `narration.md`，请按 [`AUTHORING.md`](AUTHORING.md) 进行。
+如需修改或重写 `meta.md` / `visuals.md` / `narration.md`，请按 [`AUTHORING.md`](guidelines/AUTHORING.md) 进行。

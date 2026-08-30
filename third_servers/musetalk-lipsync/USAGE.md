@@ -205,4 +205,4 @@ ffmpeg -y -i input.m4a -acodec pcm_s16le -ar 16000 -ac 1 output.wav
 
 - [`LIPSYNC_TASKS.md`](LIPSYNC_TASKS.md) — API 契约与引擎集成步骤  
 - [`MUSETALK_DEPLOY.md`](MUSETALK_DEPLOY.md) — 环境验证、模型与部署任务清单  
-- [`AUTHORING.md`](AUTHORING.md) — `meta.md` 中 `avatarRef` 等（若已接入）
+- [`AUTHORING.md`](../../docs/guidelines/AUTHORING.md) — `meta.md` 中 `avatarRef` 等

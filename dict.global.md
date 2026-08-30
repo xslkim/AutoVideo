@@ -53,7 +53,7 @@ SSH        => S S H
 DNS        => D N S
 URL        => U R L
 URI        => U R I
-JSON       => J S O N
+JSON       => 杰森
 YAML       => Y A M L
 XML        => X M L
 HTML       => H T M L
@@ -90,7 +90,7 @@ CI         => C I
 CD         => C D
 PDF        => P D F
 UI         => U I
-JSONL      => J S O N L
+JSONL      => 杰森 L
 CICD       => C I C D
 
 # ── 品牌（不按拼写读的才收，按拼写能读的让引擎自己处理）─────────────

@@ -25,5 +25,8 @@ third_servers/*/models
 autovideo.config.json
 logs/
 
+# sub-repos (cloned, tracked by their own git)
+TechArt/
+
 # graphify output: run `graphify update .` after code changes to regenerate
 graphify-out/

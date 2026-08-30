@@ -45,7 +45,7 @@
 
 ## 3. 输入格式：Markdown DSL
 
-> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应，ID 必填，指令只写在 visuals.md，无 `--- visual ---` / `--- narration ---` section 标记；`project.json` 用 `{ "visual": "...", "narration": "..." }` 对象 entry）。本章描述的旧单文件格式继续兼容；现行权威格式说明见 `docs/AUTHORING.md`。
+> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应，ID 必填，指令只写在 visuals.md，无 `--- visual ---` / `--- narration ---` section 标记；`project.json` 用 `{ "visual": "...", "narration": "..." }` 对象 entry）。本章描述的旧单文件格式继续兼容；现行权威格式说明见 `docs/guidelines/AUTHORING.md`。
 
 ### 3.1 项目文件（`project.json`）
 
@@ -798,7 +798,7 @@ autovideo/
 └── narration.md                  # 语音文件（旁白行，块 ID 与 visuals.md 一一对应）
 ```
 
-> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应，`project.json` 用 `{ "visual": "...", "narration": "..." }` 对象 entry）；旧单文件 `script.md` 格式（`blocks` 为字符串 entry）继续兼容。详见 `docs/AUTHORING.md`。
+> 注：输入格式已重构为 `visuals.md` + `narration.md` 双文件（按 `#Bxx` ID 一一对应，`project.json` 用 `{ "visual": "...", "narration": "..." }` 对象 entry）；旧单文件 `script.md` 格式（`blocks` 为字符串 entry）继续兼容。详见 `docs/guidelines/AUTHORING.md`。
 
 ### 8.3 构建产物目录（`autovideo build` 输出）
 
