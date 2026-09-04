@@ -21,12 +21,16 @@ third_servers/*/voices
 third_servers/*/.model
 third_servers/*/models
 
+# 本机运行时:ffmpeg 静态版 / miniconda(MuseTalk 环境)等
+.runtime/
+
 # local config (real paths, not committed)
 autovideo.config.json
 logs/
 
 # sub-repos (cloned, tracked by their own git)
 TechArt/
+SoftGpu/
 
 # graphify output: run `graphify update .` after code changes to regenerate
 graphify-out/
