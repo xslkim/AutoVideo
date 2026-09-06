@@ -74,6 +74,8 @@ voiceRef: ../../B00.wav
 | `voiceRef` | string | 自动 | 参考音色 WAV 文件路径（10–30s 清晰人声） |
 | `slug` | string | 由 title 推导 | 强制指定输出目录名（英文，**全小写**，连字符） |
 | `avatarRef` | string | — | 口型同步 avatar 视频路径（128x128, 30fps, mp4, 首尾帧循环） |
+| `skipLipsync` | bool | `false` | 为 `true` 时跳过 MuseTalk 口型同步，头像原样循环叠加在左下角（无需 MuseTalk 服务） |
+| `avatarRadius` | number | `24` | 头像画中画圆角半径，8–128 px |
 
 **注意事项：**
 - `slug` 用英文连字符命名（如 `microgpt-py-survival-guide`），**必须全小写**，它决定 `build/<slug>/...` 的目录名

@@ -208,6 +208,7 @@ EOF
 | `--out <path>` | 指定输出目录（仅 `compile`） | `--out build/my-video` |
 | `--verbose` | 详细日志 | `--verbose` |
 | `--dry-run` | 预演，不实际执行 | `--dry-run` |
+| `--concat-only` | 仅 `render`：跳过分块渲染，只做 concat + 头像叠加 + loudnorm + QA（partials 已齐、只改 meta 如 avatarRef 时用，秒级到分钟级出片） | `--concat-only` |
 
 ---
 

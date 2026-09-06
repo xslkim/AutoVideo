@@ -131,6 +131,7 @@ program
   .argument("<script>", "path to script.json")
   .option("--block <ids>", "only render specified block(s), comma-separated")
   .option("--force", "ignore cache, force re-render")
+  .option("--concat-only", "skip block rendering, only concat + avatar overlay + loudnorm + QA (PRD A.3)")
   .option("--config <file>", "path to autovideo.config.json")
   .option("--cache-dir <dir>", "override cache directory")
   .option("--verbose", "detailed logging")
@@ -143,6 +144,7 @@ program
       config,
       blockIds,
       force: opts.force,
+      concatOnly: opts.concatOnly,
       verbose: opts.verbose,
       dryRun: opts.dryRun,
     });
