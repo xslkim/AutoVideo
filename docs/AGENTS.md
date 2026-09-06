@@ -27,7 +27,7 @@ AutoVideo 把 Markdown 教学脚本编译成 MP4 视频，全流程由 AI 驱动
 | **要把已有的 `meta.md` + `visuals.md` + `narration.md` 编译成 MP4**（执行构建命令） | 📄 [`BUILD.md`](BUILD.md) |
 | **要同时承担两个步骤** | 先看 `guidelines/`，再看 `BUILD.md` |
 
-> **步骤 1 的全部文档都在 [`docs/guidelines/`](guidelines/README.md) 一个文件夹内**：格式规范 `AUTHORING.md`、通用底线 `baseline.md`、写作流水线（事实基线 → 写作主法三选一 → 音画预算与验收）。把脚本任务交给 LLM 时引用这一个文件夹即可，从 `guidelines/README.md` 的用法说明开始。
+> **步骤 1 的全部文档都在 [`docs/guidelines/`](guidelines/README.md) 一个文件夹内**：格式规范 `AUTHORING.md`、通用底线 `baseline.md`、写作流水线（事实基线 → 写作主法三选一 → 双角色评审 → 音画预算与验收）。把脚本任务交给 LLM 时引用这一个文件夹即可，从 `guidelines/README.md` 的用法说明开始。
 
 ---
 
