@@ -98,3 +98,7 @@ OpenAI     => Open A I
 Ollama     => Oh llama
 llama.cpp  => llama C plus plus
 /\bubuntu\b/gi => 乌班图
+
+# ── 中文多音字 ─────────────────────────────────────────────────
+# 「回调 => 回掉」等多音字规则已内置在框架（src/tts/pronounce.ts 的
+# BUILTIN_DICT），对所有项目生效，此处无需重复。

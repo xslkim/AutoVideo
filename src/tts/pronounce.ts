@@ -63,6 +63,22 @@ export const REPO_DICT_FILENAME = "dict.global.md";
 /** Machine-level dictionary directory name under the XDG config home. */
 const MACHINE_DICT_DIR = join(os.homedir(), ".config", "autovideo");
 
+/**
+ * Framework built-in dictionary, lowest precedence of all layers.
+ *
+ * Holds rules that should hold for every project on every machine even when
+ * no dict file exists — currently Chinese polyphones that TTS voices
+ * consistently misread (字幕保持原文，仅合成文本被改写).
+ */
+const BUILTIN_DICT = `
+回调 => 回掉
+`;
+
+/** Parse the built-in rule set. */
+function loadBuiltinRules(): PronunciationRule[] {
+  return parsePronunciationDict(BUILTIN_DICT);
+}
+
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
@@ -137,9 +153,10 @@ function loadDictFile(dictPath: string): PronunciationRule[] {
 }
 
 /**
- * Load the effective rule set for a project by layering up to three sources,
+ * Load the effective rule set for a project by layering up to four sources,
  * lowest precedence first:
  *
+ *   0. framework built-in rules (BUILTIN_DICT, e.g. Chinese polyphones)
  *   1. repo-level `dict.global.md` (found by walking up from the project dir)
  *   2. machine-level `~/.config/autovideo/dict.md`
  *   3. project-level `<projectDir>/dict.md`
@@ -149,7 +166,7 @@ function loadDictFile(dictPath: string): PronunciationRule[] {
  * i.e. more local, source wins).
  */
 export function loadPronunciationDicts(projectDir: string): PronunciationRule[] {
-  const layers: PronunciationRule[][] = [];
+  const layers: PronunciationRule[][] = [loadBuiltinRules()];
 
   const repoDict = findUp(projectDir, REPO_DICT_FILENAME);
   if (repoDict) layers.push(loadDictFile(join(repoDict, REPO_DICT_FILENAME)));

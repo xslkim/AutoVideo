@@ -17,12 +17,27 @@ describe("loadPronunciationDicts — layered dictionaries", () => {
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it("loads only the project dict when no globals exist", () => {
+  it("loads the project dict plus framework built-ins when no globals exist", () => {
     const proj = join(root, "proj");
     mkdirSync(proj);
     writeFileSync(join(proj, "dict.md"), "Foo => 富\n");
     const rules = loadPronunciationDicts(proj);
-    expect(rules.map((r) => r.pattern)).toEqual(["Foo"]);
+    expect(rules.map((r) => r.pattern)).toEqual(["Foo", "回调"]);
+  });
+
+  it("built-in rules apply with no dict files at all", () => {
+    const proj = join(root, "proj");
+    mkdirSync(proj);
+    const rules = loadPronunciationDicts(proj);
+    expect(applyPronunciation("注册一个回调", rules)).toBe("注册一个回掉");
+  });
+
+  it("project literal overrides a built-in rule with the same pattern", () => {
+    const proj = join(root, "proj");
+    mkdirSync(proj);
+    writeFileSync(join(proj, "dict.md"), "回调 => 回调\n");
+    const rules = loadPronunciationDicts(proj);
+    expect(applyPronunciation("回调", rules)).toBe("回调");
   });
 
   it("merges a repo-level dict.global.md found by walking up", () => {
@@ -30,7 +45,7 @@ describe("loadPronunciationDicts — layered dictionaries", () => {
     const proj = join(root, "a", "b");
     mkdirSync(proj, { recursive: true });
     const rules = loadPronunciationDicts(proj);
-    expect(rules.map((r) => r.pattern)).toEqual(["Bar"]);
+    expect(rules.map((r) => r.pattern)).toEqual(["Bar", "回调"]);
   });
 
   it("project literal overrides a repo literal with the same pattern", () => {
