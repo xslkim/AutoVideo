@@ -310,6 +310,20 @@ npx tsx bin/autovideo.ts cache clean
 - **ffmpeg 5.0+**
 - **Claude API key**：`ANTHROPIC_API_KEY` 环境变量，或 `~/.claude/settings.json`
 
+### ⚠️ WSL / 最小化 Linux 镜像的渲染环境（重要）
+
+本机（WSL2 Ubuntu 最小镜像）**没有 fontconfig，也没有 Chrome 的 GUI 依赖库**（libnss3、libatk 等）。直接跑 `render` 会失败或中文全部渲染成方框。所需组件已本地备好在 `.runtime/` 下（免 sudo，勿删），**所有 render / preview 命令前必须先设这两个环境变量**：
+
+```bash
+export LD_LIBRARY_PATH=/mnt/t1/AutoVideo/.runtime/libs/usr/lib/x86_64-linux-gnu
+export FONTCONFIG_FILE=/mnt/t1/AutoVideo/.runtime/fonts.conf
+```
+
+- `LD_LIBRARY_PATH` 指向 `.runtime/libs/`：chrome-headless-shell 运行所需的全部共享库
+- `FONTCONFIG_FILE` 指向 `.runtime/fonts.conf`：最小 fontconfig 配置，扫描 `~/.fonts`（Noto CJK 字体在此）与 `.runtime/fonts-root/`，缓存写到 `.runtime/fontcache/`
+
+验证方式：`chrome-headless-shell --screenshot` 一张含中文的 HTML，确认中文不是方框（参考 `SoftGpu/video/PLAYBOOK.md` 的环境章节）。
+
 ### 一键诊断
 
 ```bash
@@ -324,6 +338,8 @@ npx tsx bin/autovideo.ts doctor
 
 | 现象 | 排查方向 |
 |------|---------|
+| `chrome-headless-shell: error while loading shared libraries: libnss3.so`（exit 127） | 缺 Chrome 依赖库 → 设置 §7 的 `LD_LIBRARY_PATH`（指向 `.runtime/libs/`） |
+| 成片中文全部是方框（□□□），英文正常 | 系统无 fontconfig，浏览器找不到 CJK 字体 → 设置 §7 的 `FONTCONFIG_FILE`；⚠️ HTML 块截图按内容哈希缓存在 `public/html-shots/`，修复字体后需删掉对应 `.png`/`.sha` 再重渲该块 |
 | `compile` 失败 | 源文件语法问题 → 让 Agent 按 [`AUTHORING.md`](guidelines/AUTHORING.md) 修正 |
 | 块 ID 冲突 / 不一致 | 文件内存在相同 `#BXX`，或 visuals.md 与 narration.md 的 ID 集合不一致 → 按 [`AUTHORING.md`](guidelines/AUTHORING.md) §2.4 修正 |
 | `voiceRef` 找不到 | 检查 `meta.md` 中 `voiceRef` 路径（相对 `meta.md` 自身），WAV 文件是否存在 |

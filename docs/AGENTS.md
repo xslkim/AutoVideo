@@ -133,6 +133,8 @@ interface Block {
 npx tsx bin/autovideo.ts doctor   # 一键检查环境
 ```
 
+> ⚠️ **WSL / 最小化 Linux 镜像**：本机无 fontconfig 和 Chrome GUI 依赖库，跑 `render` / `preview` 前必须先设 `LD_LIBRARY_PATH`（→ `.runtime/libs/...`）和 `FONTCONFIG_FILE`（→ `.runtime/fonts.conf`），否则浏览器起不来或中文渲染成方框。详见 [`BUILD.md`](BUILD.md) §7。
+
 ---
 
 ## 开发者备注（非 Agent 必读）
