@@ -1,0 +1,6 @@
+{
+  "meta": "./meta.md",
+  "blocks": [
+    { "visual": "./visuals.md", "narration": "./narration.md" }
+  ]
+}
