@@ -234,12 +234,16 @@ project/MyVideo/                         ← 项目目录（PROJECT_DIR）
         ├── remotion-root.tsx            # Remotion 入口
         └── output/
             ├── partials/<BXX>.mp4       # 每个块的独立视频
+            ├── title-card.mp4           # 片头标题帧（1 帧封面卡，拼接时自动加到最前；生成失败自动降级为无标题帧）
+            ├── title-card.png / title-card.html  # 标题帧中间产物
             ├── concat.txt
             ├── final.mp4
             └── final_normalized.mp4     # ★ 最终视频
 ```
 
 **最终交付给用户的视频始终是** `$PROJECT_DIR/build/<slug>/output/final_normalized.mp4`。
+
+> 拼接阶段会自动在 partials 最前面加一段 1 帧标题卡（主题底色 + meta.md 的 `title`），让视频第 0 帧展示标题而不是入场黑场——文件管理器/播放器的缩略预览能直接看到内容。标题卡用 headless Chrome 截图生成（与 html 块同一浏览器链），编码参数自动对齐 partials；任何一步失败都只降级为「无标题帧」，不会阻断渲染。
 
 `<slug>` 由 `meta.md` 中的 `slug` 字段决定（如未指定，则由 `title` 自动推导）。
 

@@ -33,6 +33,8 @@ import { generateRenderRoot } from "../render/root-render.js";
 import { renderBlocks, type RenderBlocksResult } from "../render/render-blocks.js";
 import { syncRemotionRuntime } from "../render/sync-runtime.js";
 import { concatPartials } from "../render/concat.js";
+import { buildTitleCardSegment } from "../render/title-card.js";
+import { getTheme } from "../../remotion/engine/theme.js";
 import { applyLoudnorm, type LoudnormResult } from "../render/loudnorm.js";
 import { runQA, type QAResult } from "../render/qa.js";
 import { extractAudio, generateLipsync, overlayLipsync, probeVideoSize, probeVideoDurationSec, padAudio, concatLipsyncVideos, LipsyncError } from "../render/lipsync.js";
@@ -52,6 +54,30 @@ function shouldGenerateMuseTalkLipsync(meta: Script["meta"]): boolean {
 /** Overlay looping avatar.mp4 without MuseTalk (only when skipLipsync: true). */
 function shouldOverlayRawAvatarLoop(meta: Script["meta"]): boolean {
   return Boolean(meta.avatarRef) && meta.skipLipsync === true;
+}
+
+/**
+ * 在 partials 最前面加一段 1 帧标题卡（封面帧），失败时原样返回。
+ * 让视频第 0 帧展示标题而不是入场黑场，文件预览可直接看到内容。
+ */
+async function withTitleCardSegment(
+  partialRelPaths: string[],
+  meta: Script["meta"],
+  buildDir: string,
+  config: AutoVideoConfig,
+): Promise<string[]> {
+  try {
+    const seg = await buildTitleCardSegment({
+      buildDir,
+      meta,
+      theme: getTheme(meta.theme),
+      refPartialPath: path.resolve(buildDir, partialRelPaths[0]),
+      config,
+    });
+    return seg ? [seg, ...partialRelPaths] : partialRelPaths;
+  } catch {
+    return partialRelPaths; // buildTitleCardSegment 内部已降级，这里双保险
+  }
 }
 
 /**
@@ -310,8 +336,9 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
 
     emit(30, "拼接 partials");
+    const concatList = await withTitleCardSegment(allPartials, meta, buildDir, config);
     console.log(`[render] Concatenating ${allPartials.length} partials...`);
-    concatPartials(allPartials, { buildDir });
+    concatPartials(concatList, { buildDir });
     console.log(`[render] Concat complete → output/final.mp4`);
 
     if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
@@ -696,8 +723,9 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   }
 
   emit(70, "拼接 partials");
+  const normalConcatList = await withTitleCardSegment(partialRelPaths, meta, buildDir, config);
   console.log(`[render] Concatenating ${partialRelPaths.length} partials...`);
-  concatPartials(partialRelPaths, { buildDir });
+  concatPartials(normalConcatList, { buildDir });
   console.log(`[render] Concat complete → output/final.mp4`);
 
   const finalAbsPath = path.join(buildDir, "output", "final.mp4");
