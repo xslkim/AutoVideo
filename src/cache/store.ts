@@ -82,6 +82,13 @@ export interface PartialKey {
   runtimeHash?: string;
   /** Serialized render.quality settings — partials encoded differently must not mix */
   qualityJson?: string;
+  /**
+   * Serialized subtitle identity: effective style (block.audio.subtitleStyle
+   * ?? meta.subtitleStyle) + block charTimings. Subtitles are burned into
+   * partials, so changing style or timings must invalidate them even though
+   * neither lives in the wav bytes (audioHash) or component source.
+   */
+  subtitleJson?: string;
 }
 
 export interface ImageKey {

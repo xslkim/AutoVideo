@@ -66,6 +66,8 @@ python lipsync_server.py --host 0.0.0.0 --port 8001 --use_float16
 | `--use_float16` | 关闭 | **建议开启**：推理用半精度，省显存、通常更快 |
 | `--max-avatar-seconds` | `15` | 上传的 avatar **从头裁切**的最长秒数；过长视频会极大增加人脸检测耗时，AutoVideo 场景一般为几秒 loop |
 
+> **MuseTalk 1.5（v15）**：本服务固定加载 `models/musetalkV15/`（1.5）权重。上游脚本体系里对应的开关是 `scripts/inference.py --version v15`（上游默认即为 v15）；实时模式下 `configs/realtime.yaml` 的 `preparation: True` 会为 avatar 预生成坐标/帧缓存——本服务的等价物是持久化目录 **`avatar_cache/`**（按 `md5(avatar 内容)+bbox_shift` 键控），命中后跳过人脸检测与提帧。上游 `realtime_inference.py --skip_save_images`（中间帧不落盘）本服务暂不支持。AutoVideo 仓库侧 `third_servers/musetalk-lipsync/start.sh` 新增环境变量 `MUSE_VERSION`（默认 `v15`，检测到服务脚本支持 `--version` 时传入）与 `MUSE_MAX_AVATAR_SECONDS`（默认 15）。
+
 首次启动会加载 UNet/VAE/Whisper 等权重，**可能需要数十秒**；看到日志中出现 **Application startup complete** 后再访问接口。
 
 ### 3.3 停止服务

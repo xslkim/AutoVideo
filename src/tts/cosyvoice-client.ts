@@ -32,6 +32,13 @@ export interface CosyVoiceSpeakOptions {
   speed?: number;
   /** Folded into the server-side deterministic seed; change to re-roll takes. */
   seedSalt?: string;
+  /**
+   * CosyVoice3 instruct: natural-language emotion/style instruction prepended
+   * to the reference transcript before the <|endofprompt|> marker
+   * (e.g. "请耐心讲解" / "You are a helpful assistant. 请非常轻快地讲").
+   * Empty/undefined keeps the server default (COSYVOICE_INSTRUCT_PREFIX).
+   */
+  instruct?: string;
 }
 
 export class CosyVoiceClient {
@@ -109,6 +116,9 @@ export class CosyVoiceClient {
         seed_salt: opts.seedSalt ?? "",
         normalize: opts.normalize,
         speed: opts.speed ?? 1.0,
+        // Omitted when unset so the wire contract with older servers (and
+        // exact-body assertions) stays unchanged.
+        ...(opts.instruct ? { instruct: opts.instruct } : {}),
       }),
       // The stage always passes its own signal, so `signal ?? timeout` would
       // disable the timeout entirely — a hung GPU server would stall the

@@ -6,6 +6,8 @@ Markdown 教学脚本 → MP4 视频的自动化工具链。**Claude** 生成视
 Markdown → compile → TTS → visuals → render → MP4
 ```
 
+能力速览:20 个预制视觉组件库(组装优先,`remotion/library/`)、字幕三风格(teach / karaoke 逐字扫光 / hype)+ 字级时间戳、成片自动嵌入章节分段(YouTube/B站)、11 种块级动画预设、`@visual: aivideo` AI 文生视频模式、图片数字人(EchoMimic)与视频数字人(MuseTalk)双后端。
+
 ## 服务依赖
 
 AutoVideo 通过 HTTP 调用若干 AI 服务。框架只连接 endpoint,**不负责启动服务**。
@@ -14,8 +16,14 @@ AutoVideo 通过 HTTP 调用若干 AI 服务。框架只连接 endpoint,**不负
 |------|------|--------|---------|
 | **AI Agent** | 视觉组件生成 / 评审 | ✅ | 四选一:Anthropic 兼容 API(Claude / DeepSeek / GLM,设 `ANTHROPIC_API_KEY` + baseURL)、`claude` CLI、`opencode` CLI、`codex` CLI(DeepSeek 官方端点 / GLM 走 OpenRouter,配 baseURL + apiKey)。Web 设置面板或 `autovideo.config.json` → `anthropic.provider` 配置 |
 | **VoxCPM2** (TTS) | 旁白语音合成 | ✅ | [`third_servers/voxcpm-tts/`](third_servers/voxcpm-tts/) |
+| **Fun-CosyVoice3** (TTS) | 旁白语音合成(可切换底座,支持 instruct 情感指令) | ⬜ | [`third_servers/cosyvoice-tts/`](third_servers/cosyvoice-tts/) |
+| **IndexTTS-2.5** (TTS) | 旁白语音合成(音色克隆 + 情感描述 + 语速) | ⬜ | [`third_servers/indextts-tts/`](third_servers/indextts-tts/) |
+| **align-tts** (FunASR) | 字级强制对齐(逐字卡拉OK字幕) | ⬜ | [`third_servers/align-tts/`](third_servers/align-tts/) |
 | **SenseNova-U1** | 文生图(image 视觉模式) | ⬜ | [`third_servers/sensenova-t2i/`](third_servers/sensenova-t2i/) |
-| **MuseTalk** | 口型同步(avatar 模式) | ⬜ | [`third_servers/musetalk-lipsync/`](third_servers/musetalk-lipsync/) |
+| **GLM-Image** | 文生图(OpenAI 兼容 API) | ⬜ | [`third_servers/glm-image/`](third_servers/glm-image/) |
+| **ComfyUI** | 文生图 / 文生视频(aivideo 模式本地轨) | ⬜ | [`third_servers/comfyui/`](third_servers/comfyui/) |
+| **MuseTalk** | 口型同步(视频 avatar 模式) | ⬜ | [`third_servers/musetalk-lipsync/`](third_servers/musetalk-lipsync/) |
+| **EchoMimicV3-Flash** | 半身数字人(图片 avatar 模式) | ⬜ | [`third_servers/echomimic-avatar/`](third_servers/echomimic-avatar/) |
 
 ## 快速开始
 
@@ -33,8 +41,10 @@ bash install.sh                      # 框架 + 全部服务
 ```bash
 bash third_servers/voxcpm-tts/start.sh &           # TTS(必需)
 # 可选:
-bash third_servers/sensenova-t2i/start.sh &
-bash third_servers/musetalk-lipsync/start.sh &
+bash third_servers/sensenova-t2i/start.sh &        # 文生图
+bash third_servers/musetalk-lipsync/start.sh &     # 口型同步(视频 avatar)
+bash third_servers/align-tts/start.sh &            # 字级对齐(逐字字幕,可纯 CPU)
+bash third_servers/echomimic-avatar/start.sh &     # 数字人(图片 avatar;与 MuseTalk 二选一)
 ```
 
 ### 3. 创建并构建视频

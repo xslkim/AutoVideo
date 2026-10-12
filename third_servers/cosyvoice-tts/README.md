@@ -22,12 +22,21 @@ AutoVideo 的可切换 TTS 底座(与 VoxCPM2 并存,框架通过 `tts.provider`
     保证文本与音频两端都落在从句结尾——不对齐的参考音(如文本在"在"字处
     被截断)会让每句合成开头泄漏该字
 - 语音合成:`POST /v1/speech` → 48kHz WAV bytes
-  - 请求体:`{ "text", "voice_id", "seed_salt?"(默认 ""), "normalize?"(默认 false), "speed?"(默认 1.0,0.5–2.0,>1 更快) }`
+  - 请求体:`{ "text", "voice_id", "seed_salt?"(默认 ""), "normalize?"(默认 false), "speed?"(默认 1.0,0.5–2.0,>1 更快), "instruct?"(默认 "") }`
   - **不收** voxcpm 专有参数(cfg_value / timesteps / denoise / retry_badcase / prev_*)
   - 文本预处理:`insert_zh_en_space`(中英边界加空格)→ 引擎自带 normalize
     (`normalize=true` 时;引擎优先 ttsfrd,未装则 wetext)
-  - 确定性:`seed = md5(voice_id | seed_salt | text)`,同参必出同音频
+  - `instruct`:CosyVoice3 情感/风格自然语言指令(如 `请耐心讲解`、`请非常
+    轻快地说这句话`),替换 `COSYVOICE_INSTRUCT_PREFIX` 放在 `<|endofprompt|>`
+    之前;指令自带 marker 时原样使用。prompt 特征按 (voice, instruct) 变体
+    分别缓存,行间混用不同 instruct 不会反复重算参考特征;参考文本自己含
+    `<|endofprompt|>` 时,存储文本优先,请求级 instruct 被忽略(记日志)
+  - 确定性:`seed = md5(voice_id | seed_salt [| instruct] | text)`,同参必出同音频
+    (instruct 为空时种子与旧版完全一致)
   - 输出仅 clip-guard:峰值 > 0.99 才压缩,**不做满幅归一**
+  - 文本可内嵌 CosyVoice3 hotfix 拼音标签做多音字 inpainting(如
+    `对报道[j][ǐ]予好评`;框架侧由 dict.md 拼音模式生成,见
+    `src/tts/pronounce.ts` 与 `AUTOVIDEO_PRONOUNCE_PINYIN`)
 
 ## 前置条件
 

@@ -60,6 +60,16 @@
           "minimum": 8,
           "maximum": 128,
           "description": "PiP corner radius in pixels for avatar overlay (default 24)"
+        },
+        "subtitleStyle": {
+          "type": "string",
+          "enum": ["teach", "karaoke", "hype"],
+          "description": "字幕风格：teach 整行淡入+关键词变色（默认）；karaoke 逐字扫光；hype 弹跳大字粗描边"
+        },
+        "avatarBackend": {
+          "type": "string",
+          "enum": ["musetalk", "echomimic"],
+          "description": "数字人后端。缺省时按 avatarRef 扩展名推断:图片(png/jpg/jpeg/webp)→ echomimic,视频(mp4)→ musetalk。echomimic 输出固定 768×768 半身片段。"
         }
       }
     },
@@ -81,9 +91,9 @@
           },
           "visualMode": {
             "type": "string",
-            "enum": ["animation", "image", "video", "html"],
+            "enum": ["animation", "image", "video", "html", "aivideo"],
             "default": "animation",
-            "description": "Visual generation mode: animation (Claude-generated Component.tsx), image (AI-generated PNG), video (local mp4 file), or html (user-authored HTML/CSS/JS rendered via headless Chrome)"
+            "description": "Visual generation mode: animation (Claude-generated Component.tsx), image (AI-generated PNG), video (local mp4 file), html (user-authored HTML/CSS/JS rendered via headless Chrome), or aivideo (AI text-to-video clip, generated at the visuals stage and converted to video mode)"
           },
           "imageSource": {
             "type": "string",
@@ -99,11 +109,11 @@
           },
           "enter": {
             "type": "string",
-            "enum": ["fade", "fade-up", "fade-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "none"]
+            "enum": ["fade", "fade-up", "fade-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "blur-in", "mask-reveal", "zoom-settle", "slide-mask", "none"]
           },
           "exit": {
             "type": "string",
-            "enum": ["fade", "fade-up", "fade-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "none"]
+            "enum": ["fade", "fade-up", "fade-down", "slide-left", "slide-right", "zoom-in", "zoom-out", "blur-in", "mask-reveal", "zoom-settle", "slide-mask", "none"]
           },
           "visual": {
             "type": "object",
@@ -156,6 +166,10 @@
                     "speakText": {
                       "type": "string",
                       "description": "Synthesis-only rewrite of ttsText from the project dict.md; subtitles still render ttsText"
+                    },
+                    "instruct": {
+                      "type": "string",
+                      "description": "Per-line emotion/style instruction passed to the TTS engine (CosyVoice3 instruct / IndexTTS emotion). Overrides the provider-level default for this line only."
                     },
                     "highlights": {
                       "type": "array",
@@ -219,6 +233,26 @@
                     }
                   }
                 }
+              },
+              "charTimings": {
+                "type": "array",
+                "description": "Char-level timings for karaoke subtitles (block-relative seconds). Filled by tts stage; uniform estimate by default, forced alignment when align-tts is reachable.",
+                "items": {
+                  "type": "object",
+                  "required": ["lineIndex", "char", "startSec", "endSec"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "lineIndex": { "type": "integer", "minimum": 0 },
+                    "char": { "type": "string", "minLength": 1 },
+                    "startSec": { "type": "number", "minimum": 0 },
+                    "endSec": { "type": "number", "minimum": 0 }
+                  }
+                }
+              },
+              "subtitleStyle": {
+                "type": "string",
+                "enum": ["teach", "karaoke", "hype"],
+                "description": "块级字幕风格覆盖 meta.subtitleStyle（teach 整行淡入 / karaoke 逐字扫光 / hype 弹跳大字）"
               }
             }
           },

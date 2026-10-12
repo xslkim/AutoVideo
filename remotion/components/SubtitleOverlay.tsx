@@ -7,12 +7,46 @@
  * Sits as an absolute-positioned layer at the bottom of the block frame.
  * During the entrance animation (audioFrame < 0) nothing is shown.
  *
+ * Passing `style` ("teach" | "karaoke" | "hype") delegates rendering to
+ * KaraokeCaptions, optionally fed by per-character `charTimings` (one array
+ * per narration line, aligned with `lineIndex`). Without `style` the legacy
+ * whole-line capsule below runs unchanged.
+ *
  * @see PRD §4 — SubtitleOverlayProps interface
  */
 
 import React from "react";
 import { useVideoConfig } from "remotion";
 import type { SubtitleOverlayProps, NarrationLine } from "../engine/types.js";
+// Value imports stay extensionless for the Remotion webpack bundler.
+import {
+  KaraokeCaptions,
+  fitFontSize,
+  renderHighlightedText,
+  type KaraokeCaptionInput,
+  type SubtitleStyle,
+} from "./KaraokeCaptions";
+
+export type { KaraokeCaptionInput, SubtitleStyle } from "./KaraokeCaptions";
+
+/**
+ * Optional subtitle upgrades, kept outside the base SubtitleOverlayProps in
+ * engine/types.ts so existing callers remain source-compatible.
+ */
+export interface SubtitleOverlayStyleProps {
+  /**
+   * Caption presentation preset. Omit for the legacy whole-line capsule
+   * (backward-compatible default).
+   */
+  style?: SubtitleStyle;
+  /**
+   * Per-character timings, one entry array per narration line, aligned with
+   * `lineIndex`. Entries follow the @remotion/captions `Caption` shape
+   * (`{ text, startMs, endMs }` per character). When absent (or missing for
+   * the current line) KaraokeCaptions falls back to even distribution.
+   */
+  charTimings?: (KaraokeCaptionInput[] | undefined)[];
+}
 
 // ---------------------------------------------------------------------------
 // Helper: find the line whose [startMs, endMs) window contains `audioMs`
@@ -31,122 +65,10 @@ function findCurrentLine(
 }
 
 // ---------------------------------------------------------------------------
-// Helper: estimate wrapped line count without touching the DOM
-// ---------------------------------------------------------------------------
-
-/**
- * Approximate the rendered width of `text` in `em` units.
- *
- * Remotion renders each frame independently, so measuring real layout would
- * need a layout effect and a re-render. A character-class estimate is accurate
- * enough here: full-width CJK glyphs are one em, Latin averages just over half.
- */
-function estimateWidthEm(text: string): number {
-  let em = 0;
-  for (const ch of text) {
-    em += /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(ch)
-      ? 1
-      : 0.55;
-  }
-  return em;
-}
-
-/**
- * Pick the largest font size that keeps the caption within `maxLines` lines
- * and inside the reserved bottom band.
- */
-function fitFontSize(args: {
-  text: string;
-  baseFontSize: number;
-  textBoxWidth: number;
-  bandHeight: number;
-  lineHeight: number;
-  verticalPadding: number;
-  maxLines: number;
-}): { fontSize: number; lines: number } {
-  const { text, baseFontSize, textBoxWidth, bandHeight, lineHeight, verticalPadding, maxLines } =
-    args;
-
-  const widthEm = estimateWidthEm(text);
-  let fontSize = baseFontSize;
-
-  const linesAt = (size: number) =>
-    Math.max(1, Math.ceil((widthEm * size) / Math.max(1, textBoxWidth)));
-
-  let lines = linesAt(fontSize);
-  if (lines > maxLines) {
-    fontSize = (fontSize * maxLines) / lines;
-    lines = linesAt(fontSize);
-  }
-
-  // Even at maxLines the capsule must clear the reserved band.
-  const capsuleHeight = lines * fontSize * lineHeight + verticalPadding;
-  if (capsuleHeight > bandHeight) {
-    fontSize *= bandHeight / capsuleHeight;
-    lines = linesAt(fontSize);
-  }
-
-  return { fontSize, lines };
-}
-
-// ---------------------------------------------------------------------------
-// Helper: render ttsText with highlight spans
-// ---------------------------------------------------------------------------
-
-/**
- * Splits `ttsText` into segments according to `highlights[]` and returns
- * an array of React nodes where highlighted segments are wrapped in
- * `<span style={{ color: theme.colors.accent }}>`.
- *
- * Highlights are non-overlapping and sorted by `start` ascending (guaranteed
- * by the compile stage).  Characters outside any highlight range render in
- * the default foreground color.
- */
-function renderHighlightedText(
-  ttsText: string,
-  highlights: { start: number; end: number }[],
-  accentColor: string,
-): React.ReactNode[] {
-  if (highlights.length === 0) {
-    return [ttsText];
-  }
-
-  const nodes: React.ReactNode[] = [];
-  let cursor = 0;
-
-  for (let i = 0; i < highlights.length; i++) {
-    const h = highlights[i];
-
-    // Text before this highlight
-    if (h.start > cursor) {
-      nodes.push(ttsText.slice(cursor, h.start));
-    }
-
-    // Highlighted segment
-    nodes.push(
-      React.createElement(
-        "span",
-        { key: `hl-${i}`, style: { color: accentColor } },
-        ttsText.slice(h.start, h.end),
-      ),
-    );
-
-    cursor = h.end;
-  }
-
-  // Remaining text after last highlight
-  if (cursor < ttsText.length) {
-    nodes.push(ttsText.slice(cursor));
-  }
-
-  return nodes;
-}
-
-// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
+const SubtitleOverlay: React.FC<SubtitleOverlayProps & SubtitleOverlayStyleProps> = ({
   lines,
   lineTimings,
   audioStartFrame,
@@ -154,6 +76,8 @@ const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   fps,
   theme,
   subtitleSafeBottom,
+  style,
+  charTimings,
 }) => {
   const { width, height } = useVideoConfig();
 
@@ -176,6 +100,25 @@ const SubtitleOverlay: React.FC<SubtitleOverlayProps> = ({
   const line: NarrationLine | undefined = lines[timing.lineIndex];
   if (!line) {
     return null;
+  }
+
+  // Styled presets delegate to KaraokeCaptions (per-char sweep when
+  // charTimings are available, even distribution otherwise).
+  if (style) {
+    return React.createElement(KaraokeCaptions, {
+      style,
+      text: line.ttsText,
+      startMs: timing.startMs,
+      endMs: timing.endMs,
+      captions: charTimings?.[timing.lineIndex],
+      highlights: line.highlights,
+      audioMs,
+      frame,
+      fps,
+      audioStartFrame,
+      theme,
+      subtitleSafeBottom,
+    });
   }
 
   const { subtitle } = theme;

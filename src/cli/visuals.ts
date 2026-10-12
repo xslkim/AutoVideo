@@ -7,7 +7,11 @@
  *   1. Validate script.json is CompiledScript readiness (no audio required)
  *   2. Compute promptVersion / assetHashesJson / claudeModel
  *   3. p-limit(anthropic.concurrency) for block-level concurrency
- *   4. Per block: cache lookup → miss → generate → validate (static + smoke)
+ *   4. Per block, branch by visualMode: video/html skip (compile set them up);
+ *      image → local copy or t2i API; aivideo → LLM-crafted prompt → AI video
+ *      clip → converted to video mode (failure fallback configurable:
+ *      VIDEO_GEN_FALLBACK=image|animation); animation → cache lookup → miss →
+ *      generate → validate (static + smoke)
  *      → failure: retry up to 5 rounds with error feedback → put cache → write file
  *   5. Failure: 5 rounds exhausted → AbortController cancels in-flight → exit + recovery command
  */
@@ -30,7 +34,14 @@ import {
 } from "../ai/assembly-gen.js";
 import { buildAssemblyWrapper } from "../ai/assembly-wrapper.js";
 import { buildRegistryDocs } from "../ai/visual-registry.js";
-import { generateImage, generateLocalImage } from "../ai/image-gen.js";
+import { generateImage, generateLocalImage, isImageGenConfigured } from "../ai/image-gen.js";
+import {
+  generateAIVideo,
+  isVideoGenConfigured,
+  resolveVideoGenFallback,
+  videoGenConfigFromEnv,
+  VideoGenError,
+} from "../ai/video-gen.js";
 import {
   validateComponent,
   renderComponentStill,
@@ -39,8 +50,10 @@ import {
   type ValidateComponentOptions,
 } from "../ai/validate.js";
 import { assessVisualMetrics, checkNarrationSyncContract } from "../ai/visual-metrics.js";
+import { assessVisualGeometry } from "../ai/visual-geometry.js";
 import { reviewVisual } from "../ai/visual-review.js";
 import { syncRemotionRuntime } from "../render/sync-runtime.js";
+import { getTheme } from "../../remotion/engine/theme.js";
 import { enumeratesNarration } from "../compile/sync-lint.js";
 import { DEFAULT_VISUAL_QUALITY } from "../config/defaults.js";
 import {
@@ -124,6 +137,19 @@ function is429(err: unknown): boolean {
  */
 function computePromptVersion(promptMaterial: string): string {
   return crypto.createHash("md5").update(promptMaterial).digest("hex").slice(0, 8);
+}
+
+/**
+ * Resolve a meta theme name to its background color for the geometry-QA
+ * contrast check. Unknown themes degrade to undefined (the check then skips
+ * the last-resort background rather than failing).
+ */
+function resolveThemeBg(themeName: string): string | undefined {
+  try {
+    return getTheme(themeName).colors.bg;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -555,6 +581,119 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
         return;
       }
 
+      // ── AIVideo mode: LLM-crafted prompt → AI clip → video mode ──────
+      // generateAIVideo converts the block to 'video' in place, so re-runs
+      // hit the video skip branch above.
+      if (block.visualMode === 'aivideo') {
+        console.log(`Processing block ${blockLabel} (aivideo mode)...`);
+
+        const videoGenConfig = videoGenConfigFromEnv(config.videoGen ?? {});
+
+        try {
+          if (!isVideoGenConfigured(videoGenConfig)) {
+            throw new VideoGenError(
+              "aivideo mode is not configured (VIDEO_GEN_API_KEY / VIDEO_GEN_PROVIDER=comfyui …)",
+              "ERR_VIDEO_GEN_NOT_CONFIGURED",
+            );
+          }
+          const { totalSec } = blockTimingContext(block, config);
+          const result = await generateAIVideo(block, {
+            config: videoGenConfig,
+            agent: anthropicConfig,
+            buildOutDir,
+            meta: {
+              aspect: script.meta.aspect,
+              width: script.meta.width,
+              height: script.meta.height,
+              fps: script.meta.fps,
+            },
+            targetDurationSec: totalSec,
+            force,
+            signal: abortController.signal,
+            onProgress,
+          });
+          if (result.cacheHit) { cacheHits++; } else { apiCalls++; }
+          console.log(`  Block ${blockLabel}: aivideo done → video mode (${result.clipPath})`);
+          return;
+        } catch (err: any) {
+          const errMsg = err?.message ?? String(err);
+          const fallback = resolveVideoGenFallback(videoGenConfig);
+          const imageConfigured = isImageGenConfigured({
+            provider: config.imageGen.provider,
+            baseURL: config.imageGen.baseURL,
+            apiKey: config.imageGen.apiKey,
+            model: config.imageGen.model,
+            timeoutMs: config.imageGen.timeoutMs,
+            concurrency: config.imageGen.concurrency,
+            numSteps: config.imageGen.numSteps,
+            cfgScale: config.imageGen.cfgScale,
+          });
+
+          if (fallback === 'image' && imageConfigured) {
+            // Configured downgrade ①: image mode — same call shape as the
+            // image branch below.
+            console.warn(`  Block ${blockLabel}: aivideo failed (${errMsg.slice(0, 120)}) — falling back to image mode`);
+            try {
+              const imgResult = await generateImage(block, {
+                config: {
+                  provider: config.imageGen.provider,
+                  baseURL: config.imageGen.baseURL,
+                  apiKey: config.imageGen.apiKey,
+                  model: config.imageGen.model,
+                  size: config.imageGen.size,
+                  timeoutMs: config.imageGen.timeoutMs,
+                  concurrency: config.imageGen.concurrency,
+                  numSteps: config.imageGen.numSteps,
+                  cfgScale: config.imageGen.cfgScale,
+                  sizeMapper: config.imageGen.sizeMapper,
+                  workflowPath: config.imageGen.workflowPath,
+                  negativePrompt: config.imageGen.negativePrompt,
+                  seed: config.imageGen.seed,
+                  pollIntervalMs: config.imageGen.pollIntervalMs,
+                },
+                buildOutDir,
+                meta: { aspect: script.meta.aspect, width: script.meta.width, height: script.meta.height },
+                cacheStore,
+                force,
+                signal: abortController.signal,
+                onProgress,
+              });
+              block.visualMode = 'image';
+              if (imgResult.cacheHit) { cacheHits++; } else { apiCalls++; }
+              console.log(`  Block ${blockLabel}: image fallback done`);
+              return;
+            } catch (err2: any) {
+              const err2Msg = err2?.message ?? String(err2);
+              console.error(`✗ Block ${blockLabel}: image fallback failed: ${err2Msg.slice(0, 200)}`);
+              failedBlocks.push({ id: block.id, error: err2Msg });
+              hasFailed = true;
+              abortController.abort();
+              return;
+            }
+          }
+
+          if (fallback !== null) {
+            // Configured downgrade ②: animation mode — convert and fall
+            // through into the animation generation path below. ('image'
+            // without a configured imageGen backend lands here too.)
+            if (fallback === 'image') {
+              console.warn(`  Block ${blockLabel}: VIDEO_GEN_FALLBACK=image but imageGen is not configured — falling back to animation`);
+            } else {
+              console.warn(`  Block ${blockLabel}: aivideo failed (${errMsg.slice(0, 120)}) — falling back to animation mode`);
+            }
+            block.visualMode = 'animation';
+          } else {
+            console.error(`✗ Block ${blockLabel}: aivideo generation failed: ${errMsg.slice(0, 200)}`);
+            failedBlocks.push({ id: block.id, error: errMsg });
+            hasFailed = true;
+            abortController.abort();
+            return;
+          }
+        }
+        // Reached only after a configured animation downgrade: continue into
+        // the animation path with visualMode already rewritten.
+      }
+
       // ── Image mode: local file or API generation ─────────────────────
       if (block.visualMode === 'image') {
         console.log(`Processing block ${blockLabel} (image mode)...`);
@@ -581,6 +720,11 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                 concurrency: config.imageGen.concurrency,
                 numSteps: config.imageGen.numSteps,
                 cfgScale: config.imageGen.cfgScale,
+                sizeMapper: config.imageGen.sizeMapper,
+                workflowPath: config.imageGen.workflowPath,
+                negativePrompt: config.imageGen.negativePrompt,
+                seed: config.imageGen.seed,
+                pollIntervalMs: config.imageGen.pollIntervalMs,
               },
               buildOutDir,
               meta: { aspect: script.meta.aspect, width: script.meta.width, height: script.meta.height },
@@ -926,6 +1070,29 @@ export async function visuals(options: VisualsOptions): Promise<VisualsResult> {
                     );
                   }
                   failAttempt(metrics.feedback);
+                }
+
+                // Geometry QA (deterministic DOM scan): reuses the bundle that
+                // renderComponentStill just built — no extra bundling cost.
+                // skipped=true on environment failure (no Chrome etc.) and
+                // must not fail the attempt.
+                if (vq.geometry !== false && still.ok) {
+                  const geometry = await assessVisualGeometry({
+                    serveUrl: path.join(still.tempDir, "bundle"),
+                    frameFractions: frameTimesSec.map((t) => t / totalSec),
+                    safeBottom: script.meta.subtitleSafeBottom,
+                    backgroundColor: resolveThemeBg(script.meta.theme),
+                    browserExecutable: config.render?.browser ?? undefined,
+                    timeoutMs: 30000,
+                  });
+                  if (!geometry.pass) {
+                    if (verbose) {
+                      console.log(
+                        `  Block ${blockLabel}: geometry QA found ${geometry.issues.length} issue(s) — regenerating`
+                      );
+                    }
+                    failAttempt(geometry.feedback);
+                  }
                 }
 
                 // Plan B: multimodal review (only after metrics pass, capped

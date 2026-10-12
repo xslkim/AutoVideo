@@ -2,18 +2,24 @@
 # 停止 AutoVideo 第三方服务(按监听端口定位进程,优雅关停)。
 #
 # 用法:
-#   bash third_servers/stop.sh              # 停止全部(tts + t2i + lipsync + cosy)
+#   bash third_servers/stop.sh              # 停止全部(tts + t2i + lipsync + cosy + align + indextts + glm + comfyui + avatar)
 #   bash third_servers/stop.sh tts          # 只停某个/某几个
 #   bash third_servers/stop.sh t2i lipsync
 #
 # 端口可用环境变量覆盖(与各 start.sh 默认一致):
 #   VOXCPM_PORT(8000) / SENSENOVA_PORT(8765) / MUSE_PORT(8001) / COSYVOICE_PORT(8002)
+#   ALIGN_PORT(8003) / INDEXTTS_PORT(8004) / GLM_PORT(8005) / ECHOMIMIC_PORT(8006) / COMFYUI_PORT(8188)
 set -uo pipefail
 
 VOXCPM_PORT="${VOXCPM_PORT:-8000}"
 SENSENOVA_PORT="${SENSENOVA_PORT:-${PORT:-8765}}"
 MUSE_PORT="${MUSE_PORT:-8001}"
 COSYVOICE_PORT="${COSYVOICE_PORT:-8002}"
+ALIGN_PORT="${ALIGN_PORT:-8003}"
+INDEXTTS_PORT="${INDEXTTS_PORT:-8004}"
+GLM_PORT="${GLM_PORT:-8005}"
+ECHOMIMIC_PORT="${ECHOMIMIC_PORT:-8006}"
+COMFYUI_PORT="${COMFYUI_PORT:-8188}"
 
 # 列出监听指定 TCP 端口的进程 PID(优先 lsof,退而求其次 ss / fuser)
 pids_on_port() {
@@ -61,7 +67,7 @@ stop_one() {
 }
 
 targets=("$@")
-[ ${#targets[@]} -eq 0 ] && targets=(tts t2i lipsync cosy)
+[ ${#targets[@]} -eq 0 ] && targets=(tts t2i lipsync cosy align indextts glm comfyui avatar)
 
 rc=0
 for t in "${targets[@]}"; do
@@ -70,7 +76,12 @@ for t in "${targets[@]}"; do
     t2i|sensenova)     stop_one "SenseNova"       "$SENSENOVA_PORT" || rc=1 ;;
     lipsync|musetalk)  stop_one "MuseTalk"        "$MUSE_PORT"      || rc=1 ;;
     cosy|cosyvoice)    stop_one "CosyVoice TTS"   "$COSYVOICE_PORT" || rc=1 ;;
-    *) echo "未知服务: $t (可选: tts | t2i | lipsync | cosy)" >&2; rc=1 ;;
+    align|align-tts)   stop_one "Align TTS"       "$ALIGN_PORT"     || rc=1 ;;
+    indextts|index)    stop_one "IndexTTS TTS"    "$INDEXTTS_PORT"  || rc=1 ;;
+    glm|glm-image)     stop_one "GLM-Image"       "$GLM_PORT"       || rc=1 ;;
+    comfyui|t2i-comfyui) stop_one "ComfyUI"       "$COMFYUI_PORT"   || rc=1 ;;
+    avatar|echomimic)  stop_one "EchoMimic Avatar" "$ECHOMIMIC_PORT" || rc=1 ;;
+    *) echo "未知服务: $t (可选: tts | t2i | lipsync | cosy | align | indextts | glm | comfyui | avatar)" >&2; rc=1 ;;
   esac
 done
 

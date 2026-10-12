@@ -1,8 +1,10 @@
 /**
- * AutoVideo — Lip-sync module (MuseTalk client + FFmpeg helpers)
+ * AutoVideo — Lip-sync / avatar module (MuseTalk + EchoMimic clients, FFmpeg helpers)
  *
  * Provides:
- * 1. generateLipsync()     — calls MuseTalk HTTP API to generate lip-synced video
+ * 1. generateLipsync()     — calls an avatar backend HTTP API to generate the PiP video
+ *                            (MuseTalk loop-video lipsync by default; EchoMimicV3-Flash
+ *                            still-image half-body via options.backend = "echomimic")
  * 2. extractAudio()        — extracts WAV audio from video via FFmpeg
  * 3. padAudio()            — pads audio with leading/trailing silence to exact duration
  * 4. overlayLipsync()      — overlays lip-sync video as rounded-rect PiP via FFmpeg
@@ -24,11 +26,19 @@ export class LipsyncError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// MuseTalk client
+// Avatar backend client (MuseTalk / EchoMimic)
 // ---------------------------------------------------------------------------
 
+/**
+ * Avatar backend flavour.
+ * - "musetalk" (default): avatar loop video → POST {serviceUrl}/lipsync, form field "video"
+ * - "echomimic": still reference image → POST {serviceUrl}/avatar, form field "image",
+ *   returns a fixed 768×768 half-body clip (EchoMimicV3-Flash, port 8006)
+ */
+export type LipsyncBackend = "musetalk" | "echomimic";
+
 export interface LipsyncOptions {
-  /** Absolute path to avatar loop video (square mp4, e.g. 128x128) */
+  /** Absolute path to avatar source (loop mp4 for musetalk, still image for echomimic) */
   avatarPath: string;
   /** Absolute path to full audio WAV */
   audioPath: string;
@@ -36,19 +46,21 @@ export interface LipsyncOptions {
   outputPath: string;
   /** Frame rate (default 30) */
   fps: number;
-  /** MuseTalk service URL (e.g. "http://localhost:8001") */
+  /** Avatar service URL (e.g. "http://localhost:8001" / "http://localhost:8006") */
   serviceUrl: string;
+  /** Backend flavour (default "musetalk" — unchanged legacy behavior) */
+  backend?: LipsyncBackend;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
 }
 
-const MUSETALK_TIMEOUT_MS = 1_800_000; // 30 minutes
+const MUSETALK_TIMEOUT_MS = 1_800_000; // 30 minutes (shared by both backends)
 
 /**
- * Call MuseTalk service to generate a lip-synced video.
+ * Call an avatar backend service to generate the avatar video clip.
  *
  * Uses Node.js http.request instead of fetch to avoid undici's UND_ERR_HEADERS_TIMEOUT,
- * which fires when MuseTalk takes longer than ~5 minutes before sending the response headers.
+ * which fires when the backend takes longer than ~5 minutes before sending response headers.
  *
  * Streams the mp4 response directly to disk — no large in-memory buffer.
  */
@@ -62,6 +74,9 @@ export async function generateLipsync(options: LipsyncOptions): Promise<void> {
     signal,
   } = options;
 
+  const backend = options.backend ?? "musetalk";
+  const label = backend === "echomimic" ? "EchoMimic" : "MuseTalk";
+
   const { readFile } = await import("node:fs/promises");
   const { createWriteStream } = await import("node:fs");
   const http = await import("node:http");
@@ -74,7 +89,7 @@ export async function generateLipsync(options: LipsyncOptions): Promise<void> {
 
   const parts: Buffer[] = [];
   parts.push(Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="video"; filename="${basename(avatarPath)}"\r\nContent-Type: video/mp4\r\n\r\n`
+    `--${boundary}\r\nContent-Disposition: form-data; name="${avatarField(backend)}"; filename="${basename(avatarPath)}"\r\nContent-Type: ${avatarContentType(backend, avatarPath)}\r\n\r\n`
   ));
   parts.push(avatarBuf);
   parts.push(Buffer.from("\r\n"));
@@ -89,7 +104,7 @@ export async function generateLipsync(options: LipsyncOptions): Promise<void> {
   parts.push(Buffer.from(`--${boundary}--\r\n`));
   const body = Buffer.concat(parts);
 
-  const parsed = new URL(`${serviceUrl.replace(/\/+$/, "")}/lipsync`);
+  const parsed = new URL(`${serviceUrl.replace(/\/+$/, "")}${backend === "echomimic" ? "/avatar" : "/lipsync"}`);
 
   return new Promise<void>((resolve, reject) => {
     let timedOut = false;
@@ -107,7 +122,7 @@ export async function generateLipsync(options: LipsyncOptions): Promise<void> {
     if (signal) {
       if (signal.aborted) {
         clearTimeout(timeoutId);
-        reject(new LipsyncError("MuseTalk request cancelled"));
+        reject(new LipsyncError(`${label} request cancelled`));
         return;
       }
       signal.addEventListener("abort", onExternalAbort, { once: true });
@@ -127,7 +142,7 @@ export async function generateLipsync(options: LipsyncOptions): Promise<void> {
         "Content-Type": `multipart/form-data; boundary=${boundary}`,
         "Content-Length": body.length,
       },
-      // No socket timeout — MuseTalk processing can take many minutes
+      // No socket timeout — avatar processing can take many minutes
     }, (res) => {
       cleanup();
 
@@ -135,12 +150,12 @@ export async function generateLipsync(options: LipsyncOptions): Promise<void> {
         const chunks: Buffer[] = [];
         res.on("data", (c: Buffer) => chunks.push(c));
         res.on("end", () => {
-          let errMsg = `MuseTalk returned ${res.statusCode}`;
+          let errMsg = `${label} returned ${res.statusCode}`;
           try {
             const parsed = JSON.parse(Buffer.concat(chunks).toString()) as { error?: string };
             if (parsed.error) errMsg = parsed.error;
           } catch {}
-          reject(new LipsyncError(`MuseTalk failed: ${errMsg}`));
+          reject(new LipsyncError(`${label} failed: ${errMsg}`));
         });
         return;
       }
@@ -150,26 +165,40 @@ export async function generateLipsync(options: LipsyncOptions): Promise<void> {
       pipeline(res, fileStream)
         .then(() => resolve())
         .catch((err) => {
-          reject(new LipsyncError(`MuseTalk response stream failed: ${(err as Error).message}`));
+          reject(new LipsyncError(`${label} response stream failed: ${(err as Error).message}`));
         });
     });
 
     req.on("error", (err) => {
       cleanup();
       if (aborted) {
-        reject(new LipsyncError("MuseTalk request cancelled"));
+        reject(new LipsyncError(`${label} request cancelled`));
       } else if (timedOut) {
-        reject(new LipsyncError("MuseTalk request timed out (30min)"));
+        reject(new LipsyncError(`${label} request timed out (30min)`));
       } else if ((err as any).code === "ECONNREFUSED") {
-        reject(new LipsyncError(`MuseTalk service unavailable at ${serviceUrl}`));
+        reject(new LipsyncError(`${label} service unavailable at ${serviceUrl}`));
       } else {
-        reject(new LipsyncError(`MuseTalk request failed: ${err.message}`));
+        reject(new LipsyncError(`${label} request failed: ${err.message}`));
       }
     });
 
     req.write(body);
     req.end();
   });
+}
+
+/** Multipart field name carrying the avatar asset for a backend. */
+function avatarField(backend: LipsyncBackend): string {
+  return backend === "echomimic" ? "image" : "video";
+}
+
+/** Multipart Content-Type for the avatar asset (image types for echomimic stills). */
+function avatarContentType(backend: LipsyncBackend, avatarPath: string): string {
+  if (backend !== "echomimic") return "video/mp4";
+  const lower = avatarPath.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
 }
 
 // ---------------------------------------------------------------------------

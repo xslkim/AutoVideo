@@ -18,6 +18,10 @@ export type AnimationPreset =
   | "slide-right"
   | "zoom-in"
   | "zoom-out"
+  | "blur-in"
+  | "mask-reveal"
+  | "zoom-settle"
+  | "slide-mask"
   | "none";
 
 // ---------------------------------------------------------------------------

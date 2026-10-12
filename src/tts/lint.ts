@@ -20,7 +20,12 @@
  */
 
 import type { Block } from "../types/script.js";
-import { applyPronunciation, type PronunciationRule } from "./pronounce.js";
+import {
+  applyPronunciation,
+  isPinyinReplacement,
+  resolvePronunciationMode,
+  type PronunciationRule,
+} from "./pronounce.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -174,7 +179,12 @@ const BACKREFERENCE = /\$\d+/g;
  */
 export function lintDictReplacements(rules: PronunciationRule[]): DictFinding[] {
   const findings: DictFinding[] = [];
+  // In pinyin mode a pure-pinyin RHS (给予 => ji3 yu3) is emitted as engine
+  // native hotfix tags and never goes through wetext — the digits warning
+  // would be a false positive there.
+  const pinyinMode = resolvePronunciationMode() === "pinyin";
   for (const rule of rules) {
+    if (pinyinMode && isPinyinReplacement(rule.replacement)) continue;
     const rhs = rule.isRegex ? rule.replacement.replace(BACKREFERENCE, "") : rule.replacement;
     if (UNSTABLE_RHS_CHAR.test(rhs)) {
       findings.push({ pattern: rule.pattern, replacement: rule.replacement, line: rule.line });

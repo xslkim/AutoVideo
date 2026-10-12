@@ -40,12 +40,22 @@ interface ScriptMeta {
   fps: number;
   theme: string;
   subtitleSafeBottom: number;
+  /** 字幕风格预设：teach（默认克制）/ karaoke（逐字扫光）/ hype（短视频大字） */
+  subtitleStyle?: "teach" | "karaoke" | "hype";
 }
 
 interface LineTiming {
   lineIndex: number;
   startMs: number;
   endMs: number;
+}
+
+/** Flat per-char timing as written by the tts stage (block-relative seconds). */
+interface CharTimingEntry {
+  lineIndex: number;
+  char: string;
+  startSec: number;
+  endSec: number;
 }
 
 interface BlockData {
@@ -67,6 +77,10 @@ interface BlockData {
     wavPath: string;
     durationSec: number;
     lineTimings: LineTiming[];
+    /** 块级覆盖 meta.subtitleStyle */
+    subtitleStyle?: "teach" | "karaoke" | "hype";
+    /** 字级时间轴（tts 阶段产出，扁平数组、块相对秒，可能缺席） */
+    charTimings?: CharTimingEntry[];
   };
   timing?: {
     enterSec: number;
@@ -81,6 +95,25 @@ interface BlockData {
 interface ScriptData {
   meta: ScriptMeta;
   blocks: BlockData[];
+}
+
+/**
+ * Convert the tts stage's flat charTimings (block-relative seconds, one
+ * entry per character) into the per-line millisecond shape KaraokeCaptions
+ * consumes: one entry array per narration line, aligned with lineIndex.
+ */
+function charTimingsToCaptionLines(
+  charTimings: CharTimingEntry[],
+  lineCount: number,
+): ({ text: string; startMs: number; endMs: number }[] | undefined)[] {
+  const out: ({ text: string; startMs: number; endMs: number }[] | undefined)[] =
+    new Array(lineCount).fill(undefined);
+  for (const c of charTimings) {
+    if (c.lineIndex < 0 || c.lineIndex >= lineCount) continue;
+    const line = (out[c.lineIndex] ??= []);
+    line.push({ text: c.char, startMs: c.startSec * 1000, endMs: c.endSec * 1000 });
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +267,16 @@ export const BlockComposition: React.FC<BlockCompositionProps> = ({
     endSec: enterSec + t.endMs / 1000,
   }));
 
+  // Per-line char captions for the karaoke subtitle styles; undefined when
+  // the tts stage produced no charTimings (KaraokeCaptions then distributes
+  // the line window evenly).
+  const captionLines = block.audio?.charTimings
+    ? charTimingsToCaptionLines(
+        block.audio.charTimings,
+        block.narration.lines.length,
+      )
+    : undefined;
+
   // AnimationProps for the dynamic component
   const animProps = {
     frame,
@@ -284,6 +327,8 @@ export const BlockComposition: React.FC<BlockCompositionProps> = ({
           fps={fps}
           theme={theme}
           subtitleSafeBottom={script.meta.subtitleSafeBottom}
+          style={block.audio.subtitleStyle ?? script.meta.subtitleStyle}
+          charTimings={captionLines}
         />
       ) : null}
 

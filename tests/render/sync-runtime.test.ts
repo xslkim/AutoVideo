@@ -23,6 +23,7 @@ const RUNTIME_FILES = [
   "remotion/engine/theme.ts",
   "remotion/engine/types.ts",
   "remotion/components/SubtitleOverlay.tsx",
+  "remotion/components/KaraokeCaptions.tsx",
 ];
 
 let tempDirs: string[] = [];
@@ -43,6 +44,7 @@ function makeFixtureRepo(opts: { withLibrary?: boolean } = {}): string {
     "remotion/engine/theme.ts": "// theme fixture\n",
     "remotion/engine/types.ts": "// types fixture\n",
     "remotion/components/SubtitleOverlay.tsx": "// SubtitleOverlay fixture\n",
+    "remotion/components/KaraokeCaptions.tsx": "// KaraokeCaptions fixture\n",
   };
   if (withLibrary) {
     files["remotion/library/tokens.ts"] = "export const tokens = 1;\n";

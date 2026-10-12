@@ -17,6 +17,14 @@ import {
   Easing,
 } from "remotion";
 import type { AnimationPreset, BlockFrameProps } from "./types.js";
+// Value import stays extensionless: the Remotion webpack config has no
+// extensionAlias, so "../library/motion.js" would not resolve at bundle time.
+import {
+  blurInStyle,
+  maskRevealStyle,
+  slideMaskStyle,
+  zoomSettleStyle,
+} from "../library/motion";
 
 // ---------------------------------------------------------------------------
 // Animation preset → CSS transform / opacity mapping
@@ -66,6 +74,16 @@ function getEnterStyle(
         opacity: eased,
         transform: `scale(${interpolate(eased, [0, 1], [1.5, 1])})`,
       };
+    // Modern presets (2026) — resolvers live in library/motion.ts and take
+    // eased visibility (1 = fully settled), so enter and exit stay mirrors.
+    case "blur-in":
+      return blurInStyle(eased);
+    case "mask-reveal":
+      return maskRevealStyle(eased);
+    case "zoom-settle":
+      return zoomSettleStyle(eased);
+    case "slide-mask":
+      return slideMaskStyle(eased);
     case "none":
       return {};
     default:
@@ -111,6 +129,16 @@ function getExitStyle(
         opacity: 1 - eased,
         transform: `scale(${interpolate(eased, [0, 1], [1, 0.5])})`,
       };
+    // Modern presets: visibility = 1 - eased, so the exit replays the
+    // entrance backwards with exit easing (slow start, accelerating away).
+    case "blur-in":
+      return blurInStyle(1 - eased);
+    case "mask-reveal":
+      return maskRevealStyle(1 - eased);
+    case "zoom-settle":
+      return zoomSettleStyle(1 - eased);
+    case "slide-mask":
+      return slideMaskStyle(1 - eased);
     case "none":
       return {};
     default:

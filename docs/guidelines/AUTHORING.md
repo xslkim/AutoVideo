@@ -173,6 +173,7 @@ avatarRef: ./avatar.mp4
 |------|------|
 | `animation`（默认） | AI 根据视觉描述生成 React/Remotion 动画组件 |
 | `image` | AI 根据视觉描述调用文生图 API 生成图片 |
+| `aivideo` | **LLM 先把描述转成英文视频 prompt**，再调用文生视频（火山 Seedance / 阿里 Wan2.5 / 本地 ComfyUI Wan2.2），产物内部转为 video 模式渲染 |
 | `image(./path)` | 使用本地图片文件，**不需要调用 API**，视觉描述仅作文档用途 |
 | `video(./path)` | 使用本地 mp4 视频文件，**不需要调用任何 AI 服务**，视觉描述仅作文档用途 |
 
@@ -189,6 +190,10 @@ avatarRef: ./avatar.mp4
 | `slide-right` | 从左侧滑入 |
 | `zoom-in` | 缩放放大 + 渐显 |
 | `zoom-out` | 缩放缩小 + 渐显 |
+| `blur-in` | 模糊聚焦 + 渐显 |
+| `mask-reveal` | clip-path 掩码揭开（下至上） |
+| `zoom-settle` | 轻微缩放落定 1.06→1 + 模糊收敛 |
+| `slide-mask` | 位移 + 掩码复合滑入（从左） |
 | `none` | 无动画（持续时间为 0） |
 
 ### 2.4 两文件对应规则与旧版兼容格式
@@ -237,6 +242,7 @@ project.json 用字符串 entry：`{ "meta": "./meta.md", "blocks": ["./script.m
 | `@visual: animation`（默认） | **原样发送给配置的 Agent 后端**（`anthropic.provider`，如 Claude / Kimi CLI）：优先从预制组件库选组件填参数组装（版式/动效由库保证）；无合适组件时才自由生成 React/Remotion 组件 | `src/blocks/{id}/Component.tsx` |
 | `@visual: image` | **原样发送给文生图 API**，作为图片生成的 prompt | `public/images/{id}.png`（API 生成） |
 | `@visual: html` | **直接当作 HTML/CSS 源码**写入 `public/html/{id}.html`，由 headless Chrome 截图（**不调 AI**；视觉描述必须是完整 HTML，不是描述） | `public/html/{id}.html` + 截图 |
+| `@visual: aivideo` | **LLM 先把描述转成英文视频 prompt**，再调用文生视频（火山 Seedance / 阿里 Wan2.5 / 本地 ComfyUI Wan2.2），产物内部转为 video 模式渲染 | `assets/clips/{id}.mp4` + `public/videos/{id}.mp4` |
 | `@visual: image(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/images/{id}.png`（直接复制本地文件） |
 | `@visual: video(./path)` | ⚠️ **仅作文档用途**，不发送给任何 AI 服务 | `public/videos/{id}.mp4`（直接复制本地文件） |
 
@@ -276,6 +282,21 @@ project.json 用字符串 entry：`{ "meta": "./meta.md", "blocks": ["./script.m
 > | `CodeBlock` | 代码讲解 + 逐行高亮 | "代码面板：语言 python，代码如下：…" |
 > | `FlowDiagram` | 2–6 节点流程/架构图 | "流程图：A → B → C，各节点一句话说明" |
 > | `DataBars` | 2–6 项数据对比 | "条形图：对比 X/Y/Z 的数值，单位 ms" |
+> | `KineticTitle` | kinetic 排版标题：逐字/逐词弹簧入场（CJK 逐字默认） | "kinetic 标题：主标题『…』按字弹入，配 kicker『…』" |
+> | `QuoteCard` | 引用金句页：大字逐行掩码揭示 + 出处行 | "引用页：『…』两行，作者『…』" |
+> | `BentoGrid` | 2–4 张玻璃拟态 bento 卡片（主从布局） | "bento 卡片：3 张能力卡，标题+一句话详情" |
+> | `GradientStage` | 网格渐变氛围底（片头/转场情绪底，全屏铺底） | "氛围底：深蓝渐变 + 细颗粒，供片头叠字" |
+> | `NumberTicker` | 大数字冲击：滚轮计数到位 + 可选迷你趋势线 | "大数字：128000 次/日，带 5 点趋势线" |
+> | `ChartGrow` | 生长图表：折线/面积/柱状随旁白生长 + 关键点标注 | "折线图：两条曲线，X 轴 1–5 月，标注最大值" |
+> | `FlowArrow` | 2–6 节点流动连接图（连线描画 + 光点沿路径流动） | "流动图：A → B → C，强调数据/能量在链路中流动" |
+> | `MorphBadge` | 概念转化 / 步骤完成的图形变形徽章 | "徽章：圆形渐变为星形再变为对勾，分别配字『…』" |
+> | `CodeWindow` | macOS 代码窗口：打字机逐字 + 扫行高亮 + diff 红绿标注 | "代码窗口：文件 train.py，打字机逐行出现，第 3–5 行为新增改动" |
+> | `TimelineRuler` | 横向时间轴：节点弹出 + 进度生长 + 当前节点放大（2–6 个事件） | "时间轴：2017 Transformer → 2018 BERT → 2020 GPT-3，各一句话说明" |
+> | `DoodleMark` | 手绘涂鸦批注：圈 / 波浪下划线 / 弯箭头 / 叉，叠加划重点 | "涂鸦批注：圆圈圈出画面中央区域，再用箭头指向右上角" |
+> | `Icon` | 单个教学图标特写（60 个内置图标，描画入场） | "图标：database，尺寸偏大" |
+> | `ProgressBar` | 顶部进度条：细条填充 + 章节菱形刻度（跨块 HUD，进度由集成侧计算） | （由组装侧统一注入，progress 为全片 0..1 分数） |
+> | `Watermark` | 右下角常驻半透明水印（badge + 文字），避让字幕安全区 | "水印：@频道名，右下角" |
+> | `EndCard` | 2s 品牌片尾：logo 块 + 关注 CTA + 下集预告 | "片尾：品牌『…』，关注提示『…』，下集预告『…』" |
 >
 > 组装路径下文案务必精炼（标题 ≤20 字、条目标题 ≤12 字、详情 ≤30 字）。以下内容组件库覆盖不到，会走自由生成或建议改用 `html`：多栏复杂排版、精确像素控制、含大量文字/表格的画面。
 >
@@ -476,6 +497,15 @@ project.json 用字符串 entry：`{ "meta": "./meta.md", "blocks": ["./script.m
 
 > ⚠️ 本地视频模式**不需要调用任何 AI 服务**，编译后即可直接预览和渲染。
 
+#### AI 视频模式 (`@visual: aivideo`)
+
+**只用于**：片头片尾、转场 B-roll、抽象氛围画面（光场/粒子/流体渐变/缓慢运镜的空镜）。
+**禁止**：任何需要可读文字的画面——图表、代码、公式、表格、要点列表一律用 `animation`（视频模型会把文字画花）。
+
+视觉描述写成画面描述即可，visuals 阶段由 LLM 转成英文视频 prompt 后再调文生视频。块时长长于 clip 时长时画面自动循环（wrapper 带 `loop`）。生成成功后该块在 script.json 里被改写为 `video` 模式（重跑 `visuals` 直接跳过，`--force` 才重新生成）。
+
+需要配置：API 轨设 `VIDEO_GEN_API_KEY`（可选 `VIDEO_GEN_BASE_URL`/`VIDEO_GEN_MODEL`/`VIDEO_GEN_PROVIDER=seedance|wanx`），本地轨设 `VIDEO_GEN_PROVIDER=comfyui`（可选 `VIDEO_GEN_COMFYUI_URL`）；也可写入 `autovideo.config.json` 的 `videoGen` 段。生成失败可用 `VIDEO_GEN_FALLBACK=image|animation`（或 `videoGen.fallback`）配置降级，缺省直接失败。
+
 ### 3.3 AI 生成的组件可用的 props
 
 > 本节与 §3.4 适用于**自由生成路径**（组装路径的画面由预制组件库渲染，写描述时无需关心代码层）。
@@ -522,7 +552,7 @@ AI 生成的组件可以使用 `remotion` 包的：
 - `AbsoluteFill` — 全屏容器
 - `Sequence` — 时间序列
 
-自由生成的组件还可以 `import { ... } from "../../../remotion/library"` 直接复用预制组件库（`TitleCard` / `KeyPoints` / `CodeBlock` / `FlowDiagram` / `DataBars` 及 tokens/motion 原语）——生成 prompt 中的 few-shot 示例已教给模型这种写法。
+自由生成的组件还可以 `import { ... } from "../../../remotion/library"` 直接复用预制组件库（`TitleCard` / `KeyPoints` / `CodeBlock` / `FlowDiagram` / `DataBars` / `KineticTitle` / `QuoteCard` / `BentoGrid` / `GradientStage` / `NumberTicker` / `ChartGrow` / `FlowArrow` / `MorphBadge` / `CodeWindow` / `TimelineRuler` / `DoodleMark` / `Icon` / `ProgressBar` / `Watermark` / `EndCard` 及 tokens/motion 原语）——生成 prompt 中的 few-shot 示例已教给模型这种写法。
 
 写描述时**无需关心代码层面**，只需用自然语言描述视觉效果即可。
 
@@ -605,6 +635,13 @@ AI 生成的组件可以使用 `remotion` 包的：
 ⚠️ **RHS（改写目标）避免数字与符号**：词典改写在客户端完成后，服务端还会做文本规范化（wetext），RHS 里的 `16:9`、`0.1`、`F P 16` 这类数字/符号会被二次变形、读法不可控。RHS 一律写**纯文字读法**（`FP16 => F P 十六`、`16:9 => 十六比九`）。compile 会对含 `[0-9:.]` 的 RHS 打印警告（不阻塞）。
 
 ⚠️ **CosyVoice 底座的参考音频**：`tts.provider: cosyvoice` 要求 voiceRef 配转写文本（`cosyvoice.referenceText` 配置或 voiceRef 同名 `.txt`，如 `B00.wav → B00.txt`）；参考音频超过 30 秒时服务端自动截取前 14 秒并按比例截断转写（日志有警告），追求最佳效果建议直接用 10–20 秒的干净参考。
+
+> **拼音标注模式（CosyVoice3 专用，默认关）**：设 `AUTOVIDEO_PRONOUNCE_PINYIN=1`
+> 后，RHS 为纯拼音的规则改为生成引擎原生 hotfix 标签而非替换同音字：
+> `给予 => ji3 yu3`（每字一个音节，声调数字 1–5 或声调符号均可）。字幕仍保持
+> 原文。仅 CosyVoice3 识别该标签，其他引擎请勿开启。
+
+> **TTS 情感指令（可选）**：`cosyvoice.instruct`（如 `"请耐心讲解"`）对 CosyVoice3 全量旁白生效；`indextts.emotion` 对 IndexTTS 生效。两者都会折进音频缓存键——改值即全量重合成。
 ---
 
 ## 5. 资产文件
@@ -758,8 +795,8 @@ voiceRef: ../../B00.wav
 2. **两文件 ID 一致**：`visuals.md` 与 `narration.md` 的块 ID 集合必须完全一致，块顺序以 `visuals.md` 为准（详见 §2.4）
 3. **`visuals.md` 块结构**：`>>>` 标题 → 指令行（可选，紧跟块头）→ 视觉描述（首个非空、非 @ 行起，无 section 标记）
 4. **`narration.md` 块结构**：`>>>` 标题（可省为 `>>> #B01`）→ 旁白行；不写指令、无 section 标记；所有指令（`@enter`/`@exit`/`@duration`/`@visual`）只写在 `visuals.md`
-5. **`@visual` 模式**：`animation`（默认，AI 生成组件）/ `html`（手写 HTML 截图，**静态画面首选**）/ `image`（AI 生成图片）/ `image(./path)`（本地图片）/ `video(./path)`（本地 mp4 视频）。**优先级：能用静态画面表达的内容 `html` 优先于 `animation`，只有必须动效编排时才用 `animation`（详见 §3.0）**
-6. **动画预设值**必须是：`fade` `fade-up` `fade-down` `slide-left` `slide-right` `zoom-in` `zoom-out` `none`
+5. **`@visual` 模式**：`animation`（默认，AI 生成组件）/ `html`（手写 HTML 截图，**静态画面首选**）/ `image`（AI 生成图片）/ `aivideo`（AI 文生视频，仅片头片尾/转场/抽象氛围，**禁文字画面**）/ `image(./path)`（本地图片）/ `video(./path)`（本地 mp4 视频）。**优先级：能用静态画面表达的内容 `html` 优先于 `animation`，只有必须动效编排时才用 `animation`（详见 §3.0）**
+6. **动画预设值**必须是：`fade` `fade-up` `fade-down` `slide-left` `slide-right` `zoom-in` `zoom-out` `blur-in` `mask-reveal` `zoom-settle` `slide-mask` `none`
 7. **`@duration` 格式**：必须是 `<数字>s`，如 `8s`、`1.5s`
 8. **新建块默认指令**：`@enter: fade` / `@exit: fade` / `@visual: animation`
 9. **动画模式视觉描述用自然语言**：默认**组装优先**——按"标题页 / 要点列表 / 代码面板 / 流程图 / 条形图"的结构化措辞写即可命中预制组件库（详见 §3.1）；自由生成兜底路径下写得越具体（布局、颜色、时序、文字内容），AI 生成的组件越精准

@@ -1,55 +1,31 @@
 /**
- * Unit tests for SubtitleOverlay
+ * Unit tests for SubtitleOverlay + KaraokeCaptions
  *
  * Tests the internal logic:
  * - Line timing lookup
- * - Highlighted text rendering
+ * - Highlighted text rendering (real implementation from KaraokeCaptions)
+ * - Character-time distribution, pagination and read-state resolution
+ * - Caption width estimation / font fitting
  * - Visibility during entrance animation
  */
 
 import { describe, it, expect } from "vitest";
 import React from "react";
+import {
+  activePageIndex,
+  charStateAt,
+  charsFromCaptions,
+  distributeCharTimings,
+  estimateWidthEm,
+  fitFontSize,
+  paginateChars,
+  renderHighlightedText,
+  type TimedChar,
+} from "./KaraokeCaptions";
 
 // ---------------------------------------------------------------------------
 // Pure helper functions (replicated from SubtitleOverlay for unit testing)
 // ---------------------------------------------------------------------------
-
-function renderHighlightedText(
-  ttsText: string,
-  highlights: { start: number; end: number }[],
-  accentColor: string,
-): React.ReactNode[] {
-  if (highlights.length === 0) {
-    return [ttsText];
-  }
-
-  const nodes: React.ReactNode[] = [];
-  let cursor = 0;
-
-  for (let i = 0; i < highlights.length; i++) {
-    const h = highlights[i];
-
-    if (h.start > cursor) {
-      nodes.push(ttsText.slice(cursor, h.start));
-    }
-
-    nodes.push(
-      React.createElement(
-        "span",
-        { key: `hl-${i}`, style: { color: accentColor } },
-        ttsText.slice(h.start, h.end),
-      ),
-    );
-
-    cursor = h.end;
-  }
-
-  if (cursor < ttsText.length) {
-    nodes.push(ttsText.slice(cursor));
-  }
-
-  return nodes;
-}
 
 function findCurrentLine(
   lineTimings: { lineIndex: number; startMs: number; endMs: number }[],
@@ -264,5 +240,233 @@ describe("audioFrame and audioMs calculation", () => {
     const audioFrame = 75 - audioStartFrame; // 60
     const audioMs = (audioFrame / fps) * 1000;
     expect(audioMs).toBe(2000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// KaraokeCaptions pure helpers
+// ---------------------------------------------------------------------------
+
+describe("distributeCharTimings", () => {
+  it("splits the line window evenly across characters", () => {
+    const result = distributeCharTimings("你好世界", 1000, 3000);
+    expect(result).toEqual([
+      { char: "你", startMs: 1000, endMs: 1500 },
+      { char: "好", startMs: 1500, endMs: 2000 },
+      { char: "世", startMs: 2000, endMs: 2500 },
+      { char: "界", startMs: 2500, endMs: 3000 },
+    ]);
+  });
+
+  it("returns an empty array for empty text", () => {
+    expect(distributeCharTimings("", 0, 1000)).toEqual([]);
+  });
+
+  it("splits by code point (surrogate pairs stay intact)", () => {
+    const result = distributeCharTimings("a👋b", 0, 3000);
+    expect(result.map((c) => c.char)).toEqual(["a", "👋", "b"]);
+    expect(result[1]).toMatchObject({ startMs: 1000, endMs: 2000 });
+  });
+
+  it("clamps a degenerate window to zero-length slots", () => {
+    const result = distributeCharTimings("甲乙", 500, 500);
+    expect(result).toEqual([
+      { char: "甲", startMs: 500, endMs: 500 },
+      { char: "乙", startMs: 500, endMs: 500 },
+    ]);
+  });
+});
+
+describe("charsFromCaptions", () => {
+  it("passes single-character captions through with exact windows", () => {
+    const result = charsFromCaptions([
+      { text: "你", startMs: 0, endMs: 250 },
+      { text: "好", startMs: 250, endMs: 500 },
+    ]);
+    expect(result).toEqual([
+      { char: "你", startMs: 0, endMs: 250, pageBreakAfter: undefined },
+      { char: "好", startMs: 250, endMs: 500, pageBreakAfter: undefined },
+    ]);
+  });
+
+  it("splits multi-character captions evenly within their own window", () => {
+    const result = charsFromCaptions([{ text: "hello", startMs: 0, endMs: 1000 }]);
+    expect(result).toHaveLength(5);
+    expect(result[0]).toMatchObject({ char: "h", startMs: 0, endMs: 200 });
+    expect(result[4]).toMatchObject({ char: "o", startMs: 800, endMs: 1000 });
+  });
+
+  it("attaches a caption-level pageBreakAfter hint to its last character", () => {
+    const result = charsFromCaptions([
+      { text: "世界", startMs: 500, endMs: 1000, pageBreakAfter: true },
+    ]);
+    expect(result[0].pageBreakAfter).toBeUndefined();
+    expect(result[1]).toMatchObject({ char: "界", pageBreakAfter: true });
+  });
+
+  it("accepts the @remotion/captions Caption shape (extra fields tolerated)", () => {
+    // A real @remotion/captions Caption carries timestampMs/confidence too;
+    // structural typing lets it flow into KaraokeCaptionInput.
+    const caption = {
+      text: "字",
+      startMs: 0,
+      endMs: 300,
+      timestampMs: 0 as number | null,
+      confidence: 0.99 as number | null,
+    };
+    const result = charsFromCaptions([caption]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({ char: "字", startMs: 0, endMs: 300 });
+  });
+
+  it("skips empty captions", () => {
+    const result = charsFromCaptions([
+      { text: "", startMs: 0, endMs: 100 },
+      { text: "好", startMs: 100, endMs: 200 },
+    ]);
+    expect(result).toHaveLength(1);
+    expect(result[0].char).toBe("好");
+  });
+});
+
+describe("paginateChars", () => {
+  const timed = (text: string): TimedChar[] => distributeCharTimings(text, 0, text.length * 100);
+
+  it("hard-breaks punctuation-free text at 14 characters", () => {
+    const pages = paginateChars(timed("一二三四五六七八九十甲乙丙丁戊己庚辛壬癸"));
+    expect(pages.map((p) => p.length)).toEqual([14, 6]);
+    expect(pages[0][0].char).toBe("一");
+    expect(pages[1][0].char).toBe("戊");
+  });
+
+  it("keeps a 14-character line on a single page", () => {
+    const pages = paginateChars(timed("一二三四五六七八九十甲乙丙丁"));
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toHaveLength(14);
+  });
+
+  it("breaks at CJK punctuation once the 8-character minimum is reached", () => {
+    // 诗词歌赋，山水田园，画 → break after the second comma (10 chars)
+    const pages = paginateChars(timed("诗词歌赋，山水田园，画"));
+    expect(pages.map((p) => p.length)).toEqual([10, 1]);
+    expect(pages[0][9].char).toBe("，");
+    expect(pages[1][0].char).toBe("画");
+  });
+
+  it("does not break at punctuation before the minimum page length", () => {
+    // comma at index 2 (3 chars) is too early; hard break at 14
+    const pages = paginateChars(timed("春天，万物复苏草木发芽生长开花"));
+    expect(pages.map((p) => p.length)).toEqual([14, 1]);
+  });
+
+  it("honours pageBreakAfter hints once the minimum is reached", () => {
+    const chars = timed("春夏秋冬四季轮转往复");
+    chars[7].pageBreakAfter = true; // 8th char
+    const pages = paginateChars(chars);
+    expect(pages.map((p) => p.length)).toEqual([8, 2]);
+  });
+
+  it("ignores pageBreakAfter hints below the minimum page length", () => {
+    const chars = timed("一二三四五六七八九十");
+    chars[2].pageBreakAfter = true; // 3rd char — too early
+    const pages = paginateChars(chars);
+    expect(pages.map((p) => p.length)).toEqual([10]);
+  });
+
+  it("respects custom min/max overrides", () => {
+    const pages = paginateChars(timed("一二三四五六七八九十"), { minChars: 3, maxChars: 5 });
+    expect(pages.map((p) => p.length)).toEqual([5, 5]);
+  });
+
+  it("returns no pages for empty input", () => {
+    expect(paginateChars([])).toEqual([]);
+  });
+});
+
+describe("charStateAt", () => {
+  const tc = { startMs: 100, endMs: 200 };
+
+  it("is unread before the character window", () => {
+    expect(charStateAt(tc, 50)).toBe("unread");
+  });
+
+  it("is current at the exact window start (left-closed)", () => {
+    expect(charStateAt(tc, 100)).toBe("current");
+    expect(charStateAt(tc, 150)).toBe("current");
+  });
+
+  it("is read at the exact window end (right-open)", () => {
+    expect(charStateAt(tc, 200)).toBe("read");
+    expect(charStateAt(tc, 500)).toBe("read");
+  });
+});
+
+describe("activePageIndex", () => {
+  // two pages: [0, 800) and [800, 1000)
+  const pages = [
+    distributeCharTimings("一二三四五六七八", 0, 800),
+    distributeCharTimings("九十", 800, 1000),
+  ];
+
+  it("shows the first page before any character starts", () => {
+    expect(activePageIndex(pages, -50)).toBe(0);
+  });
+
+  it("advances to the second page at its first character", () => {
+    expect(activePageIndex(pages, 0)).toBe(0);
+    expect(activePageIndex(pages, 799)).toBe(0);
+    expect(activePageIndex(pages, 800)).toBe(1);
+  });
+
+  it("anchors on the last page after the line ends", () => {
+    expect(activePageIndex(pages, 5000)).toBe(1);
+  });
+});
+
+describe("estimateWidthEm", () => {
+  it("counts full-width CJK glyphs as one em", () => {
+    expect(estimateWidthEm("你好")).toBe(2);
+  });
+
+  it("counts Latin characters at roughly half an em", () => {
+    expect(estimateWidthEm("ab")).toBeCloseTo(1.1);
+  });
+
+  it("mixes CJK and Latin widths additively", () => {
+    expect(estimateWidthEm("你a")).toBeCloseTo(1.55);
+  });
+});
+
+describe("fitFontSize", () => {
+  const base = {
+    baseFontSize: 40,
+    textBoxWidth: 400,
+    bandHeight: 500,
+    lineHeight: 1.4,
+    verticalPadding: 20,
+    maxLines: 2,
+  };
+
+  it("keeps the base size when the text fits on one line", () => {
+    const { fontSize, lines } = fitFontSize({ ...base, text: "你好世界" });
+    expect(fontSize).toBe(40);
+    expect(lines).toBe(1);
+  });
+
+  it("shrinks the font so long text stays within maxLines", () => {
+    // 40 CJK chars at 40px need 4 lines of 400px → halved to fit 2 lines
+    const text = "字".repeat(40);
+    const { fontSize, lines } = fitFontSize({ ...base, text });
+    expect(fontSize).toBe(20);
+    expect(lines).toBe(2);
+  });
+
+  it("shrinks further when the capsule would exceed the safe band", () => {
+    const { fontSize } = fitFontSize({
+      ...base,
+      text: "字".repeat(40),
+      bandHeight: 60, // tiny band forces an extra scale-down
+    });
+    expect(fontSize).toBeLessThan(20);
   });
 });

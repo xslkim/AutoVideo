@@ -27,6 +27,7 @@ export const REMOTION_RUNTIME_FILES = [
   'remotion/engine/theme.ts',
   'remotion/engine/types.ts',
   'remotion/components/SubtitleOverlay.tsx',
+  'remotion/components/KaraokeCaptions.tsx',
 ];
 
 export interface SyncRuntimeOptions {

@@ -135,7 +135,7 @@ export function parseScript(scriptMd: string, buildDir: string): ParseResult {
               if (htmlMatch) {
                 currentBlock.visualMode = 'html';
                 currentBlock.htmlSource = htmlMatch[1].trim();
-              } else if (value === 'animation' || value === 'image' || value === 'video' || value === 'html') {
+              } else if (value === 'animation' || value === 'image' || value === 'video' || value === 'html' || value === 'aivideo') {
                 currentBlock.visualMode = value as VisualMode;
               } else {
                 warnings.push({

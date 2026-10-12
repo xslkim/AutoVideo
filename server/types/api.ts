@@ -30,7 +30,7 @@ export interface TaskRecord {
   errorStack?: string;
 }
 
-export type VisualMode = 'animation' | 'image' | 'video' | 'html';
+export type VisualMode = 'animation' | 'image' | 'video' | 'html' | 'aivideo';
 
 export type CacheClearKind = 'audio' | 'visual' | 'partial' | 'all';
 
@@ -107,7 +107,7 @@ export interface AppConfig {
   };
   /** TTS engine selector（仅文件配置场景下也由 PUT 透传，避免被白名单丢弃） */
   tts?: {
-    provider?: 'voxcpm' | 'cosyvoice';
+    provider?: 'voxcpm' | 'cosyvoice' | 'indextts';
     /** 合成 QA 门（src/tts/qa.ts）；省略字段走默认值 */
     qa?: {
       enabled?: boolean;
@@ -125,6 +125,17 @@ export interface AppConfig {
     speed?: number;
     /** 服务器端确定性 seed 的盐（换值 = 全量重 roll）；非空时进音频缓存 key */
     seedSalt?: string;
+  };
+  /** IndexTTS-2.5（tts.provider = "indextts" 时生效） */
+  indextts?: {
+    endpoint?: string;
+    modelDir?: string;
+    /** 默认情感描述（如 "平静耐心地讲解"）；非空时进音频缓存 key */
+    emotion?: string;
+    /** 语速因子（1.0 = 模型默认） */
+    durationFactor?: number;
+    seedSalt?: string;
+    concurrency?: number;
   };
   musetalk?: {
     url?: string;
@@ -179,7 +190,7 @@ export interface AppConfigPublic {
     seedSalt?: string;
   };
   tts: {
-    provider?: 'voxcpm' | 'cosyvoice';
+    provider?: 'voxcpm' | 'cosyvoice' | 'indextts';
     qa?: {
       enabled?: boolean;
       maxRetries?: number;
@@ -193,6 +204,14 @@ export interface AppConfigPublic {
     normalize?: boolean;
     speed?: number;
     seedSalt?: string;
+  };
+  indextts: {
+    endpoint?: string;
+    modelDir?: string;
+    emotion?: string;
+    durationFactor?: number;
+    seedSalt?: string;
+    concurrency?: number;
   };
   musetalk: {
     url?: string;

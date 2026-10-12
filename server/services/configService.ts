@@ -224,6 +224,10 @@ export function applyDraftOverlay(
   if (draft.imageGen) applyDefined(next.imageGen, omitBlank(draft.imageGen as Record<string, unknown>));
   if (draft.voxcpm) applyDefined(next.voxcpm, omitBlank(draft.voxcpm as Record<string, unknown>));
   if (draft.cosyvoice) applyDefined(next.cosyvoice, omitBlank(draft.cosyvoice as Record<string, unknown>));
+  if (draft.indextts) {
+    next.indextts = { endpoint: '', modelDir: '', concurrency: 1, ...next.indextts };
+    applyDefined(next.indextts, omitBlank(draft.indextts as Record<string, unknown>));
+  }
   if (typeof draft.musetalk?.url === 'string' && draft.musetalk.url.trim()) {
     next.musetalk = { ...next.musetalk, url: draft.musetalk.url.trim() };
   }
@@ -242,6 +246,10 @@ export function resolveTaskConfig(repoRoot: string): AutoVideoConfig {
   if (overlay.anthropic) applyDefined(cfg.anthropic, overlay.anthropic);
   if (overlay.voxcpm) applyDefined(cfg.voxcpm, overlay.voxcpm);
   if (overlay.cosyvoice) applyDefined(cfg.cosyvoice, overlay.cosyvoice);
+  if (overlay.indextts) {
+    cfg.indextts = { endpoint: '', modelDir: '', concurrency: 1, ...cfg.indextts };
+    applyDefined(cfg.indextts, overlay.indextts);
+  }
   if (overlay.tts) applyDefined(cfg.tts, overlay.tts);
   if (overlay.imageGen) applyDefined(cfg.imageGen, overlay.imageGen);
   if (overlay.musetalk?.url) {

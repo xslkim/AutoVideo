@@ -89,6 +89,14 @@ function publicConfig(overlay: AppConfig): AppConfigPublic {
       speed: overlay.cosyvoice?.speed,
       seedSalt: overlay.cosyvoice?.seedSalt,
     },
+    indextts: {
+      endpoint: overlay.indextts?.endpoint,
+      modelDir: overlay.indextts?.modelDir,
+      emotion: overlay.indextts?.emotion,
+      durationFactor: overlay.indextts?.durationFactor,
+      seedSalt: overlay.indextts?.seedSalt,
+      concurrency: overlay.indextts?.concurrency,
+    },
     musetalk: {
       url: overlay.musetalk?.url || 'http://localhost:8001',
     },
@@ -127,11 +135,11 @@ export function createSystemRoutes(repoRoot: string): Hono {
     // (src/tts/provider.ts createTtsProvider). null clears, so it's allowed.
     const ttsProvider = body.tts?.provider;
     if (ttsProvider !== undefined && ttsProvider !== null
-      && !['voxcpm', 'cosyvoice'].includes(ttsProvider)) {
+      && !['voxcpm', 'cosyvoice', 'indextts'].includes(ttsProvider)) {
       return c.json({
         error: {
           code: 'ERR_BAD_REQUEST',
-          message: `Invalid tts.provider: ${String(ttsProvider)}（支持 voxcpm / cosyvoice）`,
+          message: `Invalid tts.provider: ${String(ttsProvider)}（支持 voxcpm / cosyvoice / indextts）`,
         },
       }, 400);
     }
@@ -149,7 +157,7 @@ export function createSystemRoutes(repoRoot: string): Hono {
     const body = await c.req.json() as { service: string; draft?: AppConfig };
     const service = body.service;
 
-    if (!['anthropic', 'imageGen', 'voxcpm', 'cosyvoice', 'musetalk'].includes(service)) {
+    if (!['anthropic', 'imageGen', 'voxcpm', 'cosyvoice', 'indextts', 'musetalk'].includes(service)) {
       return c.json({ error: { code: 'ERR_BAD_REQUEST', message: `Unknown service: ${service}` } }, 400);
     }
 
@@ -300,6 +308,27 @@ export function createSystemRoutes(repoRoot: string): Hono {
           const latencyMs = Date.now() - start;
           if (resp.ok) {
             return c.json({ ok: true, latencyMs });
+          }
+          return c.json({ ok: false, latencyMs, message: `HTTP ${resp.status}` });
+        } catch (err) {
+          return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      case 'indextts': {
+        // Same health surface as cosyvoice: GET {endpoint}/health.
+        const endpoint = cfg.indextts?.endpoint || 'http://127.0.0.1:8004';
+        const start = Date.now();
+        try {
+          const resp = await fetch(`${endpoint}/health`, {
+            signal: AbortSignal.timeout(5000),
+          });
+          const latencyMs = Date.now() - start;
+          if (resp.ok) {
+            return c.json({ ok: true, latencyMs });
+          }
+          if (resp.status === 503) {
+            return c.json({ ok: false, latencyMs, message: '服务在线，模型仍在加载中（或加载失败），稍候重试' });
           }
           return c.json({ ok: false, latencyMs, message: `HTTP ${resp.status}` });
         } catch (err) {

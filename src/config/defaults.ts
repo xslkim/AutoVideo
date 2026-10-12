@@ -11,6 +11,13 @@
 // Types — mirrors the structure of autovideo.config.json (PRD §9)
 // ---------------------------------------------------------------------------
 
+// IndexTtsConfig is defined in src/tts/provider.ts next to its provider
+// implementation and re-used here structurally (type-only import — erased at
+// runtime, so the provider.ts → defaults.js value edge stays acyclic).
+import type { IndexTtsConfig } from "../tts/provider.js";
+
+export type { IndexTtsConfig };
+
 export interface VoxcpmConfig {
   /** voxcpm2-api service endpoint */
   endpoint: string;
@@ -60,6 +67,13 @@ export interface CosyVoiceConfig {
    */
   speed?: number;
   /**
+   * CosyVoice3 instruct: natural-language emotion/style instruction applied
+   * to every line (e.g. "请耐心讲解"). When set, it joins the audio cache key.
+   * Per-line overrides via speak options.instruct; env fallback:
+   * COSYVOICE_INSTRUCT.
+   */
+  instruct?: string;
+  /**
    * Salt folded into the server-side deterministic seed (empty = stable
    * default). Change to any string to re-roll all takes. When set, it joins
    * the audio cache key — a new salt therefore re-synthesizes everything.
@@ -86,9 +100,9 @@ export interface TtsQaConfig {
 export interface TtsConfig {
   /**
    * Which speech engine the TTS stage uses. Engine-specific settings live in
-   * that engine's own section (e.g. `voxcpm`, `cosyvoice`).
+   * that engine's own section (e.g. `voxcpm`, `cosyvoice`, `indextts`).
    */
-  provider: "voxcpm" | "cosyvoice";
+  provider: "voxcpm" | "cosyvoice" | "indextts";
   /** Synthesis QA gate (see src/tts/qa.ts); omitted fields use the defaults. */
   qa?: TtsQaConfig;
 }
@@ -225,6 +239,11 @@ export interface RenderConfig {
   defaultEnterSec: number;
   /** Default exit animation duration (seconds) */
   defaultExitSec: number;
+  /**
+   * Embed chapter markers into final.mp4 during concat (YouTube/B站 自动分段).
+   * Default true; AUTOVIDEO_CHAPTERS=0|false|off|no wins over this flag.
+   */
+  chapters?: boolean;
   /** Loudnorm normalization settings */
   loudnorm: LoudnormConfig;
   /** Video encoding quality for block partials and the avatar overlay pass */
@@ -253,14 +272,14 @@ export interface HtmlRenderConfig {
   seekTimeoutMs: number;
 }
 
-export type ImageGenProvider = "openai" | "sensenova";
+export type ImageGenProvider = "openai" | "sensenova" | "comfyui";
 
 export interface ImageGenConfig {
-  /** Backend: OpenAI-compatible API or local SenseNova-U1 web_t2i */
+  /** Backend: OpenAI-compatible API, local SenseNova-U1 web_t2i, or ComfyUI workflow */
   provider?: ImageGenProvider;
   /** API base URL (e.g. https://api.openai.com or http://127.0.0.1:8765) */
   baseURL?: string;
-  /** API key (required for openai; optional for sensenova) */
+  /** API key (required for openai; optional for sensenova/comfyui) */
   apiKey?: string;
   /** Model identifier (openai only) */
   model: string;
@@ -274,10 +293,73 @@ export interface ImageGenConfig {
   numSteps?: number;
   /** SenseNova: classifier-free guidance scale (default 4.0) */
   cfgScale?: number;
+  /** openai provider: snap requested size to a backend-supported grid (e.g. GLM-Image 32px grid) */
+  sizeMapper?: "glm-image";
+  /** comfyui provider: path to an API-format workflow JSON template ({{PROMPT}} placeholders) */
+  workflowPath?: string;
+  /** comfyui provider: negative prompt substituted into {{NEGATIVE_PROMPT}} */
+  negativePrompt?: string;
+  /** comfyui provider: fixed seed; random per request when omitted */
+  seed?: number;
+  /** comfyui provider: /history poll interval in ms (default 1000) */
+  pollIntervalMs?: number;
+}
+
+// ── AI text-to-video (@visual: aivideo) ─────────────────────────────────────
+// Type home for the video-gen config; src/ai/video-gen.ts re-exports these
+// (same pattern as ImageGenProvider/ImageGenConfig).
+
+export type VideoGenProvider = "seedance" | "wanx" | "comfyui";
+
+/** What the visuals stage should do when aivideo generation fails. */
+export type VideoGenFallback = "image" | "animation";
+
+export interface VideoGenConfig {
+  /** Backend: Seedance (Ark), Wan2.5 (DashScope) or local ComfyUI */
+  provider?: VideoGenProvider;
+  /** API-track base URL (Ark / DashScope / compatible proxy) */
+  baseURL?: string;
+  /** API-track key (required for seedance/wanx) */
+  apiKey?: string;
+  /** Model identifier (defaults per provider, see resolveVideoGenModel) */
+  model?: string;
+  /** Overall per-clip budget in ms (submit + poll + download); default 900000 */
+  timeoutMs?: number;
+  /** Poll cadence in ms (default 5000) */
+  pollIntervalMs?: number;
+  /** Output size "1280x720" / "1280*720"; default: aspect → 720p tier */
+  size?: string;
+  /** Clip length in seconds when the LLM plan omits it (default 5) */
+  durationSec?: number;
+  /** Negative prompt override */
+  negativePrompt?: string;
+  /** Fixed seed; default derives from the prompt hash so cache stays stable */
+  seed?: number;
+  /** ComfyUI: clip frame rate (default 24) */
+  fps?: number;
+  /** ComfyUI: KSampler steps (default 20) */
+  numSteps?: number;
+  /** ComfyUI: CFG scale (default 5) */
+  cfgScale?: number;
+  /** ComfyUI base URL (default http://127.0.0.1:8188) */
+  comfyuiURL?: string;
+  /** ComfyUI: path to a custom workflow JSON template */
+  comfyuiWorkflowPath?: string;
+  /** ComfyUI: UNet/CLIP/VAE file names for the built-in Wan2.2 graph */
+  comfyuiUnet?: string;
+  comfyuiClip?: string;
+  comfyuiVae?: string;
+  /** On-failure downgrade, consumed by src/cli/visuals.ts; default: fail */
+  fallback?: VideoGenFallback;
 }
 
 export interface MusetalkConfig {
   /** MuseTalk lipsync service URL (e.g. "http://localhost:8001") */
+  url?: string;
+}
+
+export interface EchomimicConfig {
+  /** EchoMimicV3-Flash avatar service URL (default "http://localhost:8006") */
   url?: string;
 }
 
@@ -318,18 +400,31 @@ export interface VisualQualityConfig {
    * path. Defaults to "first".
    */
   assembly?: "first" | "off";
+  /**
+   * Deterministic geometry QA (DOM overlap/overflow/safe-zone/contrast scan,
+   * src/ai/visual-geometry.ts) run between the metrics gate and the Plan B
+   * review. Reuses the still's bundle; environment failures skip silently.
+   * Default true.
+   */
+  geometry?: boolean;
 }
 
 export interface AutoVideoConfig {
   tts: TtsConfig;
   voxcpm: VoxcpmConfig;
   cosyvoice: CosyVoiceConfig;
+  /** IndexTTS-2.5 service (optional; only needed when tts.provider = "indextts") */
+  indextts?: IndexTtsConfig;
   anthropic: AnthropicConfig;
   imageGen: ImageGenConfig;
+  /** AI text-to-video (@visual: aivideo; optional; env-only when omitted) */
+  videoGen?: VideoGenConfig;
   render: RenderConfig;
   cache: CacheConfig;
   /** MuseTalk lipsync service (optional; only needed for avatar lip-sync) */
   musetalk?: MusetalkConfig;
+  /** EchoMimicV3-Flash avatar service (optional; image-avatar lip-sync) */
+  echomimic?: EchomimicConfig;
   /** Visual-quality feedback loop (optional; falls back to DEFAULT_VISUAL_QUALITY) */
   visualQuality?: VisualQualityConfig;
   /** HTML visual mode renderer (@visual: html; optional; falls back to DEFAULT_HTML_RENDER) */
@@ -379,6 +474,13 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     concurrency: 1,
     numSteps: 15,
     cfgScale: 4.0,
+    sizeMapper: (process.env.IMAGE_GEN_SIZE_MAPPER as "glm-image" | undefined) || undefined,
+    workflowPath: process.env.COMFYUI_WORKFLOW_PATH,
+    negativePrompt: process.env.COMFYUI_NEGATIVE_PROMPT,
+    seed: process.env.COMFYUI_SEED ? Number(process.env.COMFYUI_SEED) : undefined,
+    pollIntervalMs: process.env.COMFYUI_POLL_INTERVAL_MS
+      ? Number(process.env.COMFYUI_POLL_INTERVAL_MS)
+      : undefined,
   },
   render: {
     blockConcurrency: 4,
@@ -423,6 +525,7 @@ export const DEFAULT_CONFIG: AutoVideoConfig = {
     review: true,
     maxReviewRounds: 1,
     assembly: "first",
+    geometry: true,
   },
   htmlRender: {
     enabled: true,

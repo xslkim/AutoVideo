@@ -15,7 +15,9 @@
  *      miss → client.speak() → QA gate (ffmpeg analysis, salted re-roll) →
  *      put cache
  *   7. Block concatenation: concat all line WAVs + punctuation-aware silence → public/audio/B**.wav
- *   8. Compute lineTimings and write back to script.json.blocks[].audio
+ *   8. Compute lineTimings + charTimings (uniform estimate by default;
+ *      align-tts forced alignment overrides it when that service is
+ *      reachable) and write back to script.json.blocks[].audio
  *   9. Failure: 3 retries (5s interval), then AbortController cancel
  */
 
@@ -27,8 +29,15 @@ import { execFileSync } from "node:child_process";
 import pLimit from "p-limit";
 import { CacheStore, type AudioKey } from "../cache/store.js";
 import { computeLineTimings, type LineTiming } from "../tts/timings.js";
+import {
+  estimateLineCharTimings,
+  buildCharTimingsFromAlignment,
+  fetchAlignHealth,
+  requestLineAlignment,
+  type CharTiming,
+} from "../tts/timings.js";
 import { computeGapsMs } from "../tts/gaps.js";
-import { createTtsProvider, TtsProviderError } from "../tts/provider.js";
+import { createTtsProvider, resolveProviderSection, TtsProviderError } from "../tts/provider.js";
 import { analyzeLineAudio, type LineAudioReport } from "../tts/qa.js";
 import {
   concatenateWavsWithGaps,
@@ -148,10 +157,10 @@ function sleep(ms: number): Promise<void> {
 export async function tts(opts: TtsOptions): Promise<TtsResult> {
   const { config, verbose = false, dryRun = false, force = false, onProgress, signal } = opts;
   const { cache: cacheCfg } = config;
-  // Engine-specific settings follow the selected provider: the concurrency
-  // used to be read from the voxcpm section even under cosyvoice (whose
-  // server serializes GPU generation, so it defaults to 1).
-  const providerCfg = config.tts?.provider === "cosyvoice" ? config.cosyvoice : config.voxcpm;
+  // Engine-specific settings follow the selected provider (endpoint /
+  // concurrency / seedSalt), resolved centrally so "indextts" does not fall
+  // through to the voxcpm section.
+  const providerCfg = resolveProviderSection(config);
 
   // Synthesis QA gate (src/tts/qa.ts): analyze each take, re-roll flagged
   // ones with a per-call salt. tts.qa.enabled === false skips it entirely.
@@ -326,8 +335,13 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
       // dict.md rewrites reach the engine but never the subtitles;
       // ASCII parens (code identifiers like apply()) are not read aloud.
       const spoken = stripCodeParens(line.speakText ?? line.ttsText);
+      // Per-line emotion/style instruction (CosyVoice3 instruct / IndexTTS
+      // emotion). It is not part of provider cacheDescriptor() (same contract
+      // as salt), so it must be folded into the cache key here — otherwise a
+      // changed instruct would hit the stale take.
+      const lineInstruct = line.instruct?.trim() || undefined;
       const cacheKey: AudioKey = {
-        ttsText: spoken,
+        ttsText: lineInstruct ? `${lineInstruct}\n${spoken}` : spoken,
         voiceRefHash,
         provider: provider.name,
         providerParamsJson,
@@ -369,6 +383,7 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
           try {
             const wavBuffer = await provider.speak(spoken, voiceId, {
               chain: { prevWav, prevText },
+              instruct: lineInstruct,
               signal: abortController.signal,
             });
 
@@ -421,6 +436,7 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
               const wavBuffer = await provider.speak(spoken, voiceId, {
                 chain: { prevWav, prevText },
                 salt,
+                instruct: lineInstruct,
                 signal: abortController.signal,
               });
               apiCalls++;
@@ -524,6 +540,36 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
 
   emit(60, "拼接语音片段");
 
+  // ── 字级时间戳配置（环境变量；不进 config 类型，见 docs/upgrade-2026） ──
+  //
+  // AUTOVIDEO_CHAR_TIMINGS=off  — 完全不产出 charTimings（默认启用估算）
+  // AUTOVIDEO_ALIGN_ENDPOINT    — align-tts 服务地址（默认 http://127.0.0.1:8003）
+  // AUTOVIDEO_ALIGN=off         — 禁用强制对齐覆盖，只保留均匀估算
+  const charTimingsEnabled = !/^(off|0|false)$/i.test(
+    process.env.AUTOVIDEO_CHAR_TIMINGS ?? ""
+  );
+  const alignEndpoint = (process.env.AUTOVIDEO_ALIGN_ENDPOINT ?? "http://127.0.0.1:8003").replace(/\/+$/, "");
+  const alignEnabled =
+    charTimingsEnabled &&
+    !/^(off|0|false)$/i.test(process.env.AUTOVIDEO_ALIGN ?? "");
+
+  // 健康检查只做一次：服务不可达时全部行走估算，不会拖慢流水线
+  // （连接被拒是即时的，不会等满超时）。
+  let alignHealthy = false;
+  if (alignEnabled) {
+    alignHealthy = await fetchAlignHealth(alignEndpoint);
+    if (verbose) {
+      console.log(
+        alignHealthy
+          ? `[tts] align-tts reachable at ${alignEndpoint} — charTimings 使用强制对齐`
+          : `[tts] align-tts not reachable at ${alignEndpoint} — charTimings 使用均匀估算`
+      );
+    }
+  }
+  // 连续失败熔断：对齐服务中途挂掉时不再逐行白试
+  let alignConsecutiveFailures = 0;
+  const ALIGN_MAX_CONSECUTIVE_FAILURES = 3;
+
   // ── Step 7: Concatenate line WAVs per block ───────────────────────
 
   for (const block of blocks) {
@@ -564,11 +610,82 @@ export async function tts(opts: TtsOptions): Promise<TtsResult> {
 
     const lineTimings: LineTiming[] = computeLineTimings(lineDurationsSec, gapsMs);
 
+    // ── Step 8b: charTimings（逐字卡拉OK字幕的数据通路） ─────────────
+    //
+    // 基线是行内均匀语速估算（tts/timings.ts）；align-tts 服务可达时
+    // 逐行用强制对齐覆盖。对齐字符必须映射回字幕展示文本 ttsText——
+    // dict.md 改写过的行（speakText ≠ ttsText）无法建立映射，保留估算。
+    let charTimings: CharTiming[] | undefined;
+    if (charTimingsEnabled) {
+      const perLine: CharTiming[][] = lineTimings.map((timing, li) =>
+        estimateLineCharTimings(
+          block.narration.lines[li]?.ttsText ?? "",
+          timing.lineIndex,
+          timing
+        )
+      );
+
+      if (alignHealthy) {
+        let alignedLines = 0;
+        for (let li = 0; li < block.narration.lines.length; li++) {
+          if (abortController.signal.aborted) break;
+          const line = block.narration.lines[li];
+          const spoken = stripCodeParens(line.speakText ?? line.ttsText);
+          if (spoken !== stripCodeParens(line.ttsText)) continue;
+
+          try {
+            const tokens = await requestLineAlignment(
+              alignEndpoint,
+              blockResults.get(li)!.wavPath,
+              spoken
+            );
+            const aligned = buildCharTimingsFromAlignment(
+              line.ttsText,
+              tokens,
+              li,
+              lineTimings[li].startMs
+            );
+            if (aligned) {
+              perLine[li] = aligned;
+              alignedLines++;
+              alignConsecutiveFailures = 0;
+            } else if (verbose) {
+              console.warn(
+                `[tts] align-tts tokens mismatch for ${block.id} line ${li}; keeping estimate`
+              );
+            }
+          } catch (err) {
+            alignConsecutiveFailures++;
+            console.warn(
+              `[tts] align-tts failed for ${block.id} line ${li}; keeping estimate: ` +
+                `${err instanceof Error ? err.message : err}`
+            );
+            if (alignConsecutiveFailures >= ALIGN_MAX_CONSECUTIVE_FAILURES) {
+              alignHealthy = false;
+              console.warn(
+                `[tts] align-tts failed ${ALIGN_MAX_CONSECUTIVE_FAILURES} times in a row; ` +
+                  "disabling alignment for the rest of this run (estimates still written)"
+              );
+              break;
+            }
+          }
+        }
+        if (verbose && alignedLines > 0) {
+          console.log(
+            `[tts] Block ${block.id}: ${alignedLines}/${block.narration.lines.length} lines force-aligned`
+          );
+        }
+      }
+
+      charTimings = perLine.flat();
+    }
+
     // Write audio field to block
     (block as any).audio = {
       wavPath: `public/audio/${block.id}.wav`,
       durationSec: totalDurationSec,
       lineTimings,
+      ...(charTimings !== undefined ? { charTimings } : {}),
     };
 
     if (verbose) {

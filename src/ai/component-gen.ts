@@ -4,8 +4,14 @@
  * Transport (SDK vs local `claude` CLI) and credential resolution are
  * handled by the AgentDriver layer (src/ai/agent/). This module owns the
  * prompt construction and TSX extraction from raw model output.
+ *
+ * It also owns loading the design-system spec (remotion/library/DESIGN.md)
+ * and appending it to every generation/assembly system prompt — see
+ * withDesignGuidelines() below.
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { createAgentDriver, type AgentConfig } from "./agent/index.js";
 
 // ---------------------------------------------------------------------------
@@ -111,6 +117,65 @@ export interface ComponentGenResult {
 }
 
 // ---------------------------------------------------------------------------
+// Design-system guidelines (remotion/library/DESIGN.md)
+// ---------------------------------------------------------------------------
+
+/**
+ * Locate remotion/library/DESIGN.md from this module's position. src/ai/
+ * sits two levels below the repo root; the compiled dist/src/ai/ layout
+ * resolves two levels up to dist/, so probe for the file two levels up and
+ * fall back one more level (same scheme as src/render/sync-runtime.ts).
+ * AUTOVIDEO_DESIGN_DOC overrides the path entirely (point it at a
+ * nonexistent path to disable injection).
+ */
+function resolveDesignDocPath(): string {
+  const override = process.env.AUTOVIDEO_DESIGN_DOC;
+  if (override) return override;
+  const here = path.dirname(new URL(import.meta.url).pathname);
+  const twoUp = path.join(path.resolve(here, "../.."), "remotion", "library", "DESIGN.md");
+  if (fs.existsSync(twoUp)) return twoUp;
+  return path.join(path.resolve(here, "../../.."), "remotion", "library", "DESIGN.md");
+}
+
+let designGuidelinesCache: string | null = null;
+
+/**
+ * Read the design-system spec once per process (cached). A missing or
+ * unreadable file is NOT fatal — generation falls back to the rules already
+ * baked into the built-in prompts, and the injection becomes a no-op.
+ */
+export function loadDesignGuidelines(): string {
+  if (designGuidelinesCache !== null) return designGuidelinesCache;
+  let content = "";
+  try {
+    content = fs.readFileSync(resolveDesignDocPath(), "utf-8").trim();
+  } catch {
+    content = "";
+  }
+  designGuidelinesCache = content;
+  return content;
+}
+
+/**
+ * The design spec as a prompt section, or "" when unavailable. Callers
+ * decide where in their prompt the section lands.
+ */
+export function buildDesignGuidelinesSection(): string {
+  const doc = loadDesignGuidelines();
+  if (!doc) return "";
+  return `# Design system (remotion/library/DESIGN.md — normative, follow it)\n\n${doc}`;
+}
+
+/**
+ * Append the design-system section to a system prompt. No-op when the doc
+ * is unavailable, so callers never need to guard.
+ */
+export function withDesignGuidelines(systemPrompt: string): string {
+  const section = buildDesignGuidelinesSection();
+  return section ? `${systemPrompt}\n\n${section}` : systemPrompt;
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -164,7 +229,7 @@ export async function generateComponent(
 
   const result = await driver.generateText(
     {
-      system: input.systemPrompt,
+      system: withDesignGuidelines(input.systemPrompt),
       user: buildUserContent(input),
       maxTokens: 8192,
     },

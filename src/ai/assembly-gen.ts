@@ -13,7 +13,10 @@
  */
 
 import { createAgentDriver, type AgentUsage } from "./agent/index.js";
-import type { AnthropicConfig } from "./component-gen.js";
+import {
+  buildDesignGuidelinesSection,
+  type AnthropicConfig,
+} from "./component-gen.js";
 import { validateAssembly } from "./visual-registry.js";
 
 // ---------------------------------------------------------------------------
@@ -70,13 +73,17 @@ export type AssemblyGenResult =
  * a validation failure on our side.
  */
 export function buildAssemblySystemPrompt(registryDocs: string): string {
+  // The design spec sits between the component menu and the output contract:
+  // it steers component choice and copy length without diluting the strict
+  // JSON contract that must close the prompt.
+  const designSection = buildDesignGuidelinesSection();
   return `You are the visual orchestrator for an educational-video pipeline. You do NOT write code. Your only job: pick the single best-fitting prefab component from the registry below and fill its props (a pure-data spec).
 
 # Component registry
 
 ${registryDocs}
 
-# Output contract (strict)
+${designSection ? `${designSection}\n\n` : ""}# Output contract (strict)
 
 - Respond with ONE \`\`\`json fenced code block and NOTHING else — no prose before or after it.
 - Shape: {"component": "<registered component name>", "props": { ...spec fields... }}

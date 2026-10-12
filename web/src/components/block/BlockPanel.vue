@@ -96,6 +96,10 @@ const ANIM_OPTIONS = [
   { label: '右滑', value: 'slide-right' },
   { label: '放大', value: 'zoom-in' },
   { label: '缩小', value: 'zoom-out' },
+  { label: '聚焦', value: 'blur-in' },
+  { label: '揭开', value: 'mask-reveal' },
+  { label: '落定', value: 'zoom-settle' },
+  { label: '滑揭', value: 'slide-mask' },
   { label: '无', value: 'none' },
 ]
 

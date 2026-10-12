@@ -13,7 +13,7 @@ export interface ParsedBlock {
   id: string
   title: string
   line: number          // 1-based
-  visualMode: 'animation' | 'image' | 'video' | 'html'
+  visualMode: 'animation' | 'image' | 'video' | 'html' | 'aivideo'
   imageSource?: string
   videoSource?: string
   htmlSource?: string
@@ -49,7 +49,7 @@ export function parseScript(scriptMd: string): ParseResult {
     id: string
     title: string
     line: number
-    visualMode: 'animation' | 'image' | 'video' | 'html'
+    visualMode: 'animation' | 'image' | 'video' | 'html' | 'aivideo'
     imageSource?: string
     videoSource?: string
     htmlSource?: string
@@ -104,7 +104,7 @@ export function parseScript(scriptMd: string): ParseResult {
               if (htmlMatch) {
                 current.visualMode = 'html'
                 current.htmlSource = htmlMatch[1].trim()
-              } else if (value === 'animation' || value === 'image' || value === 'video' || value === 'html') {
+              } else if (value === 'animation' || value === 'image' || value === 'video' || value === 'html' || value === 'aivideo') {
                 current.visualMode = value
               } else {
                 warnings.push({

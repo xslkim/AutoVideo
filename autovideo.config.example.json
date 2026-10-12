@@ -16,7 +16,16 @@
     "modelDir": "third_servers/cosyvoice-tts/models/Fun-CosyVoice3-0.5B",
     "concurrency": 1,
     "normalize": true,
-    "speed": 1.0
+    "speed": 1.0,
+    "instruct": "请耐心讲解"
+  },
+  "indextts": {
+    "endpoint": "http://127.0.0.1:8004",
+    "modelDir": "/path/to/IndexTTS-2.5",
+    "emotion": "平静耐心地讲解",
+    "durationFactor": 1.0,
+    "seedSalt": "",
+    "concurrency": 1
   },
   "anthropic": {
     "provider": "anthropic-api",
@@ -28,7 +37,8 @@
     "minHoldSec": 1.5,
     "defaultEnterSec": 0.5,
     "defaultExitSec": 0.3,
-    "browser": null
+    "browser": null,
+    "chapters": true
   },
   "imageGen": {
     "provider": "sensenova",
@@ -38,8 +48,21 @@
     "numSteps": 15,
     "cfgScale": 4.0
   },
+  "videoGen": {
+    "provider": "seedance",
+    "baseURL": "https://ark.cn-beijing.volces.com",
+    "apiKey": "",
+    "model": "",
+    "timeoutMs": 900000,
+    "pollIntervalMs": 5000,
+    "durationSec": 5,
+    "fallback": "image"
+  },
   "musetalk": {
     "url": "http://127.0.0.1:8001"
+  },
+  "echomimic": {
+    "url": "http://127.0.0.1:8006"
   },
   "cache": {
     "dir": "~/.autovideo/cache",

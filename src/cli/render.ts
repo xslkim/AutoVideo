@@ -32,12 +32,12 @@ import { DEFAULT_QUALITY, type AutoVideoConfig } from "../config/defaults.js";
 import { generateRenderRoot } from "../render/root-render.js";
 import { renderBlocks, type RenderBlocksResult } from "../render/render-blocks.js";
 import { syncRemotionRuntime } from "../render/sync-runtime.js";
-import { concatPartials } from "../render/concat.js";
+import { concatPartials, chaptersFromBlocks } from "../render/concat.js";
 import { buildTitleCardSegment } from "../render/title-card.js";
 import { getTheme } from "../../remotion/engine/theme.js";
 import { applyLoudnorm, type LoudnormResult } from "../render/loudnorm.js";
 import { runQA, type QAResult } from "../render/qa.js";
-import { extractAudio, generateLipsync, overlayLipsync, probeVideoSize, probeVideoDurationSec, padAudio, concatLipsyncVideos, LipsyncError } from "../render/lipsync.js";
+import { extractAudio, generateLipsync, overlayLipsync, probeVideoSize, probeVideoDurationSec, padAudio, concatLipsyncVideos, LipsyncError, type LipsyncBackend } from "../render/lipsync.js";
 
 const DEFAULT_AVATAR_RADIUS = 24;
 
@@ -54,6 +54,23 @@ function shouldGenerateMuseTalkLipsync(meta: Script["meta"]): boolean {
 /** Overlay looping avatar.mp4 without MuseTalk (only when skipLipsync: true). */
 function shouldOverlayRawAvatarLoop(meta: Script["meta"]): boolean {
   return Boolean(meta.avatarRef) && meta.skipLipsync === true;
+}
+
+/**
+ * Avatar backend routing: explicit meta.avatarBackend wins; otherwise infer
+ * from the avatarRef extension — a still image (png/jpg/jpeg/webp) means the
+ * EchoMimicV3 half-body avatar service, a video loop means MuseTalk.
+ */
+function resolveAvatarBackend(meta: Script["meta"]): LipsyncBackend {
+  if (meta.avatarBackend) return meta.avatarBackend;
+  return /\.(png|jpe?g|webp)$/i.test(meta.avatarRef ?? "") ? "echomimic" : "musetalk";
+}
+
+/** Service URL for the selected avatar backend (config override → default port). */
+function resolveAvatarServiceUrl(config: AutoVideoConfig, backend: LipsyncBackend): string {
+  return backend === "echomimic"
+    ? config.echomimic?.url ?? "http://localhost:8006"
+    : config.musetalk?.url ?? "http://localhost:8001";
 }
 
 /**
@@ -270,6 +287,19 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   const { meta, blocks } = script;
   const fps = meta.fps;
 
+  // The raw avatar-loop overlay (skipLipsync: true) needs a video input;
+  // a still-image avatar must go through EchoMimic lipsync generation.
+  if (
+    meta.avatarRef &&
+    meta.skipLipsync === true &&
+    resolveAvatarBackend(meta) === "echomimic"
+  ) {
+    throw new RenderError(
+      "skipLipsync: true 需要视频版 avatarRef（mp4 循环头像）；图片 avatar 请移除 skipLipsync（走 EchoMimic 口型生成）",
+      "ERR_AVATAR_BACKEND_MISMATCH"
+    );
+  }
+
   // ── Step 2: Compute timing and write back ─────────────────────────
 
   for (const block of blocks) {
@@ -338,7 +368,13 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     emit(30, "拼接 partials");
     const concatList = await withTitleCardSegment(allPartials, meta, buildDir, config);
     console.log(`[render] Concatenating ${allPartials.length} partials...`);
-    concatPartials(concatList, { buildDir });
+    // 片头 1 帧标题卡会让正片整体后移 1 帧，章节起点同步偏移
+    const concatLeadSec = concatList.length > allPartials.length ? 1 / meta.fps : 0;
+    concatPartials(concatList, {
+      buildDir,
+      chapters: chaptersFromBlocks(blocks, { offsetSec: concatLeadSec }),
+      writeChapters: config.render?.chapters !== false,
+    });
     console.log(`[render] Concat complete → output/final.mp4`);
 
     if (signal?.aborted) throw new RenderError("Render cancelled", "ERR_CANCELLED");
@@ -358,10 +394,11 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
         );
         fs.renameSync(concatAvatarOut, concatFinalPath);
       } else if (shouldGenerateMuseTalkLipsync(meta)) {
-        // skipLipsync: false (default) — per-block MuseTalk generation
+        // skipLipsync: false (default) — per-block avatar lipsync generation
         const lipsyncDir = path.join(buildDir, "output", "lipsync");
         fs.mkdirSync(lipsyncDir, { recursive: true });
-        const musetalkUrl = config.musetalk?.url ?? "http://localhost:8001";
+        const avatarBackend = resolveAvatarBackend(meta);
+        const avatarServiceUrl = resolveAvatarServiceUrl(config, avatarBackend);
         const blockCount = blocks.length;
 
         for (let i = 0; i < blockCount; i++) {
@@ -391,7 +428,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
               audioPath: paddedAudioPath,
               outputPath: blockLipsyncPath,
               fps: meta.fps,
-              serviceUrl: musetalkUrl,
+              serviceUrl: avatarServiceUrl,
+              backend: avatarBackend,
               signal,
             });
           } catch (err) {
@@ -410,7 +448,10 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
 
         emit(58, "叠加口型画中画");
         const concatLipsyncOut = path.join(buildDir, "output", "final_lipsync.mp4");
-        const concatAvatarSize = await probeVideoSize(meta.avatarRef);
+        // Probe the generated lipsync output for the PiP size: EchoMimic
+        // emits fixed 768×768 from a still image (avatarRef has no video
+        // dimensions); MuseTalk output matches the avatar size as before.
+        const concatAvatarSize = await probeVideoSize(lipsyncFullPath);
         await overlayLipsync(
           concatFinalPath, lipsyncFullPath, concatLipsyncOut,
           { width: concatAvatarSize.width, height: concatAvatarSize.height, margin: 0, radius: resolveAvatarRadius(meta), position: "bottom-left", encode: resolveOverlayEncode(config) },
@@ -651,7 +692,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   if (doLipsync && avatarRef) {
     const lipsyncDir = path.join(buildDir, "output", "lipsync");
     fs.mkdirSync(lipsyncDir, { recursive: true });
-    const musetalkUrl = (config as any).musetalk?.url ?? "http://localhost:8001";
+    const avatarBackend = resolveAvatarBackend(meta);
+    const avatarServiceUrl = resolveAvatarServiceUrl(config, avatarBackend);
     const blockCount = blocksToConcat.length;
 
     for (let i = 0; i < blockCount; i++) {
@@ -699,7 +741,8 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
           audioPath: paddedAudioPath,
           outputPath: blockLipsyncPath,
           fps: meta.fps,
-          serviceUrl: musetalkUrl,
+          serviceUrl: avatarServiceUrl,
+          backend: avatarBackend,
           signal,
         });
       } catch (err) {
@@ -725,7 +768,13 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   emit(70, "拼接 partials");
   const normalConcatList = await withTitleCardSegment(partialRelPaths, meta, buildDir, config);
   console.log(`[render] Concatenating ${partialRelPaths.length} partials...`);
-  concatPartials(normalConcatList, { buildDir });
+  // 片头 1 帧标题卡会让正片整体后移 1 帧，章节起点同步偏移
+  const normalLeadSec = normalConcatList.length > partialRelPaths.length ? 1 / meta.fps : 0;
+  concatPartials(normalConcatList, {
+    buildDir,
+    chapters: chaptersFromBlocks(blocksToConcat, { offsetSec: normalLeadSec }),
+    writeChapters: config.render?.chapters !== false,
+  });
   console.log(`[render] Concat complete → output/final.mp4`);
 
   const finalAbsPath = path.join(buildDir, "output", "final.mp4");
@@ -735,10 +784,10 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
   if (meta.avatarRef) {
     emit(73, "叠加头像画中画");
     const finalWithAvatarPath = path.join(buildDir, "output", "final_avatar.mp4");
-    const avatarSize = await probeVideoSize(meta.avatarRef);
 
     if (shouldOverlayRawAvatarLoop(meta)) {
       console.log(`[render] Overlaying avatar (no lip-sync) PiP...`);
+      const avatarSize = await probeVideoSize(meta.avatarRef);
       await overlayLipsync(
         finalAbsPath,
         meta.avatarRef,
@@ -749,6 +798,10 @@ export async function render(opts: RenderOptions): Promise<RenderResult> {
     } else if (shouldGenerateMuseTalkLipsync(meta)) {
       const lipsyncFullPath = path.join(buildDir, "output", "lipsync_full.mp4");
       console.log(`[render] Overlaying lip-sync PiP...`);
+      // Probe the generated lipsync output for the PiP size: EchoMimic emits
+      // fixed 768×768 from a still image; MuseTalk output matches the avatar
+      // size, so this is identical to probing avatarRef for the video path.
+      const avatarSize = await probeVideoSize(lipsyncFullPath);
       await overlayLipsync(
         finalAbsPath,
         lipsyncFullPath,

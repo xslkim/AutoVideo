@@ -166,7 +166,7 @@ const taskStore = useTaskStore()
 const props = defineProps<{
   projectName: string
   blockId: string
-  visualMode: 'animation' | 'image' | 'video' | 'html'
+  visualMode: 'animation' | 'image' | 'video' | 'html' | 'aivideo'
   imageSource?: string
 }>()
 

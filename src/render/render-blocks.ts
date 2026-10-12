@@ -273,6 +273,15 @@ export async function renderBlocks(
         // partials produced under different settings would splice visibly
         // different quality (and possibly different pix_fmt) into one video.
         qualityJson: JSON.stringify(quality),
+        // Subtitles burn into the partial. The effective style mirrors
+        // VideoComposition's resolution (block override ?? meta default),
+        // and charTimings (script.json, not in the wav) drive karaoke
+        // highlighting — both must be part of the partial identity.
+        subtitleJson: JSON.stringify({
+          style:
+            block.audio?.subtitleStyle ?? script.meta.subtitleStyle ?? null,
+          charTimings: block.audio?.charTimings ?? null,
+        }),
       };
 
       if (!isForce) {

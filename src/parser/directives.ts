@@ -45,6 +45,10 @@ const VALID_PRESETS: readonly string[] = [
   "slide-right",
   "zoom-in",
   "zoom-out",
+  "blur-in",
+  "mask-reveal",
+  "zoom-settle",
+  "slide-mask",
   "none",
 ];
 
@@ -52,7 +56,7 @@ const DEFAULT_ENTER: AnimationPreset = "fade";
 const DEFAULT_EXIT: AnimationPreset = "fade";
 const DEFAULT_VISUAL_MODE: VisualMode = "animation";
 
-const VALID_VISUAL_MODES: readonly string[] = ["animation", "image", "video", "html"];
+const VALID_VISUAL_MODES: readonly string[] = ["animation", "image", "video", "html", "aivideo"];
 
 // ---------------------------------------------------------------------------
 // Parsing

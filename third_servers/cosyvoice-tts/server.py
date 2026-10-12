@@ -8,6 +8,12 @@ Endpoints:
 
 Consistency strategy: every line is synthesized with the SAME registered voiceRef
 as zero-shot prompt — no line chaining (usesChain=false on the client side).
+
+Emotion/style control: /v1/speech accepts an optional `instruct` — a
+natural-language instruction ("请耐心讲解", "You are a helpful assistant. 请非常
+轻快地说") that replaces the server-wide COSYVOICE_INSTRUCT_PREFIX in front of
+the <|endofprompt|> marker. Prompt features are cached per (voice, instruct)
+variant, so mixing instructs across lines does not re-derive the reference.
 """
 
 import base64
@@ -108,26 +114,65 @@ def _set_seed(seed: int) -> None:
 # Generation is GPU-bound and stateful (RNG + model); serialize requests.
 _gen_lock = threading.Lock()
 
-# Prompt-feature cache revision per voice: (stored wav mtime, prompt txt mtime).
+# Prompt-feature cache revision per (voice, instruct variant): keyed by the
+# derived zero_shot_spk_id, value = (stored wav mtime, prompt txt mtime).
 # Deriving speech tokens / speaker embedding from the reference wav is
-# deterministic, so we do it once per voice via add_zero_shot_spk() instead of
-# on every /v1/speech line. Keyed by file mtimes so re-registration with a new
-# trim or a newly attached prompt_text transparently re-derives the features.
+# deterministic, so we do it once per variant via add_zero_shot_spk() instead
+# of on every /v1/speech line. Keyed by file mtimes so re-registration with a
+# new trim or a newly attached prompt_text transparently re-derives the
+# features.
 _spk_cache: dict[str, tuple[int, int]] = {}
 
 
-def _ensure_prompt_cached(voice_id: str, prompt_text: str, wav_path: Path) -> None:
+def _spk_id_for(voice_id: str, prompt_text: str) -> str:
+    """zero_shot_spk_id for one (voice, effective prompt text) pair.
+
+    A per-request instruct changes the prompt text; deriving a distinct spk id
+    per variant lets several instructs coexist in model.frontend.spk2info
+    instead of evicting each other on every line.
+    """
+    digest = hashlib.md5(prompt_text.encode("utf-8")).hexdigest()[:8]
+    return f"{voice_id}:{digest}"
+
+
+def _effective_prompt_text(transcript: str, instruct: str) -> str:
+    """Build the prompt_text passed to the model: [instruct]<|endofprompt|>transcript.
+
+    Priority: an instruct already embedded in the stored transcript wins over
+    everything; a per-request `instruct` replaces the server-wide
+    INSTRUCT_PREFIX default; an instruct carrying the marker itself is used
+    verbatim (the marker is never duplicated).
+    """
+    if "<|endofprompt|>" in transcript:
+        if instruct:
+            logger.warning(
+                "/v1/speech instruct ignored: stored prompt_text already "
+                "contains <|endofprompt|>"
+            )
+        return transcript
+    prefix = instruct or INSTRUCT_PREFIX
+    if prefix:
+        if "<|endofprompt|>" not in prefix:
+            prefix = prefix + "<|endofprompt|>"
+        return prefix + transcript
+    return transcript
+
+
+def _ensure_prompt_cached(voice_id: str, prompt_text: str, wav_path: Path) -> str:
     """Register the voice's prompt features with the model once (idempotent).
 
-    Must be called with _gen_lock held: mutates model.frontend.spk2info.
+    Returns the zero_shot_spk_id to synthesize with. Must be called with
+    _gen_lock held: mutates model.frontend.spk2info.
     """
     txt_path = _voice_paths(voice_id)[1]
     rev = (wav_path.stat().st_mtime_ns, txt_path.stat().st_mtime_ns)
-    if _spk_cache.get(voice_id) == rev and voice_id in model.frontend.spk2info:
-        return
-    logger.info(f"Caching zero-shot prompt features for voice {voice_id} ...")
-    model.add_zero_shot_spk(prompt_text, str(wav_path), voice_id)
-    _spk_cache[voice_id] = rev
+    spk_id = _spk_id_for(voice_id, prompt_text)
+    if _spk_cache.get(spk_id) == rev and spk_id in model.frontend.spk2info:
+        return spk_id
+    logger.info(f"Caching zero-shot prompt features for voice {voice_id} (spk {spk_id}) ...")
+    model.add_zero_shot_spk(prompt_text, str(wav_path), spk_id)
+    _spk_cache[spk_id] = rev
+    return spk_id
 
 app = FastAPI(title="Fun-CosyVoice3 TTS Server")
 
@@ -258,7 +303,12 @@ def wav_response(speech: torch.Tensor, sample_rate: int) -> Response:
 
 
 def run_generate(
-    text: str, voice_id: str, seed_salt: str, normalize: bool, speed: float
+    text: str,
+    voice_id: str,
+    seed_salt: str,
+    normalize: bool,
+    speed: float,
+    instruct: str = "",
 ) -> Response:
     if model is None:
         detail = (
@@ -283,26 +333,31 @@ def run_generate(
     # Same preprocessing on both sides of the prompt: CJK/ASCII boundary
     # spacing, then the engine's own text_normalize (text_frontend=normalize).
     text = insert_zh_en_space(text)
-    prompt_text = insert_zh_en_space(prompt_text)
-    if "<|endofprompt|>" not in prompt_text and INSTRUCT_PREFIX:
-        prompt_text = INSTRUCT_PREFIX + prompt_text
+    prompt_text = _effective_prompt_text(insert_zh_en_space(prompt_text), instruct.strip())
 
-    seed = _seed_from(voice_id, seed_salt, text)
+    # The instruct shapes the output as much as the text does — fold it into
+    # the deterministic seed (only when set, so existing seeds stay stable).
+    seed_parts = [voice_id, seed_salt]
+    if instruct.strip():
+        seed_parts.append(f"instruct={instruct.strip()}")
+    seed_parts.append(text)
+    seed = _seed_from(*seed_parts)
     logger.info(
-        f"TTS [zero-shot]: voice={voice_id}, seed={seed}, speed={speed}, text={text!r}"
+        f"TTS [zero-shot]: voice={voice_id}, seed={seed}, speed={speed}, "
+        f"instruct={instruct.strip()!r}, text={text!r}"
     )
 
     with _gen_lock:
         _set_seed(seed)
         try:
-            _ensure_prompt_cached(voice_id, prompt_text, wav_path)
+            spk_id = _ensure_prompt_cached(voice_id, prompt_text, wav_path)
             chunks = [
                 out["tts_speech"]
                 for out in model.inference_zero_shot(
                     text,
                     prompt_text,
                     str(wav_path),
-                    zero_shot_spk_id=voice_id,
+                    zero_shot_spk_id=spk_id,
                     stream=False,
                     speed=speed,
                     text_frontend=normalize,
@@ -347,6 +402,13 @@ class SpeechRequest(BaseModel):
         ge=0.5,
         le=2.0,
         description="Speaking-rate multiplier passed to the engine (>1 = faster).",
+    )
+    instruct: str = Field(
+        default="",
+        description="CosyVoice3 instruct: natural-language emotion/style "
+                    "instruction placed before <|endofprompt|> in the prompt "
+                    "(e.g. '请耐心讲解' / '请非常轻快地说这句话'). Empty keeps the "
+                    "server-wide COSYVOICE_INSTRUCT_PREFIX default.",
     )
 
 
@@ -462,4 +524,5 @@ def synthesize(req: SpeechRequest):
         seed_salt=req.seed_salt,
         normalize=req.normalize,
         speed=req.speed,
+        instruct=req.instruct,
     )

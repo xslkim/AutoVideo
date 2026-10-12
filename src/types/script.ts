@@ -23,7 +23,7 @@ export interface ProgressEvent {
 // Visual mode — animation (Claude-generated Component.tsx) vs image (AI-generated PNG)
 // ---------------------------------------------------------------------------
 
-export type VisualMode = 'animation' | 'image' | 'video' | 'html';
+export type VisualMode = 'animation' | 'image' | 'video' | 'html' | 'aivideo';
 
 // ---------------------------------------------------------------------------
 // Animation preset — union literal type
@@ -37,6 +37,10 @@ export const ANIMATION_PRESETS = [
   "slide-right",
   "zoom-in",
   "zoom-out",
+  "blur-in",
+  "mask-reveal",
+  "zoom-settle",
+  "slide-mask",
   "none",
 ] as const;
 
@@ -109,6 +113,12 @@ export interface NarrationLine {
    * render ttsText, never this.
    */
   speakText?: string;
+  /**
+   * Per-line emotion/style instruction passed to the TTS engine
+   * (CosyVoice3 instruct / IndexTTS emotion). Overrides the provider-level
+   * default for this line only.
+   */
+  instruct?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +163,15 @@ export interface Block {
     wavPath: string; // POSIX path relative to build out dir, "public/audio/{id}.wav"
     durationSec: number; // merged WAV actual duration including trailing 200ms silence per line
     lineTimings: { lineIndex: number; startMs: number; endMs: number }[];
+    /**
+     * 字级时间戳（逐字卡拉OK字幕用），块相对秒；可选。
+     * 均匀估算兜底，align-tts 服务可达时被真实强制对齐覆盖。
+     * 字符顺序与该行 narration.lines[lineIndex].ttsText 一致；
+     * 不发音的字符（ASCII 括号、空白）为零时长。
+     */
+    charTimings?: { lineIndex: number; char: string; startSec: number; endSec: number }[];
+    /** 块级字幕风格覆盖 meta.subtitleStyle */
+    subtitleStyle?: "teach" | "karaoke" | "hype";
   };
 
   // Stage 4 fills
@@ -190,6 +209,10 @@ export interface Script {
     avatarRef?: string; // absolute path to avatar loop video for lip-sync overlay
     skipLipsync?: boolean; // default false: run MuseTalk lip-sync when avatarRef is set
     avatarRadius?: number; // PiP corner radius 8–128 px (default 24)
+    /** 字幕风格预设：teach（默认克制）/ karaoke（逐字扫光）/ hype（短视频大字） */
+    subtitleStyle?: "teach" | "karaoke" | "hype";
+    /** 数字人后端；缺省按 avatarRef 扩展名推断（图片→echomimic，视频→musetalk） */
+    avatarBackend?: "musetalk" | "echomimic";
   };
   blocks: Block[];
   assets: Record<string, string>; // relative POSIX path → "assets/{hash}.ext"

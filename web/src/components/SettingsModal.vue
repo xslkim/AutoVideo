@@ -303,7 +303,7 @@
           </template>
 
           <!-- Fun-CosyVoice3：固定参考音 -->
-          <template v-else>
+          <template v-else-if="form.tts.provider === 'cosyvoice'">
             <n-form-item label="Endpoint">
               <n-input v-model:value="form.cosyvoice.endpoint" placeholder="http://127.0.0.1:8002" clearable />
             </n-form-item>
@@ -325,6 +325,32 @@
             </n-form-item>
             <n-form-item label="Concurrency">
               <n-input-number v-model:value="form.cosyvoice.concurrency" :min="1" :max="8" style="width: 100%" />
+            </n-form-item>
+          </template>
+
+          <!-- IndexTTS-2.5：音色克隆 + 情感描述 -->
+          <template v-else>
+            <n-form-item label="Endpoint">
+              <n-input v-model:value="form.indextts.endpoint" placeholder="http://127.0.0.1:8004" clearable />
+            </n-form-item>
+            <n-form-item label="Model Dir">
+              <n-input v-model:value="form.indextts.modelDir" placeholder="/path/to/IndexTTS-2.5" clearable />
+            </n-form-item>
+            <n-form-item label="情感描述">
+              <n-input
+                v-model:value="form.indextts.emotion"
+                placeholder="自然语言情感/风格指令，如：平静耐心地讲解（留空用模型默认）"
+                clearable
+              />
+            </n-form-item>
+            <n-form-item label="语速因子">
+              <n-input-number v-model:value="form.indextts.durationFactor" :min="0.5" :max="2" :step="0.05" style="width: 100%" />
+            </n-form-item>
+            <n-form-item label="Seed Salt">
+              <n-input v-model:value="form.indextts.seedSalt" placeholder="换值 = 全量重 roll" clearable />
+            </n-form-item>
+            <n-form-item label="Concurrency">
+              <n-input-number v-model:value="form.indextts.concurrency" :min="1" :max="8" style="width: 100%" />
             </n-form-item>
           </template>
 
@@ -461,6 +487,7 @@ const imageGenProviderOptions = [
 const ttsProviderOptions = [
   { label: 'Fun-CosyVoice3（固定参考音，推荐）', value: 'cosyvoice' },
   { label: 'VoxCPM2（行级延续链）', value: 'voxcpm' },
+  { label: 'IndexTTS-2.5（音色克隆 + 情感描述 + 语速）', value: 'indextts' },
 ]
 
 const agentProviderOptions = [
@@ -594,7 +621,7 @@ const form = reactive({
     concurrency: 2 as number | null,
   },
   tts: {
-    provider: 'voxcpm' as 'voxcpm' | 'cosyvoice',
+    provider: 'voxcpm' as 'voxcpm' | 'cosyvoice' | 'indextts',
     qa: {
       enabled: true as boolean,
       maxRetries: 2 as number | null,
@@ -607,6 +634,14 @@ const form = reactive({
     referenceText: '' as string,
     normalize: true as boolean,
     speed: 1.0 as number | null,
+  },
+  indextts: {
+    endpoint: '' as string,
+    modelDir: '' as string,
+    emotion: '' as string,
+    durationFactor: 1.0 as number | null,
+    seedSalt: '' as string,
+    concurrency: 1 as number | null,
   },
   musetalk: {
     url: '' as string,
@@ -629,6 +664,7 @@ const testing = reactive({
   imageGen: false,
   voxcpm: false,
   cosyvoice: false,
+  indextts: false,
   musetalk: false,
 })
 
@@ -637,6 +673,7 @@ const testResult = reactive<Record<string, { ok: boolean; latencyMs?: number; me
   imageGen: null,
   voxcpm: null,
   cosyvoice: null,
+  indextts: null,
   musetalk: null,
 })
 
@@ -690,6 +727,13 @@ async function loadConfig() {
   form.cosyvoice.referenceText = c.cosyvoice?.referenceText ?? ''
   form.cosyvoice.normalize = c.cosyvoice?.normalize ?? true
   form.cosyvoice.speed = c.cosyvoice?.speed ?? 1.0
+
+  form.indextts.endpoint = c.indextts?.endpoint ?? ''
+  form.indextts.modelDir = c.indextts?.modelDir ?? ''
+  form.indextts.emotion = c.indextts?.emotion ?? ''
+  form.indextts.durationFactor = c.indextts?.durationFactor ?? 1.0
+  form.indextts.seedSalt = c.indextts?.seedSalt ?? ''
+  form.indextts.concurrency = c.indextts?.concurrency ?? 1
 
   form.musetalk.url = c.musetalk?.url ?? ''
 
@@ -778,6 +822,16 @@ async function onSave() {
       speed: form.cosyvoice.speed,
     }
 
+    // IndexTTS
+    patch.indextts = {
+      endpoint: form.indextts.endpoint || null,
+      modelDir: form.indextts.modelDir || null,
+      emotion: form.indextts.emotion || null,
+      durationFactor: form.indextts.durationFactor,
+      seedSalt: form.indextts.seedSalt || null,
+      concurrency: form.indextts.concurrency,
+    }
+
     // MuseTalk
     patch.musetalk = {
       url: form.musetalk.url || null,
@@ -810,7 +864,7 @@ function onCancel() {
 
 // ── Connectivity test ───────────────────────────────────────────────────
 
-async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyvoice' | 'musetalk') {
+async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyvoice' | 'indextts' | 'musetalk') {
   testing[service] = true
   testResult[service] = null
   try {
@@ -834,7 +888,7 @@ async function testService(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyv
   }
 }
 
-function buildTestDraft(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyvoice' | 'musetalk') {
+function buildTestDraft(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyvoice' | 'indextts' | 'musetalk') {
   if (service === 'anthropic') {
     return {
       anthropic: {
@@ -868,6 +922,13 @@ function buildTestDraft(service: 'anthropic' | 'imageGen' | 'voxcpm' | 'cosyvoic
     return {
       cosyvoice: {
         ...(form.cosyvoice.endpoint ? { endpoint: form.cosyvoice.endpoint } : {}),
+      },
+    }
+  }
+  if (service === 'indextts') {
+    return {
+      indextts: {
+        ...(form.indextts.endpoint ? { endpoint: form.indextts.endpoint } : {}),
       },
     }
   }

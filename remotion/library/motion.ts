@@ -219,3 +219,103 @@ export function activeIndexAt(schedule: BeatWindow[], tSec: number): number {
   }
   return active;
 }
+
+// ---------------------------------------------------------------------------
+// Modern animation presets (2026 refresh)
+// ---------------------------------------------------------------------------
+//
+// Style resolvers behind the newer BlockFrame enter/exit presets
+// ("blur-in" / "mask-reveal" / "zoom-settle" / "slide-mask"). Each takes a
+// `visibility` value — 0 = fully hidden, 1 = fully settled — that the caller
+// has already eased (enter: eased progress; exit: 1 - eased progress), so one
+// resolver serves both phases and every exit is the exact mirror of its
+// entrance. Same contract as everything above: pure, frame-driven, no hooks.
+
+/** CSS fragment returned by the modern preset resolvers. */
+export interface PresetStyle {
+  opacity?: number;
+  transform?: string;
+  filter?: string;
+  clipPath?: string;
+}
+
+/** Reveal-edge travel direction for `maskRevealStyle`. */
+export type MaskRevealDirection = "up" | "left";
+
+/** Entry side for `slideMaskStyle`. */
+export type SlideMaskDirection = "left" | "right";
+
+function roundTo(v: number, digits: number): number {
+  const f = 10 ** digits;
+  return Math.round(v * f) / f;
+}
+
+/**
+ * blur-in — the block comes into focus out of a 12px haze while fading in.
+ * Reads as a focus pull, not a wipe; exit defocuses the same way.
+ */
+export function blurInStyle(visibility: number): PresetStyle {
+  const v = clamp01(visibility);
+  return {
+    opacity: v,
+    filter: `blur(${roundTo(interpolate(v, [0, 1], [12, 0]), 2)}px)`,
+  };
+}
+
+/**
+ * mask-reveal — content is uncovered by a sweeping clip edge instead of
+ * fading: "up" travels bottom-to-top, "left" travels left-to-right. Pixels
+ * under the edge are already final — no opacity, no drift.
+ */
+export function maskRevealStyle(
+  visibility: number,
+  direction: MaskRevealDirection = "up",
+): PresetStyle {
+  const hidden = roundTo((1 - clamp01(visibility)) * 100, 2);
+  return {
+    clipPath:
+      direction === "up"
+        ? `inset(${hidden}% 0% 0% 0%)`
+        : `inset(0% ${hidden}% 0% 0%)`,
+  };
+}
+
+/**
+ * zoom-settle — a gentle landing: scale 1.06 → 1 while a light 6px blur
+ * converges. Opacity ramps over the first 60% so the tail of the move reads
+ * as pure settling. The exit mirrors it as a soft lift-off.
+ */
+export function zoomSettleStyle(visibility: number): PresetStyle {
+  const v = clamp01(visibility);
+  return {
+    opacity: interpolate(v, [0, 0.6], [0, 1], {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    }),
+    transform: `scale(${roundTo(interpolate(v, [0, 1], [1.06, 1]), 4)})`,
+    filter: `blur(${roundTo(interpolate(v, [0, 1], [6, 0]), 2)}px)`,
+  };
+}
+
+/**
+ * slide-mask — compound move: the block glides 48px horizontally while a
+ * clip edge sweeps the same axis, so it appears to slide out from under a
+ * mask. "left" enters from the left (default), "right" from the right.
+ */
+export function slideMaskStyle(
+  visibility: number,
+  direction: SlideMaskDirection = "left",
+): PresetStyle {
+  const v = clamp01(visibility);
+  const offset = roundTo(interpolate(v, [0, 1], [48, 0]), 2);
+  const hidden = roundTo((1 - v) * 100, 2);
+  return direction === "left"
+    ? {
+        transform: `translateX(${-offset}px)`,
+        clipPath: `inset(0% ${hidden}% 0% 0%)`,
+      }
+    : {
+        transform: `translateX(${offset}px)`,
+        clipPath: `inset(0% 0% 0% ${hidden}%)`,
+      };
+}
