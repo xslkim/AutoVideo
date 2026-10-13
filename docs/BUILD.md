@@ -183,8 +183,8 @@ EOF
 |------|------|
 | `autovideo init <dir>` | 从模板创建新项目（含示例 `meta.md` / `visuals.md` / `narration.md`） |
 | `autovideo compile <project.json>` | 解析 Markdown → `script.json` |
-| `autovideo tts <script.json>` | 生成旁白音频（VoxCPM2） |
-| `autovideo visuals <script.json>` | Claude AI 生成视觉组件 |
+| `autovideo tts <script.json>` | 生成旁白音频（默认 Fun-CosyVoice3；align-tts 可达时逐行强制对齐出 `charTimings`） |
+| `autovideo visuals <script.json>` | Agent（LLM）生成视觉组件 |
 | `autovideo render <script.json>` | 渲染为 MP4（Remotion） |
 | `autovideo build <project.json>` | 一键：compile → tts → visuals → render |
 | `autovideo quick-build <project.json>` | 快速预览构建：compile → tts → 占位文字卡片（不调 LLM/文生图/口型同步）→ render（crf 30 + veryfast），输出到 `build/<slug>-quick/` |
@@ -306,23 +306,15 @@ npx tsx bin/autovideo.ts cache clean
 ### 依赖
 
 - **Node.js 20+**
-- **Python 3.10+** + **VoxCPM2**（TTS 服务，需在后台运行；构建脚本可自动启动）
+- **Python 3.10+** + TTS 服务（默认 **Fun-CosyVoice3**，`:8002`，需在后台运行；逐字卡拉OK字幕另需 **align-tts** `:8003`，可纯 CPU；替代底座见 `third_servers/README.md`）
 - **ffmpeg 5.0+**
-- **Claude API key**：`ANTHROPIC_API_KEY` 环境变量，或 `~/.claude/settings.json`
+- **Agent 后端凭证**（`anthropic.provider` 五选一）：Anthropic 兼容 API 设 `ANTHROPIC_API_KEY`，或本地 CLI 已登录（claude / opencode / codex / kimi）
 
-### ⚠️ WSL / 最小化 Linux 镜像的渲染环境（重要）
+### Linux 渲染环境（fontconfig / CJK 字体）
 
-本机（WSL2 Ubuntu 最小镜像）**没有 fontconfig，也没有 Chrome 的 GUI 依赖库**（libnss3、libatk 等）。直接跑 `render` 会失败或中文全部渲染成方框。所需组件已本地备好在 `.runtime/` 下（免 sudo，勿删），**所有 render / preview 命令前必须先设这两个环境变量**：
+渲染用 Remotion 自带的 Chrome Headless Shell，依赖系统 fontconfig 与 CJK 字体。本机（WSL2 Ubuntu）已具备：fontconfig、libnss3、Noto CJK（`fc-list | grep -i "noto.*cjk"` 应列出数十项），中文渲染实测无方框，**无需任何额外环境变量**。
 
-```bash
-export LD_LIBRARY_PATH=/mnt/t1/AutoVideo/.runtime/libs/usr/lib/x86_64-linux-gnu
-export FONTCONFIG_FILE=/mnt/t1/AutoVideo/.runtime/fonts.conf
-```
-
-- `LD_LIBRARY_PATH` 指向 `.runtime/libs/`：chrome-headless-shell 运行所需的全部共享库
-- `FONTCONFIG_FILE` 指向 `.runtime/fonts.conf`：最小 fontconfig 配置，扫描 `~/.fonts`（Noto CJK 字体在此）与 `.runtime/fonts-root/`，缓存写到 `.runtime/fontcache/`
-
-验证方式：`chrome-headless-shell --screenshot` 一张含中文的 HTML，确认中文不是方框（参考 `SoftGpu/video/PLAYBOOK.md` 的环境章节）。
+若是全新最小化镜像，补齐系统包即可：`sudo apt install fontconfig libnss3 fonts-noto-cjk`。验证方式：`npx tsx bin/autovideo.ts doctor`（含 CJK 字体检查）。
 
 ### 一键诊断
 
@@ -343,8 +335,9 @@ npx tsx bin/autovideo.ts doctor
 | `compile` 失败 | 源文件语法问题 → 让 Agent 按 [`AUTHORING.md`](guidelines/AUTHORING.md) 修正 |
 | 块 ID 冲突 / 不一致 | 文件内存在相同 `#BXX`，或 visuals.md 与 narration.md 的 ID 集合不一致 → 按 [`AUTHORING.md`](guidelines/AUTHORING.md) §2.4 修正 |
 | `voiceRef` 找不到 | 检查 `meta.md` 中 `voiceRef` 路径（相对 `meta.md` 自身），WAV 文件是否存在 |
-| `tts` 卡住 / 失败 | 确认 VoxCPM2 服务运行中（默认端口 `8000`），可 `curl http://127.0.0.1:8000/health` 验证 |
-| `visuals` 反复重试 | Claude 生成的组件未通过沙盒校验；用 `--verbose` 看错误；可能需要回到 `AUTHORING.md` 让视觉描述更具体 |
+| `tts` 卡住 / 失败 | 确认 TTS 服务运行中（默认 Fun-CosyVoice3，端口 `8002`），可 `curl http://127.0.0.1:8002/health` 验证（模型加载中返回 503，稍等重试） |
+| 成片字幕没有逐字高亮（退回整行/均匀节奏） | align-tts 未运行或对齐失败 → `curl http://127.0.0.1:8003/health`；构建日志搜 `align-tts failed` / `disabling alignment` |
+| `visuals` 反复重试 | Agent 生成的组件未通过沙盒校验；用 `--verbose` 看错误；可能需要回到 `AUTHORING.md` 让视觉描述更具体 |
 | `render` 黑屏 / 时长异常 | 用 `autovideo preview` 在 Remotion Studio 单块调试 |
 | 想重做某一块 | 见 §6.2 |
 | 整体重建 | 见 §6.3 |

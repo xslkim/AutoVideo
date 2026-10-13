@@ -2,31 +2,36 @@
 # AutoVideo — one-shot installer
 # Target environment: Ubuntu 22.04 + NVIDIA GPU (3090 / 4090)
 #
-# Installs the framework plus optional third-party AI services (TTS /
-# text-to-image / lip-sync). Services run as separate HTTP servers; see
-# third_servers/README.md for details.
+# Installs the framework plus the recommended third-party AI service stack:
+#   Fun-CosyVoice3 (TTS, required) + align-tts (char-level alignment) +
+#   ComfyUI + Z-Image-Turbo (text-to-image). EchoMimicV3 avatar is opt-in
+#   (--with-avatar). Services run as separate HTTP servers; see
+#   third_servers/README.md for details.
 #
 # Usage:
-#   bash install.sh                       # framework + all services
+#   bash install.sh                       # framework + recommended services
 #   bash install.sh --skip-services       # framework only
-#   bash install.sh --skip-tts            # skip VoxCPM TTS (required for narration)
-#   bash install.sh --skip-t2i            # skip SenseNova text-to-image
-#   bash install.sh --skip-musetalk       # skip MuseTalk lip-sync
+#   bash install.sh --skip-tts            # skip Fun-CosyVoice3 TTS (required for narration)
+#   bash install.sh --skip-align          # skip align-tts (karaoke subtitles fall back to estimates)
+#   bash install.sh --skip-t2i            # skip ComfyUI text-to-image
+#   bash install.sh --with-avatar         # also install EchoMimicV3-Flash avatar (GPU-heavy)
 #   bash install.sh --skip-model          # skip model weight downloads
-#   bash install.sh --skip-t2i --skip-musetalk --skip-model   # combine flags
+#   bash install.sh --skip-align --with-avatar --skip-model   # combine flags
 
 set -euo pipefail
 
 SKIP_TTS=false
+SKIP_ALIGN=false
 SKIP_T2I=false
-SKIP_MUSETALK=false
+WITH_AVATAR=false
 SKIP_MODEL=false
 for arg in "$@"; do
   case "$arg" in
     --skip-tts)      SKIP_TTS=true ;;
+    --skip-align)    SKIP_ALIGN=true ;;
     --skip-t2i)      SKIP_T2I=true ;;
-    --skip-musetalk) SKIP_MUSETALK=true ;;
-    --skip-services) SKIP_TTS=true; SKIP_T2I=true; SKIP_MUSETALK=true ;;
+    --with-avatar)   WITH_AVATAR=true ;;
+    --skip-services) SKIP_TTS=true; SKIP_ALIGN=true; SKIP_T2I=true ;;
     --skip-model)    SKIP_MODEL=true ;;
     *) echo "[WARN] unknown flag: $arg" ;;
   esac
@@ -80,50 +85,37 @@ if [[ ! -f autovideo.config.json && -f autovideo.config.example.json ]]; then
   info "已从 example 创建 autovideo.config.json — 请修改其中的真实路径(模型权重 / endpoint)"
 fi
 
-# ── Step 4: VoxCPM2 TTS (required for narration) ───────────────────────────
+# ── Step 4: Fun-CosyVoice3 TTS (required for narration) ────────────────────
 if [[ "$SKIP_TTS" == "true" ]]; then
-  warn "Skipping VoxCPM TTS (--skip-tts) — TTS stage will be unavailable."
+  warn "Skipping Fun-CosyVoice3 TTS (--skip-tts) — TTS stage will be unavailable."
 else
-  step "VoxCPM2 TTS service"
-  # Download weights first (so we can point the service at them), then let the
-  # service installer skip its own model step.
-  if [[ "$SKIP_MODEL" == "0" ]]; then
-    VOXCPM_CACHE="${VOXCPM_MODEL_DIR:-$HOME/.cache/voxcpm/VoxCPM2}"
-    if [[ -d "$VOXCPM_CACHE" && -n "$(ls -A "$VOXCPM_CACHE" 2>/dev/null)" ]]; then
-      info "VoxCPM2 weights already present at $VOXCPM_CACHE"
-    else
-      info "Downloading VoxCPM2 weights (~4-8 GB) to $VOXCPM_CACHE..."
-      mkdir -p "$VOXCPM_CACHE"
-      if command -v huggingface-cli &>/dev/null; then
-        huggingface-cli download openbmb/VoxCPM2 --local-dir "$VOXCPM_CACHE"
-      else
-        warn "huggingface-cli not found. Install: pip install huggingface_hub"
-        warn "Then: huggingface-cli download openbmb/VoxCPM2 --local-dir $VOXCPM_CACHE"
-      fi
-    fi
-    export VOXCPM_MODEL_DIR="$VOXCPM_CACHE"
-    info "Set voxcpm.modelDir in autovideo.config.json to: $VOXCPM_CACHE"
-  fi
-  SKIP_MODEL=1 bash third_servers/voxcpm-tts/install.sh || warn "VoxCPM TTS install incomplete"
+  step "Fun-CosyVoice3 TTS service (default tts.provider)"
+  bash third_servers/cosyvoice-tts/install.sh || warn "CosyVoice TTS install incomplete"
 fi
 
-# ── Step 5: SenseNova-U1 text-to-image (optional, image visual mode) ───────
+# ── Step 5: align-tts char-level alignment (recommended, CPU-only OK) ──────
+if [[ "$SKIP_ALIGN" == "true" ]]; then
+  warn "Skipping align-tts (--skip-align) — karaoke subtitles fall back to uniform estimates."
+else
+  step "align-tts (FunASR) char-level alignment"
+  bash third_servers/align-tts/install.sh || warn "align-tts install incomplete"
+fi
+
+# ── Step 6: ComfyUI + Z-Image-Turbo text-to-image (recommended) ───────────
 if [[ "$SKIP_T2I" == "true" ]]; then
-  warn "Skipping SenseNova text-to-image (--skip-t2i)."
+  warn "Skipping ComfyUI text-to-image (--skip-t2i)."
 else
-  step "SenseNova-U1 text-to-image (optional; needs GPU + uv)"
-  bash third_servers/sensenova-t2i/install.sh || warn "SenseNova install incomplete (manual setup may be needed)"
+  step "ComfyUI + Z-Image-Turbo text-to-image (needs GPU)"
+  bash third_servers/comfyui/install.sh || warn "ComfyUI install incomplete (manual setup may be needed)"
 fi
 
-# ── Step 6: MuseTalk lip-sync (optional, avatar mode) ──────────────────────
-if [[ "$SKIP_MUSETALK" == "true" ]]; then
-  warn "Skipping MuseTalk lip-sync (--skip-musetalk)."
-else
-  step "MuseTalk lip-sync (optional; needs GPU + conda)"
-  bash third_servers/musetalk-lipsync/install.sh || warn "MuseTalk install incomplete (manual setup may be needed)"
+# ── Step 7: EchoMimicV3-Flash avatar (opt-in, GPU-heavy) ───────────────────
+if [[ "$WITH_AVATAR" == "true" ]]; then
+  step "EchoMimicV3-Flash avatar (needs GPU + conda; ~24GB VRAM per inference)"
+  bash third_servers/echomimic-avatar/install.sh || warn "EchoMimic install incomplete (manual setup may be needed)"
 fi
 
-# ── Step 7: Self-check ─────────────────────────────────────────────────────
+# ── Step 8: Self-check ─────────────────────────────────────────────────────
 step "Self-check (autovideo doctor)"
 npx tsx bin/autovideo.ts doctor || true
 
@@ -134,7 +126,9 @@ info "========================================="
 echo ""
 info "Next steps:"
 info "  1. Start the services you need (see third_servers/README.md), e.g.:"
-info "       bash third_servers/voxcpm-tts/start.sh &"
+info "       bash third_servers/cosyvoice-tts/start.sh &   # TTS (必需)"
+info "       bash third_servers/align-tts/start.sh &       # 字级对齐 (推荐)"
+info "       bash third_servers/comfyui/start.sh &         # 文生图 (推荐)"
 info "  2. Create and build a video:"
 info "       npx tsx bin/autovideo.ts init my-project && cd my-project"
 info "       npx tsx bin/autovideo.ts build project.json"

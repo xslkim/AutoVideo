@@ -1,6 +1,6 @@
 {
   "tts": {
-    "provider": "voxcpm",
+    "provider": "cosyvoice",
     "qa": { "enabled": true, "maxRetries": 2 }
   },
   "voxcpm": {
@@ -41,12 +41,12 @@
     "chapters": true
   },
   "imageGen": {
-    "provider": "sensenova",
-    "baseURL": "http://127.0.0.1:8765",
+    "provider": "comfyui",
+    "baseURL": "http://127.0.0.1:8188",
+    "model": "",
     "timeoutMs": 600000,
     "concurrency": 1,
-    "numSteps": 15,
-    "cfgScale": 4.0
+    "workflowPath": "third_servers/comfyui/workflow-z-image-turbo-fp8.api.json"
   },
   "videoGen": {
     "provider": "seedance",

@@ -33,27 +33,72 @@ source "$CONDA_BASE/etc/profile.d/conda.sh"
 conda env list | grep -q "^$CONDA_ENV " || conda create -y -n "$CONDA_ENV" python=3.10
 conda activate "$CONDA_ENV"
 cd "$REPO_DIR"
-pip install -r requirements.txt
-pip install fastapi "uvicorn[standard]" python-multipart
+PYBIN="$CONDA_PREFIX/bin/python"
+if command -v uv >/dev/null 2>&1; then
+  # 本机 pip 拉镜像站大文件会挂死(CLOSE-WAIT 僵尸连接),uv 无此问题
+  uv pip install --python "$PYBIN" -r requirements.txt \
+    --index-url https://mirrors.bfsu.edu.cn/pypi/simple \
+    --extra-index-url https://mirrors.cloud.tencent.com/pypi/simple
+  uv pip install --python "$PYBIN" fastapi "uvicorn[standard]" python-multipart pyloudnorm modelscope \
+    --index-url https://mirrors.bfsu.edu.cn/pypi/simple \
+    --extra-index-url https://mirrors.cloud.tencent.com/pypi/simple
+else
+  pip install -r requirements.txt
+  pip install fastapi "uvicorn[standard]" python-multipart pyloudnorm modelscope
+fi
+# 版本钉死(本机实测可用组合;requirements.txt 只有下界,装到最新会踩坑):
+# - transformers 5.x 让 src/wav2vec2 的 hidden_states 返回 None(4.56.2 正常)
+# - diffusers 0.41 需要 huggingface_hub>=1.0,与 transformers 4.x(<1.0)冲突;
+#   0.34.0 同时兼容 hub 0.36 与上游 0.33+ 加载分支
+# - pyloudnorm 是 infer_flash.py 的响度归一化依赖,requirements.txt 漏了
+PINNED="transformers==4.56.2 huggingface_hub==0.36.2 diffusers==0.34.0 tokenizers==0.22.2"
+if command -v uv >/dev/null 2>&1; then
+  uv pip install --python "$PYBIN" $PINNED \
+    --index-url https://mirrors.bfsu.edu.cn/pypi/simple \
+    --extra-index-url https://mirrors.cloud.tencent.com/pypi/simple
+else
+  pip install $PINNED
+fi
 
 if [ "$SKIP_MODEL" = "1" ]; then
   echo "[跳过权重下载]"
 else
   echo "=== [3/3] 下载权重(Flash: transformer + Wan2.1-Fun 底模 + chinese-wav2vec2)==="
   export HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
-  pip install -U "huggingface_hub[cli]"
+  pip install -U "huggingface_hub[cli]<1.0" || pip install "huggingface_hub[cli]==0.36.2"
   mkdir -p "$WEIGHT_ROOT"
 
-  # Flash 权重(transformer;部分快照内含 chinese-wav2vec2-base)
+  # Flash 权重(transformer;快照内文件在根目录,server.py 期望 transformer/ 子目录)
   huggingface-cli download BadToBest/EchoMimicV3 \
     --local-dir "$HF_CACHE_DIR" --include "echomimicv3-flash-pro/*"
-  cp -rn "$HF_CACHE_DIR/echomimicv3-flash-pro/." "$WEIGHT_ROOT/"
+  mkdir -p "$WEIGHT_ROOT/transformer"
+  cp -n "$HF_CACHE_DIR/echomimicv3-flash-pro/config.json" "$WEIGHT_ROOT/transformer/" 2>/dev/null || true
+  cp -n "$HF_CACHE_DIR/echomimicv3-flash-pro/diffusion_pytorch_model.safetensors" "$WEIGHT_ROOT/transformer/"
 
   # 基础模型 Wan2.1-Fun-V1.1-1.3B-InP(VAE / text encoder 等)
+  # 本机 hf-mirror 对 >4GB 文件会断流僵尸化:两个大文件(T5 编码器 11.4GB /
+  # CLIP 4.8GB)改从 ModelScope 的 Wan-AI 官方仓库拉取(字节级一致,已校验大小),
+  # 其余小文件仍走 HF。
   if [ ! -d "$WEIGHT_ROOT/Wan2.1-Fun-V1.1-1.3B-InP" ]; then
     huggingface-cli download alibaba-pai/Wan2.1-Fun-V1.1-1.3B-InP \
-      --local-dir "$WEIGHT_ROOT/Wan2.1-Fun-V1.1-1.3B-InP"
+      --local-dir "$WEIGHT_ROOT/Wan2.1-Fun-V1.1-1.3B-InP" \
+      --exclude "models_t5_umt5-xxl-enc-bf16.pth" "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"
   fi
+  "$CONDA_PREFIX/bin/python" - "$WEIGHT_ROOT/Wan2.1-Fun-V1.1-1.3B-InP" <<'PY'
+import os, sys
+from modelscope import snapshot_download
+wan = sys.argv[1]
+def need(name, size):
+    p = os.path.join(wan, name)
+    return not (os.path.isfile(p) and os.path.getsize(p) == size)
+if need("models_t5_umt5-xxl-enc-bf16.pth", 11361920418):
+    snapshot_download("Wan-AI/Wan2.1-T2V-1.3B",
+                      allow_patterns=["models_t5_umt5-xxl-enc-bf16.pth"], local_dir=wan)
+if need("models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth", 4772359047):
+    snapshot_download("Wan-AI/Wan2.1-I2V-14B-480P",
+                      allow_patterns=["models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"], local_dir=wan)
+print("Wan2.1-Fun 大文件就绪")
+PY
 
   # Flash 用中文音频编码器(若 flash 快照未带,则从 ModelScope 拉取)
   if [ ! -d "$WEIGHT_ROOT/chinese-wav2vec2-base" ]; then

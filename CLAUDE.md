@@ -5,7 +5,7 @@
 AutoVideo 将 Markdown 教学脚本编译为 MP4 视频：
 
 ```
-Markdown → compile → TTS(VoxCPM2) → visuals(LLM 生成组件) → render(Remotion) → MP4
+Markdown → compile → TTS(Fun-CosyVoice3 + align-tts 字级对齐) → visuals(LLM 生成组件) → render(Remotion) → MP4
 ```
 
 CLI 与 Web UI 均已完成，项目处于**持续优化迭代**阶段（无固定任务清单，按需求逐项改进）。

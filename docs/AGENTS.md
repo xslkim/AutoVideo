@@ -3,7 +3,7 @@
 > **本文档面向所有 AI Agent**：先在这里搞清楚自己负责哪一步，然后跳转到对应的子文档。
 
 AutoVideo 把 Markdown 教学脚本编译成 MP4 视频，全流程由 AI 驱动：
-**Agent 后端**（`anthropic.provider` 可选 anthropic-api / claude-cli / opencode-cli / codex-cli / kimi-cli）生成视觉组件、**VoxCPM2 / Fun-CosyVoice3**（`tts.provider` 可切换）生成旁白音频、**Remotion** 渲染视频。
+**Agent 后端**（`anthropic.provider` 可选 anthropic-api / claude-cli / opencode-cli / codex-cli / kimi-cli）生成视觉组件、**Fun-CosyVoice3**（默认 TTS 底座）生成旁白音频、**align-tts (FunASR)** 提供字级对齐驱动逐字字幕、**ComfyUI + Z-Image-Turbo** 生成配图、**Remotion** 渲染视频。
 
 ---
 
@@ -79,7 +79,7 @@ Markdown → compile → TTS → visuals → render → MP4
 | 阶段 | 输入 | 输出 | 说明 |
 |------|------|------|------|
 | **compile** | `project.json` + Markdown | `script.json` | 解析、校验、资产哈希复制 |
-| **tts** | `script.json`（旁白） | `public/audio/<BXX>.wav` | 逐行合成（voxcpm 走行级延续链 / cosyvoice 固定参考音 zero-shot），QA 门检测爆音/静音/时长异常并自动换 seed 重 roll；逐行响度对齐 + 标点分级静音 |
+| **tts** | `script.json`（旁白） | `public/audio/<BXX>.wav` | 逐行合成（cosyvoice 固定参考音 zero-shot；voxcpm 走行级延续链），QA 门检测爆音/静音/时长异常并自动换 seed 重 roll；逐行响度对齐 + 标点分级静音；align-tts 可达时逐行强制对齐出 `charTimings`（逐字卡拉OK字幕），不可达回退均匀估算 |
 | **visuals** | `script.json`（视觉描述） | `src/blocks/<BXX>/Component.tsx` | 组装优先：Agent 从预制组件库（`remotion/library/`，20 个组件）选组件填 JSON spec，机械生成 wrapper；无合适组件才回退自由生成 TSX。`aivideo` 块：LLM 产出英文视频 prompt → 文生视频 clip → 转 video 模式渲染。沙盒校验 |
 | **render** | `script.json` + 组件 + 音频 | `output/final_normalized.mp4` | Remotion 渲染分块 → ffmpeg 拼接 → loudnorm |
 
@@ -125,7 +125,7 @@ interface Block {
 ## 前置依赖与诊断
 
 - **Node.js 20+**
-- **Python 3.10+** + **VoxCPM2** 或 **Fun-CosyVoice3**（TTS 服务，`tts.provider` 选择，见 `third_servers/README.md`）
+- **Python 3.10+** + **Fun-CosyVoice3**（默认 TTS 服务，`:8002`；逐字字幕另需 **align-tts** `:8003`；替代底座见 `third_servers/README.md`）
 - **ffmpeg 5.0+**
 - **Agent 后端凭证**（`anthropic.provider` 选择其一）：Anthropic 兼容 API key（`ANTHROPIC_API_KEY` 环境变量或 Web 设置面板），或本地 CLI 登录（`claude` / `opencode` / `codex` / `kimi`）
 
@@ -133,7 +133,7 @@ interface Block {
 npx tsx bin/autovideo.ts doctor   # 一键检查环境
 ```
 
-> ⚠️ **WSL / 最小化 Linux 镜像**：本机无 fontconfig 和 Chrome GUI 依赖库，跑 `render` / `preview` 前必须先设 `LD_LIBRARY_PATH`（→ `.runtime/libs/...`）和 `FONTCONFIG_FILE`（→ `.runtime/fonts.conf`），否则浏览器起不来或中文渲染成方框。详见 [`BUILD.md`](BUILD.md) §7。
+> ⚠️ **Linux 渲染环境**：渲染依赖系统 fontconfig 与 Noto CJK 字体（本机已具备，无需额外环境变量）；全新最小化镜像用 `sudo apt install fontconfig libnss3 fonts-noto-cjk` 补齐。详见 [`BUILD.md`](BUILD.md) §7。
 
 ---
 

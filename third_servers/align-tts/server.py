@@ -143,15 +143,44 @@ async def align(req: AlignRequest):
         )
 
     if len(timestamps) != len(chars):
-        # 典型原因：英文混排被模型按词/子词切分，数量与字符对不上。
-        # 客户端收到 422 会回退均匀估算，这里把两边数量带回去方便排查。
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"token count mismatch: model produced {len(timestamps)} timestamps "
-                f"for {len(chars)} non-whitespace chars"
-            ),
-        )
+        # 模型按自己的分词出时间戳,数量与字符不一定相等:"socket" 这类
+        # 英文词整体一档(且被大写归一),不发音的标点直接没有档位。用模型
+        # 返回的 text 字段(空格分隔的分词结果)与原文逐字符对齐:
+        # 大小写不敏感匹配;被丢弃的标点挂上一字符结束时刻(零时长,不单独
+        # 占高亮);多字符合词把时间段均分给每个字符。对不上才 422 回退估算。
+        seg_text = item.get("text")
+        seg_tokens = seg_text.split() if isinstance(seg_text, str) else []
+        expanded_ts: list[list[int]] = []
+        ci = 0
+        ok = len(seg_tokens) == len(timestamps)
+        last_end = 0
+        if ok:
+            for tok, ts in zip(seg_tokens, timestamps):
+                n = max(1, len(tok))
+                while ci < len(chars) and "".join(chars[ci:ci + n]).lower() != tok.lower():
+                    expanded_ts.append([last_end, last_end])
+                    ci += 1
+                if ci + n > len(chars):
+                    ok = False
+                    break
+                step = (int(ts[1]) - int(ts[0])) / n
+                for i in range(n):
+                    expanded_ts.append([int(ts[0] + i * step), int(ts[0] + (i + 1) * step)])
+                ci += n
+                last_end = int(ts[1])
+            while ci < len(chars):
+                expanded_ts.append([last_end, last_end])
+                ci += 1
+        if ok and len(expanded_ts) == len(chars):
+            timestamps = expanded_ts
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"token count mismatch: model produced {len(timestamps)} timestamps "
+                    f"for {len(chars)} non-whitespace chars"
+                ),
+            )
 
     tokens = []
     prev_end = 0

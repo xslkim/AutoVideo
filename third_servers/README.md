@@ -8,17 +8,17 @@ AutoVideo 视频生成管线调用下列**自托管的 HTTP 服务**。框架只
 
 | 服务 | 用途 | 默认端口 | 必需? | 对应配置项 |
 |------|------|---------|--------|-----------|
-| **VoxCPM2** | 旁白语音合成 (TTS) | `8000` | ✅ 必需 | `voxcpm.endpoint` |
-| **Fun-CosyVoice3** | 旁白语音合成 (TTS 可切换底座,支持 instruct 情感指令) | `8002` | ⬜ 可选(替代 VoxCPM2) | `tts.provider` / `cosyvoice.endpoint` |
-| **align-tts (FunASR)** | 字级强制对齐 (逐字卡拉OK字幕 `charTimings`) | `8003` | ⬜ 可选(缺席时回退均匀估算) | `AUTOVIDEO_ALIGN_ENDPOINT` |
-| **IndexTTS-2.5** | 旁白语音合成 (音色克隆 + 情感描述 + 语速) | `8004` | ⬜ 可选(替代 VoxCPM2) | `tts.provider` / `indextts.endpoint` |
-| **GLM-Image** | 文生图 (image 视觉模式,OpenAI 兼容 API) | `8005` | ⬜ 可选 | `imageGen.baseURL` |
-| **SenseNova-U1** | 文生图 (image 视觉模式) | `8765` | ⬜ 可选 | `imageGen.baseURL` |
-| **MuseTalk** | 口型/唇形同步 (视频 avatar 模式) | `8001` | ⬜ 可选 | `musetalk.url` |
-| **EchoMimicV3-Flash** | 半身数字人 (图片 avatar 模式) | `8006` | ⬜ 可选 | `echomimic.url` |
-| **ComfyUI + Z-Image-Turbo** | 文生图 / 文生视频 (workflow 驱动;亦供 aivideo 模式) | `8188` | ⬜ 可选 | `imageGen.provider=comfyui` / `imageGen.baseURL` / `VIDEO_GEN_COMFYUI_URL` |
+| **Fun-CosyVoice3** | 旁白语音合成(**默认 TTS 底座**,支持 instruct 情感指令) | `8002` | ✅ 必需 | `tts.provider=cosyvoice` / `cosyvoice.endpoint` |
+| **align-tts (FunASR)** | 字级强制对齐(逐字卡拉OK字幕 `charTimings`,可纯 CPU) | `8003` | ✅ 推荐(缺席时字幕回退均匀估算) | `AUTOVIDEO_ALIGN_ENDPOINT` |
+| **ComfyUI + Z-Image-Turbo** | 文生图(**imageGen 默认 provider**,workflow 驱动;亦供 aivideo 文生视频) | `8188` | ✅ 推荐(image 视觉模式需要) | `imageGen.provider=comfyui` / `imageGen.baseURL` / `VIDEO_GEN_COMFYUI_URL` |
+| **EchoMimicV3-Flash** | 半身数字人(图片 avatar 模式) | `8006` | ⬜ 可选(用数字人时需要;推理独占显存,用前 `stop.sh comfyui`) | `echomimic.url` |
+| **VoxCPM2** | 旁白语音合成(历史 TTS 底座) | `8000` | ⬜ 可选(替代 CosyVoice3) | `tts.provider=voxcpm` / `voxcpm.endpoint` |
+| **IndexTTS-2.5** | 旁白语音合成(音色克隆 + 情感描述 + 语速) | `8004` | ⬜ 可选(替代 CosyVoice3) | `tts.provider=indextts` / `indextts.endpoint` |
+| **GLM-Image** | 文生图(image 视觉模式,OpenAI 兼容 API) | `8005` | ⬜ 可选(替代 ComfyUI) | `imageGen.baseURL` |
+| **SenseNova-U1** | 文生图(image 视觉模式) | `8765` | ⬜ 可选(替代 ComfyUI) | `imageGen.baseURL` |
+| **MuseTalk** | 口型/唇形同步(视频 avatar 模式) | `8001` | ⬜ 可选(视频 avatar;与 EchoMimic 二选一) | `musetalk.url` |
 
-> Claude(视觉组件生成 / 评审)是外部 API,无需自托管,见根目录 README。
+> Agent 后端(视觉组件生成 / 评审)是外部 API 或本地 CLI,无需自托管,见根目录 README。
 
 ## 目录
 
@@ -43,21 +43,19 @@ AutoVideo 视频生成管线调用下列**自托管的 HTTP 服务**。框架只
 - `start.sh` — 启动服务(支持 `HOST` / `PORT` / 模型路径环境变量)
 
 ```bash
-# 1. 装并启动 TTS(必需;CosyVoice3 为可切换替代底座,二选一)
-bash third_servers/voxcpm-tts/install.sh
-bash third_servers/voxcpm-tts/start.sh &
-#   或: bash third_servers/cosyvoice-tts/install.sh && bash third_servers/cosyvoice-tts/start.sh &
-#   (两者显存无法并存时用 bash third_servers/stop.sh tts|cosy 串行切换)
+# 1. 推荐栈(本机默认配置,autovideo.config.json 已按此接线)
+bash third_servers/cosyvoice-tts/install.sh && bash third_servers/cosyvoice-tts/start.sh &   # TTS(必需)
+bash third_servers/align-tts/install.sh   && bash third_servers/align-tts/start.sh &         # 字级对齐(可纯 CPU)
+bash third_servers/comfyui/install.sh     && bash third_servers/comfyui/start.sh &           # 文生图
 
-# 2.(可选)文生图 / 唇形同步 / 字级对齐 / 数字人
-bash third_servers/sensenova-t2i/install.sh   && bash third_servers/sensenova-t2i/start.sh &
-bash third_servers/musetalk-lipsync/install.sh && bash third_servers/musetalk-lipsync/start.sh &
-#   字级对齐(逐字卡拉OK字幕;可纯 CPU): bash third_servers/align-tts/install.sh && bash third_servers/align-tts/start.sh &
-#   GLM-Image 文生图: bash third_servers/glm-image/install.sh && bash third_servers/glm-image/start.sh &
-#   ComfyUI 文生图/文生视频: bash third_servers/comfyui/install.sh && bash third_servers/comfyui/start.sh &
-#   EchoMimic 数字人: bash third_servers/echomimic-avatar/install.sh && bash third_servers/echomimic-avatar/start.sh &
-#   ⚠️ EchoMimic 常驻约 12GB 显存,与 MuseTalk 二选一,用 stop.sh 串行切换
+# 2.(可选)数字人 / 替代底座
+bash third_servers/echomimic-avatar/install.sh && bash third_servers/echomimic-avatar/start.sh &
+#   ⚠️ EchoMimic 空闲不占显存,但单次推理独占约 24GB:用前 `bash third_servers/stop.sh comfyui` 腾显存
+#   替代 TTS 底座(voxcpm / indextts)、替代文生图(glm / sensenova)、视频 avatar(musetalk)
+#   均为可选历史路径,安装方式相同;显存冲突时用 bash third_servers/stop.sh <名> 串行切换
 ```
+
+> 各 `install.sh` 已固化国内可复现路径:pip 走 uv + 国内镜像,模型权重走 ModelScope;EchoMimic 的依赖版本(transformers 4.56.2 / diffusers 0.34.0 等)已钉死,重装有确定性。
 
 启动后在 AutoVideo 的 Web 设置面板填入各 endpoint,或写入 `autovideo.config.json`。运行 `autovideo doctor` 可检查连通性。
 

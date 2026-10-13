@@ -54,7 +54,20 @@ echo "=== [3/5] 安装依赖(CosyVoice requirements) ==="
 # 会拉最新 setuptools(已移除 pkg_resources)——先用旧版 setuptools 无隔离预装
 .venv/bin/pip install "setuptools<81" wheel
 .venv/bin/pip install --no-build-isolation "openai-whisper==20231117"
-.venv/bin/pip install -r "$COSYVOICE_REPO_DIR/requirements.txt"
+if command -v uv >/dev/null 2>&1; then
+  # 本机 pip 拉镜像站大文件会挂死(CLOSE-WAIT 僵尸连接),uv 无此问题。
+  # 同时剔除 server.py 用不到的包:tensorrt-cu12*(仅 load_trt=True 的
+  # TRT 加速路径需要,本服务不用)、deepspeed(仅训练需要);两者在本机
+  # 镜像站上还会触发源码构建卡死。requirements 里的两个 --extra-index-url
+  # (pytorch cu121 / Azure onnxruntime)对本机不可达,一并剥掉。
+  grep -vE '^--extra-index-url|tensorrt-cu12|^deepspeed' "$COSYVOICE_REPO_DIR/requirements.txt" \
+    > /tmp/cosyvoice-req-pruned.txt
+  uv pip install --python .venv/bin/python -r /tmp/cosyvoice-req-pruned.txt \
+    --index-url https://mirrors.bfsu.edu.cn/pypi/simple \
+    --extra-index-url https://mirrors.cloud.tencent.com/pypi/simple
+else
+  .venv/bin/pip install -r "$COSYVOICE_REPO_DIR/requirements.txt"
+fi
 if [ -n "$TORCH_INDEX_URL" ]; then
   echo "=== [3/5+] 升级 torch/torchaudio(RT 5090 需要 cu128 构建) ==="
   # 钉 2.8.0:已在本机验证与 transformers==4.51.3 / deepspeed / modelscope 兼容;
