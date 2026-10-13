@@ -173,7 +173,8 @@ export function listProjects(projectsRoot: string): ProjectSummary[] {
   const results: ProjectSummary[] = [];
 
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    // 允许指向目录的软连接（资源实体存放在别处、project/ 内软链进来的项目）
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
 
     const projDir = path.join(projectsRoot, entry.name);
     const pjPath = path.join(projDir, 'project.json');
